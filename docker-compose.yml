@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: web-app-template
+    container_name: web-app-template
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "15m"
+        max-file: "3"
+    # To sit behind a reverse proxy (e.g. nginx-proxy + letsencrypt), drop the
+    # `ports` mapping above, attach this service to your proxy network, and set:
+    # environment:
+    #   VIRTUAL_HOST: ${DOMAIN_NAME}
+    #   LETSENCRYPT_HOST: ${DOMAIN_NAME}
+    #   LETSENCRYPT_EMAIL: ${NOTIFICATION_EMAIL}
+    #   VIRTUAL_PORT: 3000
