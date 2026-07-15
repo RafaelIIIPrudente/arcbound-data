@@ -24,6 +24,21 @@ describe("isPublicRoute", () => {
   it("matches nested paths under a public route (e.g. the callback with a query segment)", () => {
     expect(isPublicRoute("/auth/callback/anything")).toBe(true);
   });
+
+  it("treats the public metadata / branding asset routes as public (favicon, robots, manifest…)", () => {
+    for (const asset of [
+      "/robots.txt",
+      "/sitemap.xml",
+      "/manifest.webmanifest",
+      "/icon",
+      "/apple-icon",
+      "/opengraph-image",
+    ]) {
+      expect(isPublicRoute(asset)).toBe(true);
+      // An unauthenticated crawler / the login-page favicon must be served, not redirected.
+      expect(routeAccess(asset, false)).toEqual({ type: "pass" });
+    }
+  });
 });
 
 describe("routeAccess", () => {

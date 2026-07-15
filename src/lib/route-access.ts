@@ -16,9 +16,27 @@ export const PUBLIC_ROUTES: readonly string[] = [
   paths.auth.updatePassword,
 ];
 
-/** True when `pathname` is a public route (exact match or a nested sub-path). */
+/**
+ * Non-sensitive metadata / branding assets served by Next's file conventions.
+ * These are public by nature — the favicon on the (unauthenticated) login page,
+ * the web manifest, and the robots/sitemap directives for crawlers — so they must
+ * never be auth-gated (otherwise they redirect to `/login` and the favicon breaks
+ * / the robots directive is never delivered).
+ */
+const PUBLIC_ASSET_ROUTES: readonly string[] = [
+  "/robots.txt",
+  "/sitemap.xml",
+  "/manifest.webmanifest",
+  "/icon",
+  "/apple-icon",
+  "/opengraph-image",
+];
+
+/** True when `pathname` is a public route or asset (exact match or a nested sub-path). */
 export function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  return [...PUBLIC_ROUTES, ...PUBLIC_ASSET_ROUTES].some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
 }
 
 export type RouteDecision = { type: "pass" } | { type: "redirect"; to: string };
