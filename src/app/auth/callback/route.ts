@@ -8,7 +8,7 @@ import { paths } from "@/paths";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? paths.dashboard.overview;
+  const next = searchParams.get("next") ?? paths.home;
 
   if (code) {
     const supabase = createClient(cookies());
@@ -18,5 +18,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}${paths.auth.signIn}?error=auth_callback`);
+  return NextResponse.redirect(`${origin}${paths.login}?error=auth_callback`);
 }

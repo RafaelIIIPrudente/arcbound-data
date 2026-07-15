@@ -1,29 +1,30 @@
+// Route + link registry. Never hard-code paths in components — reference these.
+// ArcBase is single-tenant and internal: every route except `/login` (and the
+// retained auth callback / password-reset routes) is auth-gated by middleware.
 export const paths = {
   home: "/",
+  login: "/login",
+  clients: {
+    list: "/clients",
+    details: (id: string) => `/clients/${id}`,
+  },
+  upload: "/upload",
+  resources: "/resources",
+  // Template reference feature — kept building, not linked in the ArcBase nav.
+  // A later slice (T3) repurposes it into Clients.
+  customers: {
+    list: "/customers",
+    create: "/customers/create",
+    details: (customerId: string) => `/customers/${customerId}`,
+  },
+  // Kept from the template (not an ArcBase nav item); reachable by URL.
+  settings: {
+    profile: "/settings",
+    security: "/settings/security",
+  },
   auth: {
-    signIn: "/auth/sign-in",
-    signUp: "/auth/sign-up",
-    signUpConfirm: "/auth/sign-up-confirm",
     resetPassword: "/auth/reset-password",
     updatePassword: "/auth/update-password",
     callback: "/auth/callback",
-  },
-  dashboard: {
-    overview: "/dashboard",
-    blank: "/dashboard/blank",
-    customers: {
-      list: "/dashboard/customers",
-      create: "/dashboard/customers/create",
-      details: (customerId: string) => `/dashboard/customers/${customerId}`,
-    },
-    team: {
-      members: "/dashboard/team/members",
-      permissions: "/dashboard/team/permissions",
-    },
-    roleSettings: "/dashboard/role-settings",
-    settings: {
-      profile: "/dashboard/settings",
-      security: "/dashboard/settings/security",
-    },
   },
 } as const;

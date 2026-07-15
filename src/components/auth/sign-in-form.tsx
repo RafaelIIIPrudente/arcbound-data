@@ -50,7 +50,7 @@ export function SignInForm() {
         toast.error(error.message);
         return;
       }
-      router.push(paths.dashboard.overview);
+      router.push(paths.home);
       router.refresh();
     } catch {
       toast.error("Couldn't reach the authentication service. Please try again.");
@@ -63,7 +63,7 @@ export function SignInForm() {
     <Card>
       <CardHeader>
         <CardTitle className="text-xl">Sign in</CardTitle>
-        <CardDescription>Welcome back. Enter your credentials to continue.</CardDescription>
+        <CardDescription>Enter your Arcbound credentials to continue.</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -112,12 +112,6 @@ export function SignInForm() {
             </Button>
           </form>
         </Form>
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          No account?{" "}
-          <Link href={paths.auth.signUp} className="text-foreground hover:underline">
-            Sign up
-          </Link>
-        </p>
       </CardContent>
     </Card>
   );

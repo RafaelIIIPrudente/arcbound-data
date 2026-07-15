@@ -19,5 +19,5 @@ export async function signOut() {
     }
   }
   // Outside the try: redirect() throws NEXT_REDIRECT by design.
-  redirect(paths.auth.signIn);
+  redirect(paths.login);
 }

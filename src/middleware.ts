@@ -4,8 +4,8 @@ import type { User } from "@supabase/supabase-js";
 
 import { authDisabled, isSupabaseConfigured } from "@/config";
 import { env } from "@/env";
-import { hasRole } from "@/lib/authz";
 import { buildCsp } from "@/lib/csp";
+import { isPublicRoute, routeAccess } from "@/lib/route-access";
 import { createClient } from "@/lib/supabase/middleware";
 import { paths } from "@/paths";
 
@@ -50,11 +50,11 @@ export async function middleware(req: NextRequest) {
   }
 
   // Production without Supabase config → fail CLOSED. There is no client to
-  // create, so gate protected routes directly and leave the auth screens
-  // reachable (the sign-in page must still render).
+  // create, so gate every non-public route directly and leave the login /
+  // password-reset screens reachable.
   if (!isSupabaseConfigured) {
-    if (pathname.startsWith("/dashboard")) {
-      return redirectTo(paths.auth.signIn);
+    if (!isPublicRoute(pathname)) {
+      return redirectTo(paths.login);
     }
     return passThrough();
   }
@@ -71,22 +71,12 @@ export async function middleware(req: NextRequest) {
     user = null;
   }
 
-  const isAuthed = Boolean(user);
-
-  // Protect the dashboard, and gate admin-only areas by role.
-  if (pathname.startsWith("/dashboard")) {
-    if (!isAuthed) return redirectTo(paths.auth.signIn, res);
-    if (
-      pathname.startsWith(paths.dashboard.roleSettings) &&
-      !hasRole(user, "admin", "superadmin")
-    ) {
-      return redirectTo(paths.dashboard.overview, res);
-    }
-  }
-
-  // Keep signed-in users out of the auth screens (except the OAuth callback).
-  if (pathname.startsWith("/auth") && pathname !== paths.auth.callback && isAuthed) {
-    return redirectTo(paths.dashboard.overview, res);
+  // Single-tenant auth gate: every route but `/login` (and the retained auth
+  // callback / password-reset routes) requires a session; a signed-in user on
+  // `/login` is bounced to the home dashboard. See src/lib/route-access.ts.
+  const decision = routeAccess(pathname, Boolean(user));
+  if (decision.type === "redirect") {
+    return redirectTo(decision.to, res);
   }
 
   // res already carries the nonce request headers + CSP response header.

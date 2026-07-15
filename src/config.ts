@@ -17,8 +17,8 @@ export interface Config {
 
 export const config = {
   site: {
-    name: "Web App Template",
-    description: "A Next.js + Supabase + shadcn/ui starter template.",
+    name: "ArcBase",
+    description: "Internal LinkedIn post-metrics dashboard for Arcbound staff.",
     url: getSiteURL(),
     version: env.NEXT_PUBLIC_SITE_VERSION,
   },
@@ -51,7 +51,7 @@ export function computeAuthDisabled(configured: boolean, nodeEnv: string | undef
 
 // When Supabase env vars are absent in DEVELOPMENT only, auth is disabled and the
 // whole app is browsable without a backend (useful for local UI work). Consumed
-// by middleware.ts, the dashboard layout, requireRole, and RoleGuard.
+// by middleware.ts and the app shell layout.
 export const authDisabled = computeAuthDisabled(isSupabaseConfigured, env.NODE_ENV);
 
 // Loud fail-closed warning: a production build missing Supabase env vars still
