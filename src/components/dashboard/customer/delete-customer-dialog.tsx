@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
-import { deleteCustomerAction } from "@/app/dashboard/customers/actions";
+import { deleteCustomerAction } from "@/app/(app)/customers/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

@@ -22,10 +22,21 @@ export default function OpengraphImage() {
         padding: "80px",
       }}
     >
-      <div style={{ fontSize: 38, opacity: 0.6, marginBottom: 28 }}>
-        Next.js · Supabase · shadcn/ui
+      <div
+        style={{
+          fontSize: 38,
+          opacity: 0.6,
+          marginBottom: 28,
+          textTransform: "uppercase",
+          letterSpacing: 6,
+        }}
+      >
+        Arcbound internal
       </div>
-      <div style={{ fontSize: 92, fontWeight: 700, lineHeight: 1.05 }}>{config.site.name}</div>
+      <div style={{ display: "flex", fontSize: 108, fontWeight: 800, lineHeight: 1.05 }}>
+        <span>Arc</span>
+        <span style={{ color: "#f63a3a" }}>Base</span>
+      </div>
       <div style={{ fontSize: 34, opacity: 0.75, marginTop: 28, maxWidth: 920, lineHeight: 1.3 }}>
         {config.site.description}
       </div>

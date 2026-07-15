@@ -93,7 +93,7 @@ export function ResetPasswordForm() {
           </Form>
         )}
         <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Link href={paths.auth.signIn} className="text-foreground hover:underline">
+          <Link href={paths.login} className="text-foreground hover:underline">
             Back to sign in
           </Link>
         </p>

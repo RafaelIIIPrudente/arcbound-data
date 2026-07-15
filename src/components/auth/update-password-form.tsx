@@ -55,7 +55,7 @@ export function UpdatePasswordForm() {
         return;
       }
       toast.success("Password updated");
-      router.push(paths.dashboard.overview);
+      router.push(paths.home);
       router.refresh();
     } catch {
       toast.error("Couldn't reach the authentication service. Please try again.");

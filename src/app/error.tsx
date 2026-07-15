@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 import { ErrorState } from "@/components/error-state";
 
-// Catches errors thrown in root-level segments (marketing, auth, …). Renders
+// Catches errors thrown in root-level segments (login, auth, …). Renders
 // inside the root layout, so the ThemeProvider is in scope.
 export default function Error({
   error,

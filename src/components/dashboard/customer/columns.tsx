@@ -50,7 +50,7 @@ export const columns: ColumnDef<Customer>[] = [
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
             <DropdownMenuItem asChild>
-              <Link href={paths.dashboard.customers.details(row.original.id)}>View details</Link>
+              <Link href={paths.customers.details(row.original.id)}>View details</Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 
-import type { CustomerFormState } from "@/app/dashboard/customers/actions";
+import type { CustomerFormState } from "@/app/(app)/customers/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

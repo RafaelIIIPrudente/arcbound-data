@@ -24,8 +24,10 @@ enabled = true
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["http://localhost:3000/**"]
 jwt_expiry = 3600
-enable_signup = true
+# ArcBase has no self-serve signup — staff accounts are provisioned by an
+# Engineer/Admin in Supabase (ADR 0007, SRS §1).
+enable_signup = false
 
 [auth.email]
-enable_signup = true
+enable_signup = false
 enable_confirmations = false
