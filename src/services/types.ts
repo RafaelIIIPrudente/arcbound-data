@@ -68,3 +68,63 @@ export interface DashboardAnalytics {
   engagementSeries: SeriesPoint[];
   recentPosts: RecentPost[];
 }
+
+// ── Ingestion ────────────────────────────────────────────────────────────────
+// One scrape (CSV or pasted JSON) → Posts + an Upload summary. Mock this pass.
+
+export type SourceType = "csv" | "json";
+
+/** The five recognised Post format types; anything else is "unknown". */
+export type PostFormat = "image" | "carousel" | "link" | "text" | "video";
+
+/** One scraped Post metric row — the 15-column scrape shape. */
+export interface PostRow {
+  linkedin_post_id: string;
+  urn?: string;
+  post_url?: string;
+  analytics_url?: string;
+  post_name?: string;
+  post_content?: string;
+  post_date?: string;
+  impressions: number;
+  likes: number;
+  comments: number;
+  reposts: number;
+  engagement_rate: number;
+  /** Nullable — the scrape may omit it. */
+  saves: number | null;
+  /** Empty/unknown until reviewed; one of PostFormat once confident. */
+  post_format_type?: string;
+  scraped_at: string;
+}
+
+export interface IngestSummary {
+  inserted: number;
+  updated: number;
+  unchanged: number;
+}
+
+/** A new Post that arrived without a confident format, surfaced for review. */
+export interface ReviewPost {
+  linkedin_post_id: string;
+  snippet: string;
+  format?: string;
+}
+
+export type IngestResult =
+  | { status: "error"; errors: Record<string, string[]> }
+  | { status: "review"; posts: ReviewPost[] }
+  | { status: "ok"; summary: IngestSummary };
+
+// ── Resources ────────────────────────────────────────────────────────────────
+// A team reference link (title + URL). Immutable: view + add only. The comp's
+// per-row "type" badge is intentionally omitted — SRS OI-05 locked the model
+// without a type field.
+
+export interface Resource {
+  id: string;
+  title: string;
+  url: string;
+  /** ISO 8601 date string. */
+  createdAt: string;
+}
