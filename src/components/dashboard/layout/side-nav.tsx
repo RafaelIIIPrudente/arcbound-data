@@ -19,7 +19,7 @@ export function SideNav() {
   const pathname = usePathname();
 
   return (
-    <aside className="sticky top-0 flex h-svh w-[236px] flex-none flex-col border-r bg-background">
+    <aside className="sticky top-0 hidden h-svh w-[236px] flex-none flex-col border-r bg-background md:flex">
       <div className="border-b px-6 py-5">
         <Link href={paths.home} className="inline-block">
           <Wordmark className="text-xl" />

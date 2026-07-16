@@ -26,12 +26,24 @@ export function RecentPostsTable({ posts, postCount }: { posts: RecentPost[]; po
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className={HEAD}>Post</TableHead>
-            <TableHead className={HEAD}>Date</TableHead>
-            <TableHead className={HEAD}>Type</TableHead>
-            <TableHead className={`${HEAD} text-right`}>Impr.</TableHead>
-            <TableHead className={`${HEAD} text-right`}>Likes</TableHead>
-            <TableHead className={`${HEAD} text-right`}>Comm.</TableHead>
+            <TableHead scope="col" className={HEAD}>
+              Post
+            </TableHead>
+            <TableHead scope="col" className={HEAD}>
+              Date
+            </TableHead>
+            <TableHead scope="col" className={HEAD}>
+              Type
+            </TableHead>
+            <TableHead scope="col" className={`${HEAD} text-right`}>
+              Impr.
+            </TableHead>
+            <TableHead scope="col" className={`${HEAD} text-right`}>
+              Likes
+            </TableHead>
+            <TableHead scope="col" className={`${HEAD} text-right`}>
+              Comm.
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

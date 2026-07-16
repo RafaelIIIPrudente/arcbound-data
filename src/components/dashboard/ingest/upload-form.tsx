@@ -123,7 +123,7 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
                 const file = e.dataTransfer.files?.[0];
                 if (file) readFile(file);
               }}
-              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 p-8 text-center transition-colors hover:bg-muted/50"
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 p-8 text-center transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background hover:bg-muted/50"
             >
               <span className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
                 Drop CSV or click to browse
@@ -131,10 +131,12 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
               <span className="font-mono text-[10.5px] text-muted-foreground/70">
                 {csvFileName || "No file selected"}
               </span>
+              {/* sr-only (not hidden) so the control stays keyboard-focusable. */}
               <input
                 type="file"
                 accept=".csv"
-                className="hidden"
+                aria-label="CSV file"
+                className="sr-only"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) readFile(file);
@@ -227,8 +229,9 @@ function ToggleButton({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
-        "px-5 py-2 font-mono text-[11.5px] tracking-[0.08em] uppercase transition-colors",
+        "px-5 py-2 font-mono text-[11.5px] tracking-[0.08em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:-outline-offset-2 focus-visible:outline-none",
         active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
       )}
     >

@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -27,13 +28,16 @@ export function AddClientDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button>
-          <Plus />
+          <Plus aria-hidden />
           Add new client
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display">Add new client</DialogTitle>
+          <DialogDescription className="sr-only">
+            Register a client by name and LinkedIn profile URL.
+          </DialogDescription>
         </DialogHeader>
         {/* Remounted on each open, so the action state starts clean every time. */}
         <AddClientForm onSuccess={close} />

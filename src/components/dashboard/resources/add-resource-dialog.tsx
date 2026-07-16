@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -27,13 +28,16 @@ export function AddResourceDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button>
-          <Plus />
+          <Plus aria-hidden />
           Add resource
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display">Add resource</DialogTitle>
+          <DialogDescription className="sr-only">
+            Add a team reference link with a title and URL.
+          </DialogDescription>
         </DialogHeader>
         {/* Remounted on each open, so the action state starts clean every time. */}
         <AddResourceForm onSuccess={close} />

@@ -2,10 +2,12 @@ import type { Kpi } from "@/services/types";
 
 function Delta({ kpi }: { kpi: Kpi }) {
   // The comp renders deltas in the accent colour for both directions; the
-  // ▲/▼ glyph carries the direction.
+  // ▲/▼ glyph carries the direction visually, and an sr-only word carries it
+  // for assistive tech — direction is never conveyed by colour alone.
   return (
     <span className="font-mono text-primary tabular-nums">
-      {kpi.direction === "up" ? "▲" : "▼"} {kpi.delta}%
+      <span aria-hidden>{kpi.direction === "up" ? "▲" : "▼"}</span>
+      <span className="sr-only">{kpi.direction === "up" ? "Up" : "Down"} </span> {kpi.delta}%
     </span>
   );
 }
@@ -31,7 +33,7 @@ export function KpiCards({
           {hero.label}
         </div>
         <div className="mt-4 flex items-end gap-3.5">
-          <div className="font-display text-6xl leading-[0.9] font-extrabold tracking-tight tabular-nums">
+          <div className="font-display text-5xl leading-[0.9] font-extrabold tracking-tight tabular-nums sm:text-6xl">
             {hero.value.toLocaleString()}
           </div>
           <div className="pb-2 text-xs">

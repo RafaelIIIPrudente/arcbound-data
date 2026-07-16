@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { UploadEmptyState } from "@/components/dashboard/ingest/upload-empty-state";
 import { UploadForm } from "@/components/dashboard/ingest/upload-form";
 import { listClients } from "@/services/clients";
 
@@ -15,7 +16,7 @@ export default async function UploadPage() {
         <span className="text-primary">—</span>
         Ingestion
       </div>
-      <UploadForm clients={clients} />
+      {clients.length === 0 ? <UploadEmptyState /> : <UploadForm clients={clients} />}
     </div>
   );
 }
