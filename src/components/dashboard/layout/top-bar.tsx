@@ -25,7 +25,7 @@ export function TopBar({ email }: { email?: string }) {
     <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background px-4 py-4 md:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <MobileNav />
-        <h1 className="truncate font-display text-xl leading-none font-bold tracking-tight md:text-2xl">
+        <h1 className="truncate pr-1 font-display text-xl leading-tight font-bold tracking-tight md:text-2xl">
           {lead ? `${lead} ` : ""}
           <em className="text-primary italic">{accent}</em>
         </h1>

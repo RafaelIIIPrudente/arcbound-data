@@ -135,3 +135,18 @@ export interface Resource {
   /** ISO 8601 date string. */
   createdAt: string;
 }
+
+// ── Uploads ──────────────────────────────────────────────────────────────────
+// An immutable per-ingest audit row (app-owned public.uploads). Read-only.
+
+export interface Upload {
+  id: string;
+  clientId: string;
+  sourceType: SourceType;
+  rowsInserted: number;
+  rowsUpdated: number;
+  rowsUnchanged: number;
+  followerCount: number | null;
+  /** ISO 8601 date string. */
+  createdAt: string;
+}
