@@ -70,7 +70,7 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
   }
 
   if (state?.status === "ok") {
-    return <ResultSummary summary={state.summary} onReset={onReset} />;
+    return <ResultSummary summary={state.summary} warning={state.warning} onReset={onReset} />;
   }
 
   if (state?.status === "review") {

@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ingestMetrics } from "./ingest";
 import type { PostRow } from "@/services/types";
+
+// ── Mocks: keep the suite hermetic — never touch the live DB. ────────────────
+const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }));
+vi.mock("next/headers", () => ({ cookies: () => ({}) }));
+vi.mock("@/lib/supabase/server", () => ({ createClient: () => ({ rpc: rpcMock }) }));
+
+import { applyResolvedFormats, computeReviewPosts, ingestMetrics, resolveFormat } from "./ingest";
 
 function makeRow(id: string, over: Partial<PostRow> = {}): PostRow {
   return {
@@ -19,62 +25,98 @@ function makeRow(id: string, over: Partial<PostRow> = {}): PostRow {
   };
 }
 
-const base = { clientId: "CLIENT-0001", sourceType: "csv" as const, followerCount: 18420 };
+const base = {
+  clientId: "11111111-1111-1111-1111-111111111111",
+  sourceType: "csv" as const,
+  followerCount: 18420,
+};
 
-describe("ingestMetrics (mock seam)", () => {
-  it("inserts every row on the first upload", async () => {
-    const rows = [makeRow("t1-a"), makeRow("t1-b"), makeRow("t1-c")];
-    const r = await ingestMetrics({ ...base, rows });
-    expect(r).toMatchObject({ status: "ok", summary: { inserted: 3, updated: 0, unchanged: 0 } });
+beforeEach(() => rpcMock.mockReset());
+
+describe("resolveFormat (pure)", () => {
+  it("prefers the row's own valid format, then a resolved choice, then null", () => {
+    expect(resolveFormat(makeRow("a", { post_format_type: "video" }))).toBe("video");
+    expect(resolveFormat(makeRow("a", { post_format_type: "" }), { a: "image" })).toBe("image");
+    expect(resolveFormat(makeRow("a", { post_format_type: "" }), { a: "nonsense" })).toBeNull();
+    expect(resolveFormat(makeRow("a", { post_format_type: "" }))).toBeNull();
   });
+});
 
-  it("counts an identical re-upload as unchanged", async () => {
-    const rows = [makeRow("t2-a"), makeRow("t2-b")];
-    await ingestMetrics({ ...base, rows });
-    const r = await ingestMetrics({ ...base, rows });
-    expect(r).toMatchObject({ status: "ok", summary: { inserted: 0, updated: 0, unchanged: 2 } });
-  });
-
-  it("counts a row with a changed metric as updated", async () => {
-    await ingestMetrics({ ...base, rows: [makeRow("t3-a")] });
-    const r = await ingestMetrics({ ...base, rows: [makeRow("t3-a", { likes: 999 })] });
-    expect(r).toMatchObject({ status: "ok", summary: { inserted: 0, updated: 1, unchanged: 0 } });
-  });
-
-  it("returns review for new posts missing a format and writes nothing (all-or-nothing)", async () => {
+describe("computeReviewPosts (pure review gate)", () => {
+  it("returns rows whose format is still unknown", () => {
     const rows = [
-      makeRow("t4-a", { post_format_type: "" }),
-      makeRow("t4-b", { post_format_type: "banana" }),
+      makeRow("a", { post_format_type: "video" }),
+      makeRow("b", { post_format_type: "" }),
     ];
-    const review = await ingestMetrics({ ...base, rows });
-    expect(review.status).toBe("review");
-    if (review.status === "review") {
-      expect(review.posts.map((p) => p.linkedin_post_id)).toEqual(["t4-a", "t4-b"]);
-      expect(review.posts[0]!.snippet).toContain("content for t4-a");
-    }
-    // Nothing was persisted during review — skipping now inserts all, none unchanged.
-    const written = await ingestMetrics({ ...base, rows, skipReview: true });
-    expect(written).toMatchObject({ status: "ok", summary: { inserted: 2, unchanged: 0 } });
+    const review = computeReviewPosts(rows, undefined, undefined);
+    expect(review.map((p) => p.linkedin_post_id)).toEqual(["b"]);
+    expect(typeof review[0]!.snippet).toBe("string");
   });
 
-  it("writes without review when resolvedFormatTypes covers the new posts", async () => {
-    const rows = [makeRow("t5-a", { post_format_type: "" })];
-    const r = await ingestMetrics({ ...base, rows, resolvedFormatTypes: { "t5-a": "image" } });
-    expect(r).toMatchObject({ status: "ok", summary: { inserted: 1 } });
+  it("is empty when resolved covers the unknowns", () => {
+    const rows = [makeRow("b", { post_format_type: "" })];
+    expect(computeReviewPosts(rows, { b: "image" }, undefined)).toEqual([]);
   });
 
-  it("does not review when every new post already has a valid format", async () => {
-    const r = await ingestMetrics({
-      ...base,
-      rows: [makeRow("t6-a", { post_format_type: "video" })],
-    });
-    expect(r.status).toBe("ok");
+  it("is empty when skipReview is set", () => {
+    const rows = [makeRow("b", { post_format_type: "" })];
+    expect(computeReviewPosts(rows, undefined, true)).toEqual([]);
+  });
+});
+
+describe("applyResolvedFormats (pure)", () => {
+  it("settles each row's post_format_type to its resolved value", () => {
+    const rows = [
+      makeRow("a", { post_format_type: "video" }),
+      makeRow("b", { post_format_type: "" }),
+      makeRow("c", { post_format_type: "" }),
+    ];
+    const out = applyResolvedFormats(rows, { b: "image" });
+    expect(out.map((r) => r.post_format_type)).toEqual(["video", "image", undefined]);
+  });
+});
+
+describe("ingestMetrics (seam → RPC)", () => {
+  it("returns review WITHOUT calling the RPC when a format needs review", async () => {
+    const rows = [makeRow("x", { post_format_type: "" })];
+    const result = await ingestMetrics({ ...base, rows });
+    expect(result.status).toBe("review");
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 
-  it("does not review posts that are already stored", async () => {
-    const rows = [makeRow("t7-a", { post_format_type: "" })];
-    await ingestMetrics({ ...base, rows, skipReview: true }); // now stored
-    const r = await ingestMetrics({ ...base, rows }); // not new → no review
-    expect(r).toMatchObject({ status: "ok", summary: { inserted: 0, unchanged: 1 } });
+  it("calls ingest_metrics with raw rows and returns the summary on ok", async () => {
+    rpcMock.mockResolvedValue({ data: { inserted: 2, updated: 1, unchanged: 0 }, error: null });
+    const rows = [
+      makeRow("a", { post_format_type: "video" }),
+      makeRow("b", { post_format_type: "" }),
+    ];
+
+    const result = await ingestMetrics({ ...base, rows, skipReview: true });
+
+    expect(result).toEqual({ status: "ok", summary: { inserted: 2, updated: 1, unchanged: 0 } });
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    const [fn, args] = rpcMock.mock.calls[0]!;
+    expect(fn).toBe("ingest_metrics");
+    expect(args.p_client_id).toBe(base.clientId);
+    expect(args.p_source_type).toBe("csv");
+    expect(args.p_follower_count).toBe(18420);
+    // row b's unknown format was written as null (skipReview), a kept "video"
+    expect(args.p_rows.map((r: PostRow) => r.post_format_type)).toEqual(["video", undefined]);
+  });
+
+  it("applies resolvedFormatTypes to the rows before the RPC", async () => {
+    rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
+    const rows = [makeRow("b", { post_format_type: "" })];
+
+    await ingestMetrics({ ...base, rows, resolvedFormatTypes: { b: "carousel" } });
+
+    const args = rpcMock.mock.calls[0]![1];
+    expect(args.p_rows[0].post_format_type).toBe("carousel");
+  });
+
+  it("throws when the RPC returns an error", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "boom" } });
+    const rows = [makeRow("a", { post_format_type: "video" })];
+    await expect(ingestMetrics({ ...base, rows })).rejects.toThrow(/Ingest failed: boom/);
   });
 });

@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { normalizeLinkedInUrl } from "@/lib/linkedin-url";
 import { paths } from "@/paths";
-import { createClient, DuplicateClientError } from "@/services/clients";
+import { createClient } from "@/services/clients";
 
 // Clients are immutable (ADR 0007, invariant #2) — this file exposes only a
 // create action. There is deliberately no update or delete action.
@@ -35,17 +35,9 @@ export async function createClientAction(
     return { ok: false, errors: { linkedin_url: [normalized.message] } };
   }
 
-  try {
-    await createClient({ name: parsed.data.name, linkedin_url: normalized.value });
-  } catch (error) {
-    if (error instanceof DuplicateClientError) {
-      return {
-        ok: false,
-        errors: { linkedin_url: ["A client with this LinkedIn profile already exists."] },
-      };
-    }
-    throw error;
-  }
+  // No app-side dedup — this external schema has no unique constraint on clients
+  // (ADR 0009). We validate the URL shape and store it; duplicates aren't blocked.
+  await createClient({ name: parsed.data.name, linkedin_url: normalized.value });
 
   // No redirect: the modal closes and the list refreshes in place.
   revalidatePath(paths.clients.list);

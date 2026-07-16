@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "db:reset": "supabase db reset",
-    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
+    "db:types": "supabase gen types typescript --linked > src/lib/supabase/database.types.ts",
     "prepare": "husky"
   },
   "dependencies": {

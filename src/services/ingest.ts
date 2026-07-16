@@ -1,15 +1,20 @@
+import { cookies } from "next/headers";
+import { z } from "zod";
+
 import { buildSnippet, isValidFormat } from "@/lib/parse-metrics";
-import type { IngestResult, PostRow, SourceType } from "@/services/types";
+import { createClient } from "@/lib/supabase/server";
+import type { IngestResult, PostRow, ReviewPost, SourceType } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mock ingest seam. Keeps its OWN in-memory Posts store keyed on
-// `linkedin_post_id` and computes insert/update/unchanged counts. Ingestion is
-// all-or-nothing: when new Posts arrive without a confident format and the caller
-// hasn't skipped or resolved them, it returns `review` and writes NOTHING.
+// Ingest seam (real). Writes RAW scraped rows into the externally-owned
+// public.linkedin_posts_staging via the atomic `ingest_metrics` RPC (ADR 0009),
+// which tallies inserted/updated/unchanged and records one public.uploads row.
 //
-// Self-contained this pass (ADR 0003): it does not touch the clients or
-// analytics mocks. To go live, swap the body for the real ingestion RPC — the
-// signature stays identical. Deterministic (no Date.now/random).
+// The all-or-nothing FORMAT REVIEW gate stays here: when a row's format is
+// unknown and neither resolved nor skipped, we return `review` WITHOUT calling
+// the RPC (no write). The pure bits (review gate, resolved-format application)
+// are exported for hermetic unit tests. ArcBase writes raw values — the BI views
+// do all cleaning/typing/date-resolution/name-matching.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface IngestInput {
@@ -19,91 +24,78 @@ export interface IngestInput {
   followerCount: number;
   /** linkedin_post_id → chosen format, from the review step. */
   resolvedFormatTypes?: Record<string, string>;
-  /** Trust the scraper: write unknown formats as null instead of reviewing. */
+  /** Trust the scraper: write unknown formats as-is instead of reviewing. */
   skipReview?: boolean;
 }
 
 type SeamResult = Extract<IngestResult, { status: "review" | "ok" }>;
 
-/** A stored Post: the metrics that determine "changed" plus its resolved format. */
-interface StoredPost {
-  impressions: number;
-  likes: number;
-  comments: number;
-  reposts: number;
-  engagement_rate: number;
-  saves: number | null;
-  post_format_type: string | null;
-}
-
-// Keyed on linkedin_post_id. Module-level so re-uploads see prior state.
-const store = new Map<string, StoredPost>();
-
-function resolveFormat(row: PostRow, resolved?: Record<string, string>): string | null {
+/** The confident format for a row: its own valid format, else a resolved choice, else null. */
+export function resolveFormat(row: PostRow, resolved?: Record<string, string>): string | null {
   if (isValidFormat(row.post_format_type)) return row.post_format_type;
   const chosen = resolved?.[row.linkedin_post_id];
   return isValidFormat(chosen) ? chosen : null;
 }
 
-function metricsChanged(prev: StoredPost, row: PostRow): boolean {
-  return (
-    prev.impressions !== row.impressions ||
-    prev.likes !== row.likes ||
-    prev.comments !== row.comments ||
-    prev.reposts !== row.reposts ||
-    prev.engagement_rate !== row.engagement_rate ||
-    prev.saves !== row.saves
-  );
+/**
+ * Pure review gate: the rows whose format is still unknown after applying any
+ * resolved choices. Empty when `skipReview` is set or every row is covered.
+ */
+export function computeReviewPosts(
+  rows: PostRow[],
+  resolvedFormatTypes: Record<string, string> | undefined,
+  skipReview: boolean | undefined,
+): ReviewPost[] {
+  if (skipReview) return [];
+  return rows
+    .filter((row) => resolveFormat(row, resolvedFormatTypes) === null)
+    .map((row) => ({ linkedin_post_id: row.linkedin_post_id, snippet: buildSnippet(row) }));
 }
 
+/**
+ * Pure row→row prep for the RPC: set each row's `post_format_type` to its
+ * resolved value (own valid format, resolved choice, or null). Values are still
+ * written raw by the RPC — this only settles the reviewed format.
+ */
+export function applyResolvedFormats(
+  rows: PostRow[],
+  resolvedFormatTypes?: Record<string, string>,
+): PostRow[] {
+  return rows.map((row) => ({
+    ...row,
+    post_format_type: resolveFormat(row, resolvedFormatTypes) ?? undefined,
+  }));
+}
+
+// The RPC returns { inserted, updated, unchanged }; validate at the boundary.
+const summarySchema = z.object({
+  inserted: z.coerce.number().int().nonnegative(),
+  updated: z.coerce.number().int().nonnegative(),
+  unchanged: z.coerce.number().int().nonnegative(),
+});
+
 export async function ingestMetrics(input: IngestInput): Promise<SeamResult> {
-  const { rows, resolvedFormatTypes, skipReview } = input;
+  const { clientId, sourceType, rows, followerCount, resolvedFormatTypes, skipReview } = input;
 
-  // New Posts (not yet stored) whose format is still unknown after applying any
-  // resolved choices — these gate the write unless the caller skips review.
-  const needsReview = rows.filter(
-    (row) =>
-      !store.has(row.linkedin_post_id) &&
-      resolveFormat(row, resolvedFormatTypes) === null &&
-      !isValidFormat(row.post_format_type),
-  );
-
-  if (!skipReview && needsReview.length > 0) {
-    return {
-      status: "review",
-      posts: needsReview.map((row) => ({
-        linkedin_post_id: row.linkedin_post_id,
-        snippet: buildSnippet(row),
-      })),
-    };
+  // Review gate — no write happens on this branch (invariant #4).
+  const reviewPosts = computeReviewPosts(rows, resolvedFormatTypes, skipReview);
+  if (reviewPosts.length > 0) {
+    return { status: "review", posts: reviewPosts };
   }
 
-  // All-or-nothing: only reached once the whole batch is writable.
-  let inserted = 0;
-  let updated = 0;
-  let unchanged = 0;
+  const preparedRows = applyResolvedFormats(rows, resolvedFormatTypes);
 
-  for (const row of rows) {
-    const record: StoredPost = {
-      impressions: row.impressions,
-      likes: row.likes,
-      comments: row.comments,
-      reposts: row.reposts,
-      engagement_rate: row.engagement_rate,
-      saves: row.saves,
-      post_format_type: resolveFormat(row, resolvedFormatTypes),
-    };
-    const prev = store.get(row.linkedin_post_id);
-    if (!prev) {
-      inserted += 1;
-      store.set(row.linkedin_post_id, record);
-    } else if (metricsChanged(prev, row)) {
-      updated += 1;
-      store.set(row.linkedin_post_id, record);
-    } else {
-      unchanged += 1;
-    }
+  const supabase = createClient(cookies());
+  const { data, error } = await supabase.rpc("ingest_metrics", {
+    p_client_id: clientId,
+    p_source_type: sourceType,
+    p_rows: preparedRows,
+    p_follower_count: followerCount,
+  });
+  if (error) {
+    throw new Error(`Ingest failed: ${error.message}`);
   }
 
-  return { status: "ok", summary: { inserted, updated, unchanged } };
+  const summary = summarySchema.parse(data);
+  return { status: "ok", summary };
 }

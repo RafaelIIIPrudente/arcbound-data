@@ -7,9 +7,12 @@ import type { IngestSummary } from "@/services/types";
 
 export function ResultSummary({
   summary,
+  warning,
   onReset,
 }: {
   summary: IngestSummary;
+  /** Non-blocking notice (e.g. scraped authors that won't match the client). */
+  warning?: string;
   onReset: () => void;
 }) {
   const stats = [
@@ -45,6 +48,14 @@ export function ResultSummary({
           ))}
         </div>
       </div>
+      {warning && (
+        <p
+          role="status"
+          className="rounded-md border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+        >
+          {warning}
+        </p>
+      )}
       <div className="flex gap-3">
         <Button onClick={onReset}>Upload another</Button>
         <Button asChild variant="outline">

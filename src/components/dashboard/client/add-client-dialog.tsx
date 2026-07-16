@@ -57,7 +57,17 @@ function AddClientForm({ onSuccess }: { onSuccess: () => void }) {
     <form action={formAction} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="name">Name</Label>
-        <Input id="name" name="name" placeholder="e.g. Priya Nadella" autoComplete="off" />
+        <Input
+          id="name"
+          name="name"
+          placeholder="e.g. Bryan Wish"
+          autoComplete="off"
+          aria-describedby="name-help"
+        />
+        <p id="name-help" className="text-xs text-muted-foreground">
+          Use the exact LinkedIn display name (e.g. “Bryan Wish”) — posts are matched to the client
+          by name.
+        </p>
         {state.errors?.name?.[0] && (
           <p className="text-sm text-destructive">{state.errors.name[0]}</p>
         )}

@@ -51,8 +51,8 @@ export interface RecentPost {
   id: string;
   snippet: string;
   date: string;
-  /** Post format type (image / carousel / link / text / video). */
-  format: string;
+  /** Post format type — optional; the BI view doesn't expose it. */
+  format?: string;
   impressions: number;
   likes: number;
   comments: number;
@@ -67,6 +67,8 @@ export interface DashboardAnalytics {
   impressionsSeries: SeriesPoint[];
   engagementSeries: SeriesPoint[];
   recentPosts: RecentPost[];
+  /** True when the analytics source couldn't be read (distinct from "no data"). */
+  unavailable?: boolean;
 }
 
 // ── Ingestion ────────────────────────────────────────────────────────────────
@@ -114,7 +116,12 @@ export interface ReviewPost {
 export type IngestResult =
   | { status: "error"; errors: Record<string, string[]> }
   | { status: "review"; posts: ReviewPost[] }
-  | { status: "ok"; summary: IngestSummary };
+  | {
+      status: "ok";
+      summary: IngestSummary;
+      /** Non-blocking notice, e.g. scraped authors that won't match the client. */
+      warning?: string;
+    };
 
 // ── Resources ────────────────────────────────────────────────────────────────
 // A team reference link (title + URL). Immutable: view + add only. The comp's
