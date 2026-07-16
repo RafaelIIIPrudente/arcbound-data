@@ -33,11 +33,28 @@ frontmatter `name`. Inside:
 `references/` digest (content, source URLs, and the _researched-on_ date) and the
 `SKILL.md` version pin; bump the skill when the technology changes major.
 
-**Components:**
+**Components.** The set is **complete at 13** — one skill per pinned technology in
+this repo. _Framework & language:_
 
 - [`tailwind-v4`](tailwind-v4/SKILL.md) — the exemplar (Tailwind CSS v4, CSS-first).
+- [`nextjs-15-app-router`](nextjs-15-app-router/SKILL.md) — Next.js 15 App Router (RSC reads / Server-Action writes).
+- [`react-19`](react-19/SKILL.md) — React 19 (Actions/`useActionState`, ref-as-prop, `use()`).
+- [`typescript-strict`](typescript-strict/SKILL.md) — TypeScript strict mode (pinned TS 5.8).
 
-Planned as follow-on passes (each replicating the `tailwind-v4` pattern; not yet
-built): `nextjs-15-app-router`, `react-19`, `typescript-strict`, `shadcn-ui`,
-`supabase`, `zod`, `react-hook-form`, `tanstack-react-table`, `recharts`,
-`vitest-testing-library`, `playwright`, `tooling`.
+_UI:_
+
+- [`shadcn-ui`](shadcn-ui/SKILL.md) — shadcn/ui (owned components, Radix, `cva`/`cn`, new-york, CSS vars).
+- [`react-hook-form`](react-hook-form/SKILL.md) — React Hook Form v7 (`zodResolver`; RHF vs Server-Action forms).
+- [`tanstack-react-table`](tanstack-react-table/SKILL.md) — TanStack Table v8 (headless + shadcn table).
+- [`recharts`](recharts/SKILL.md) — Recharts v3 (shadcn `ChartContainer`, CSS-variable theming).
+
+_Data:_
+
+- [`supabase`](supabase/SKILL.md) — Supabase `@supabase/ssr` (verified `getUser`, RLS boundary, server-only secrets).
+- [`zod`](zod/SKILL.md) — Zod v3 (`safeParse` at boundaries, `z.infer`, env + Server-Action validation).
+
+_Testing & tooling:_
+
+- [`vitest-testing-library`](vitest-testing-library/SKILL.md) — Vitest 3 + Testing Library 16 (jsdom, role queries, coverage ratchet).
+- [`playwright`](playwright/SKILL.md) — Playwright 1.50 + axe (user-facing locators, web-first assertions, e2e/a11y).
+- [`tooling`](tooling/SKILL.md) — ESLint 9 flat config, Prettier 3, commitlint, husky 9, lint-staged.

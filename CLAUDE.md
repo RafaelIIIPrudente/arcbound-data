@@ -50,10 +50,17 @@ prompt.
    Clients, ingestion, or analytics slice), **`systematic-debugging`** for bugs,
    **`verification-before-completion`** before calling anything done, and
    **`requesting-code-review`** / **`/code-review`** for review.
-3. Follow **[`AGENTS.md`](AGENTS.md)** for every stack and architecture rule.
-4. Keep each commit green:
+3. When writing or reviewing code against a **pinned technology**, consult its
+   **stack-alignment skill** in [`.claude/skills/`](.claude/skills/README.md)
+   (13 skills — e.g. `nextjs-15-app-router`, `react-19`, `typescript-strict`,
+   `tailwind-v4`, `shadcn-ui`, `supabase`, `zod`, `vitest-testing-library`,
+   `playwright`, `tooling`): each pins the repo's major version, distills the
+   current official docs, and records this repo's conventions and
+   banned/outdated idioms.
+4. Follow **[`AGENTS.md`](AGENTS.md)** for every stack and architecture rule.
+5. Keep each commit green:
    `pnpm lint && pnpm type:check && pnpm test && pnpm build`.
-5. Use **Conventional Commits**. Branch off `main`; **never commit to `main`**.
+6. Use **Conventional Commits**. Branch off `main`; **never commit to `main`**.
 
 ## Current build
 
