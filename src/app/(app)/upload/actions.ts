@@ -2,7 +2,9 @@
 
 import { z } from "zod";
 
+import { nameMatchWarning } from "@/lib/author-match";
 import { parseCsv, parseJson } from "@/lib/parse-metrics";
+import { getClient } from "@/services/clients";
 import { ingestMetrics } from "@/services/ingest";
 import type { IngestResult } from "@/services/types";
 
@@ -67,7 +69,7 @@ export async function ingestMetricsAction(
   }
 
   // Seam returns 'review' (no write) or 'ok' (all-or-nothing write).
-  return ingestMetrics({
+  const result = await ingestMetrics({
     clientId,
     sourceType,
     rows: parsedPayload.rows,
@@ -75,4 +77,21 @@ export async function ingestMetricsAction(
     skipReview: formData.get("skipReview") === "true",
     resolvedFormatTypes: parseResolved(formData.get("resolvedFormatTypes")),
   });
+
+  // On a successful write, attach a NON-BLOCKING warning when scraped authors
+  // won't match the selected client's name (analytics attribution is a downstream
+  // name-match, ADR 0009). Best-effort — it must never fail a successful ingest.
+  if (result.status === "ok") {
+    try {
+      const client = await getClient(clientId);
+      const warning = client
+        ? (nameMatchWarning(parsedPayload.rows, client.name) ?? undefined)
+        : undefined;
+      if (warning) return { ...result, warning };
+    } catch {
+      // Ignore — the write already succeeded; the warning is only a nicety.
+    }
+  }
+
+  return result;
 }

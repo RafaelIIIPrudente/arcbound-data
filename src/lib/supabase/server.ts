@@ -4,19 +4,15 @@ import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { config } from "@/config";
-import { env } from "@/env";
-
-type ResponseCookie = Pick<CookieOptions, "httpOnly" | "maxAge" | "priority">;
 
 export function createClient(cookieStore: ReturnType<typeof cookies>): SupabaseClient {
+  // Use the DEFAULT @supabase/ssr cookie configuration — identical to
+  // client.ts (createBrowserClient) and middleware.ts (createServerClient). A
+  // previous custom `cookieOptions: { name: "sb", … }` here read/wrote a
+  // different cookie than the browser/middleware set at login, so RSC seams
+  // never saw the session and ran as `anon` (bi "permission denied", empty
+  // Clients). All three clients now share one cookie config.
   return createServerClient(config.supabase.url!, config.supabase.anonKey!, {
-    cookieOptions: {
-      name: "sb",
-      path: "/",
-      sameSite: "lax",
-      secure: env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7,
-    },
     cookies: {
       async get(name: string) {
         const store = await cookieStore;

@@ -1,25 +1,44 @@
-import { listClients } from "@/services/clients";
-import type { DashboardAnalytics, DashboardRange, Kpi, SeriesPoint } from "@/services/types";
-import {
-  BASE_ENGAGEMENT,
-  BASE_METRICS,
-  BASE_TOTAL_POSTS,
-  ENGAGEMENT_SERIES,
-  IMPRESSIONS_SERIES,
-  LAST_SYNC,
-  RECENT_POSTS,
-} from "@/services/mock/analytics";
+import { cookies } from "next/headers";
+
+import { createClient } from "@/lib/supabase/server";
+import type {
+  DashboardAnalytics,
+  DashboardRange,
+  Kpi,
+  RecentPost,
+  SeriesPoint,
+} from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Analytics Service Seam (dashboard read-model). Deterministic mock: the base
-// figures (all clients, 30 days) are scaled by a range factor and a per-client
-// share so the filters visibly change the data. No Date.now/random. To go live,
-// swap the body for Supabase view queries — the signature stays identical.
-// See docs/adr/0003-mock-first-service-seam.md.
+// Analytics Service Seam (dashboard read-model), now LIVE. Reads the externally-
+// owned BI view `bi.linkedin_post_latest` (one row per client-matched post, latest
+// scrape) and aggregates it into DashboardAnalytics. The signature is unchanged
+// (ADR 0009). The pure `buildDashboardAnalytics` does all aggregation so it is
+// deterministically unit-testable with an injected `now`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Multipliers relative to the 30-day baseline (30d → the comp values exactly).
-const RANGE_FACTOR: Record<DashboardRange, number> = { "7d": 0.3, "30d": 1, "90d": 2.7 };
+/** A row of the externally-owned view bi.linkedin_post_latest. */
+export interface BiPostRow {
+  client_id: string;
+  client_name: string | null;
+  linkedin_post_id: string;
+  post_url: string | null;
+  post_content: string | null;
+  /** Raw relative age, e.g. "23h"/"4d". */
+  post_age: string | null;
+  /** Resolved date (NULL for hour-age posts — Shay's resolver skips those). */
+  estimated_post_date: string | null;
+  impressions: number | null;
+  likes: number | null;
+  comments: number | null;
+  reposts: number | null;
+  saves: number | null;
+  interactions: number | null;
+  provided_engagement_rate: number | null;
+  calculated_engagement_rate: number | null;
+  scraped_at: string | null;
+  uploaded_at: string | null;
+}
 
 /** Human label for the "vs. prior …" copy and the chart caption. */
 export const RANGE_LABEL: Record<DashboardRange, string> = {
@@ -28,62 +47,226 @@ export const RANGE_LABEL: Record<DashboardRange, string> = {
   "90d": "90 days",
 };
 
-function toKpi(m: { label: string; value: number; delta: number }, scale: number): Kpi {
-  return {
-    label: m.label,
-    value: Math.round(m.value * scale),
-    delta: Math.abs(m.delta),
-    direction: m.delta >= 0 ? "up" : "down",
-  };
-}
+const RANGE_DAYS: Record<DashboardRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
+// Series buckets per range: daily / weekly / monthly (approximate).
+const RANGE_BUCKETS: Record<DashboardRange, number> = { "7d": 7, "30d": 5, "90d": 3 };
 
-function scaleSeries(series: SeriesPoint[], scale: number, round: boolean): SeriesPoint[] {
-  return series.map((p) => ({
-    label: p.label,
-    value: round ? Math.round(p.value * scale) : p.value,
-  }));
-}
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAY_MS = 86_400_000;
 
 export interface DashboardOptions {
   clientId?: string;
   range: DashboardRange;
 }
 
+// ── pure helpers ──────────────────────────────────────────────────────────────
+
+function num(v: number | null | undefined): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+function round1(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+
+function estMs(row: BiPostRow): number | null {
+  if (!row.estimated_post_date) return null;
+  const t = Date.parse(row.estimated_post_date);
+  return Number.isNaN(t) ? null : t;
+}
+
+function recencyMs(row: BiPostRow): number {
+  const est = estMs(row);
+  if (est !== null) return est;
+  const s = row.scraped_at ? Date.parse(row.scraped_at) : NaN;
+  return Number.isNaN(s) ? 0 : s;
+}
+
+function sumOf(rows: BiPostRow[], pick: (r: BiPostRow) => number | null): number {
+  return rows.reduce((s, r) => s + num(pick(r)), 0);
+}
+
+/** A KPI from a current sum vs a prior sum: magnitude %Δ + up/down. */
+function toKpi(label: string, current: number, prior: number): Kpi {
+  let delta = 0;
+  let direction: "up" | "down" = "up";
+  if (prior > 0) {
+    const pct = ((current - prior) / prior) * 100;
+    delta = Math.abs(Math.round(pct));
+    direction = pct >= 0 ? "up" : "down";
+  } else if (current > 0) {
+    delta = 100; // grew from nothing
+    direction = "up";
+  }
+  return { label, value: current, delta, direction };
+}
+
+function weightedRate(rows: BiPostRow[]): number {
+  const impressions = sumOf(rows, (r) => r.impressions);
+  return impressions > 0 ? (sumOf(rows, (r) => r.interactions) / impressions) * 100 : 0;
+}
+
+function snippet(content: string | null): string {
+  const text = (content ?? "").replace(/\s+/g, " ").trim();
+  return text.length > 90 ? `${text.slice(0, 90).trimEnd()}…` : text;
+}
+
+function formatShortDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+function formatSync(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+}
+
+// ── the aggregation (pure, deterministic given `now`) ────────────────────────
+
+export function buildDashboardAnalytics(
+  rows: BiPostRow[],
+  { range, now }: { range: DashboardRange; now: Date },
+): DashboardAnalytics {
+  const days = RANGE_DAYS[range];
+  const nowMs = now.getTime();
+  const currentStart = nowMs - days * DAY_MS;
+  const priorStart = nowMs - 2 * days * DAY_MS;
+
+  const current = rows.filter((r) => {
+    const t = estMs(r);
+    return t !== null && t >= currentStart && t <= nowMs;
+  });
+  const prior = rows.filter((r) => {
+    const t = estMs(r);
+    return t !== null && t >= priorStart && t < currentStart;
+  });
+
+  const empty = current.length === 0;
+
+  const hero = toKpi(
+    "Impressions",
+    sumOf(current, (r) => r.impressions),
+    sumOf(prior, (r) => r.impressions),
+  );
+  const kpis: Kpi[] = [
+    toKpi(
+      "Likes",
+      sumOf(current, (r) => r.likes),
+      sumOf(prior, (r) => r.likes),
+    ),
+    toKpi(
+      "Comments",
+      sumOf(current, (r) => r.comments),
+      sumOf(prior, (r) => r.comments),
+    ),
+    toKpi(
+      "Reposts",
+      sumOf(current, (r) => r.reposts),
+      sumOf(prior, (r) => r.reposts),
+    ),
+    toKpi(
+      "Saves",
+      sumOf(current, (r) => r.saves),
+      sumOf(prior, (r) => r.saves),
+    ),
+  ];
+
+  const currentRate = weightedRate(current);
+  const engagement = {
+    value: round1(currentRate),
+    delta: round1(currentRate - weightedRate(prior)),
+  };
+
+  // Bucket the current window (impressions summed; engagement = weighted rate).
+  const bucketCount = RANGE_BUCKETS[range];
+  const spanMs = (days * DAY_MS) / bucketCount;
+  const impr = new Array<number>(bucketCount).fill(0);
+  const inter = new Array<number>(bucketCount).fill(0);
+  for (const r of current) {
+    const t = estMs(r)!;
+    const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((t - currentStart) / spanMs)));
+    impr[idx]! += num(r.impressions);
+    inter[idx]! += num(r.interactions);
+  }
+  const bucketLabel = (i: number): string => {
+    const start = new Date(currentStart + i * spanMs);
+    if (range === "7d") return WEEKDAYS[start.getUTCDay()]!;
+    if (range === "90d") return MONTHS[start.getUTCMonth()]!;
+    return `Wk ${i + 1}`;
+  };
+  const impressionsSeries: SeriesPoint[] = impr.map((v, i) => ({
+    label: bucketLabel(i),
+    value: Math.round(v),
+  }));
+  const engagementSeries: SeriesPoint[] = inter.map((v, i) => ({
+    label: bucketLabel(i),
+    value: impr[i]! > 0 ? round1((v / impr[i]!) * 100) : 0,
+  }));
+
+  // Recent posts: newest first by estimated_post_date (fallback scraped_at).
+  const recentPosts: RecentPost[] = empty
+    ? []
+    : [...rows]
+        .sort((a, b) => recencyMs(b) - recencyMs(a))
+        .slice(0, 6)
+        .map((r) => ({
+          id: r.linkedin_post_id,
+          snippet: snippet(r.post_content),
+          date: r.estimated_post_date
+            ? formatShortDate(r.estimated_post_date)
+            : (r.post_age ?? "—"),
+          impressions: num(r.impressions),
+          likes: num(r.likes),
+          comments: num(r.comments),
+        }));
+
+  const scrapedTimes = rows
+    .map((r) => (r.scraped_at ? Date.parse(r.scraped_at) : NaN))
+    .filter((t) => !Number.isNaN(t));
+  const lastSync = scrapedTimes.length > 0 ? formatSync(Math.max(...scrapedTimes)) : "—";
+
+  return {
+    totalPosts: current.length,
+    lastSync,
+    hero,
+    kpis,
+    engagement,
+    impressionsSeries,
+    engagementSeries,
+    recentPosts,
+  };
+}
+
+const SELECT_COLUMNS =
+  "client_id, linkedin_post_id, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, scraped_at";
+
 export async function getDashboardAnalytics({
   clientId,
   range,
 }: DashboardOptions): Promise<DashboardAnalytics> {
-  // A client's share of the analytics = its posts over all clients' posts, so a
-  // client with no posts naturally yields an empty dashboard (UC-05).
-  const { items: clients } = await listClients({ pageSize: 1000 });
-  const totalAcross = clients.reduce((sum, c) => sum + c.postsCount, 0);
+  const now = new Date();
+  // Bound to the largest window needed (current + prior = 2N days), but keep
+  // null-dated hour-age posts so they can appear in "recent posts".
+  const boundIso = new Date(now.getTime() - 2 * RANGE_DAYS[range] * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
 
-  let clientFactor = 1;
-  if (clientId) {
-    const client = clients.find((c) => c.id === clientId);
-    clientFactor = client && totalAcross > 0 ? client.postsCount / totalAcross : 0;
+  const supabase = createClient(cookies());
+  let query = supabase.schema("bi").from("linkedin_post_latest").select(SELECT_COLUMNS);
+  if (clientId) query = query.eq("client_id", clientId);
+  query = query.or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`);
+
+  const { data, error } = await query;
+  if (error) {
+    // Degrade gracefully while `bi` access is still being wired: show the empty
+    // dashboard instead of crashing the page. (This temporarily conflates "BI
+    // unavailable" with "no data" — both render the "No posts yet" state.)
+    console.warn(`Analytics unavailable — bi.linkedin_post_latest read failed: ${error.message}`);
+    // Distinct from "no data": flag it so the page can show an "unavailable"
+    // panel rather than the "No posts yet" empty state.
+    return { ...buildDashboardAnalytics([], { range, now }), unavailable: true };
   }
 
-  const scale = RANGE_FACTOR[range] * clientFactor;
-  const empty = scale === 0;
-
-  return {
-    totalPosts: Math.round(BASE_TOTAL_POSTS * scale),
-    lastSync: LAST_SYNC,
-    hero: toKpi(BASE_METRICS.impressions, scale),
-    kpis: [BASE_METRICS.likes, BASE_METRICS.comments, BASE_METRICS.reposts, BASE_METRICS.saves].map(
-      (m) => toKpi(m, scale),
-    ),
-    // Engagement is a rate, not a count — it doesn't scale by client share; it
-    // only zeroes out when there's nothing to report.
-    engagement: {
-      value: empty ? 0 : BASE_ENGAGEMENT.value,
-      delta: BASE_ENGAGEMENT.delta,
-    },
-    impressionsSeries: scaleSeries(IMPRESSIONS_SERIES[range], scale, true),
-    engagementSeries: empty
-      ? ENGAGEMENT_SERIES[range].map((p) => ({ label: p.label, value: 0 }))
-      : ENGAGEMENT_SERIES[range],
-    recentPosts: empty ? [] : RECENT_POSTS,
-  };
+  return buildDashboardAnalytics((data ?? []) as BiPostRow[], { range, now });
 }

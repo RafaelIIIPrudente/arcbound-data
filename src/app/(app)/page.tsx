@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
 import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-filters";
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
@@ -49,7 +50,9 @@ export default async function DashboardPage({
         <DashboardFilters clients={clients} client={client ?? "all"} range={range} />
       </div>
 
-      {hasData ? (
+      {analytics.unavailable ? (
+        <AnalyticsUnavailable />
+      ) : hasData ? (
         <>
           <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={RANGE_LABEL[range]} />
           <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">

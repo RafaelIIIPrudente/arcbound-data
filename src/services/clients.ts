@@ -1,39 +1,71 @@
-import { normalizeLinkedInUrl } from "@/lib/linkedin-url";
+import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Client, Paginated } from "@/services/types";
-import { MOCK_CLIENTS } from "@/services/mock/clients";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Service Seam for Clients. Screens and Server Actions call these functions and
-// never touch a data source directly. To go live, swap the bodies for Supabase
-// queries — the signatures stay identical. See
-// docs/adr/0003-mock-first-service-seam.md.
+// Clients seam (real). Reads/writes the externally-owned public.clients table and
+// derives postsCount from the BI view bi.linkedin_post_latest (ADR 0009).
 //
-// Clients are IMMUTABLE (ADR 0007, invariant #2): there is deliberately no
-// update or delete function here.
+// `clients.name` is the ATTRIBUTION KEY the BI name-match join depends on, so the
+// Add-Client form guides staff to the exact display name. This external schema has
+// no dedup constraint on clients — ArcBase does not fabricate one (a duplicate is
+// a UI concern, not a DB error). Clients are immutable (ADR 0007): no update/delete.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Thrown when a create would collide with an existing normalized LinkedIn URL. */
-export class DuplicateClientError extends Error {
-  constructor(public readonly linkedinUrl: string) {
-    super("A client with this LinkedIn profile already exists.");
-    this.name = "DuplicateClientError";
-  }
+/** A row of public.clients (no generated types — the shape is known + stable). */
+interface ClientRow {
+  id: string;
+  name: string;
+  linkedin_profile_url: string;
+  created_at: string;
 }
 
-/** Thrown when a create is given a URL that is not a valid LinkedIn profile URL. */
-export class InvalidLinkedInUrlError extends Error {
-  constructor() {
-    super("Enter a valid LinkedIn profile URL.");
-    this.name = "InvalidLinkedInUrlError";
-  }
+const CLIENT_COLUMNS = "id, name, linkedin_profile_url, created_at";
+
+function toClient(row: ClientRow, postsCount: number): Client {
+  return {
+    id: row.id,
+    name: row.name,
+    linkedin_url: row.linkedin_profile_url,
+    createdAt: row.created_at,
+    postsCount,
+  };
 }
 
-// In-memory store seeded from the mock data (cloned so the seed is not mutated).
-let store: Client[] = MOCK_CLIENTS.map((client) => ({ ...client }));
+// Per-client post counts from bi.linkedin_post_latest. Best-effort: if the `bi`
+// schema isn't exposed to the API yet (see supabase/INGEST-WRITE-APPLY.md), fall
+// back to 0 rather than failing the whole list.
+async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  try {
+    const { data, error } = await supabase
+      .schema("bi")
+      .from("linkedin_post_latest")
+      .select("client_id");
+    if (error || !data) return counts;
+    for (const row of data as { client_id: string | null }[]) {
+      if (row.client_id) counts.set(row.client_id, (counts.get(row.client_id) ?? 0) + 1);
+    }
+  } catch {
+    // bi schema unreachable → treat every count as 0 (best-effort).
+  }
+  return counts;
+}
 
-function nextId(): string {
-  // Deterministic id (no Date.now/random) so tests are stable.
-  return `CLIENT-${String(store.length + 1).padStart(4, "0")}`;
+async function countForClient(supabase: SupabaseClient, clientId: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .schema("bi")
+      .from("linkedin_post_latest")
+      .select("*", { count: "exact", head: true })
+      .eq("client_id", clientId);
+    if (error || count == null) return 0;
+    return count;
+  } catch {
+    return 0;
+  }
 }
 
 export interface ListClientsOptions {
@@ -44,41 +76,53 @@ export interface ListClientsOptions {
 
 export async function listClients(opts: ListClientsOptions = {}): Promise<Paginated<Client>> {
   const { q, page = 1, pageSize = 10 } = opts;
+  const supabase = createServerClient(cookies());
 
-  let rows = store;
+  const { data, error } = await supabase
+    .from("clients")
+    .select(CLIENT_COLUMNS)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Failed to load clients: ${error.message}`);
+
+  const counts = await fetchPostCounts(supabase);
+  let clients = ((data ?? []) as ClientRow[]).map((row) => toClient(row, counts.get(row.id) ?? 0));
+
   if (q && q.trim()) {
     const needle = q.trim().toLowerCase();
-    rows = rows.filter(
+    clients = clients.filter(
       (c) => c.name.toLowerCase().includes(needle) || c.linkedin_url.toLowerCase().includes(needle),
     );
   }
 
-  const total = rows.length;
+  const total = clients.length;
   const start = (page - 1) * pageSize;
-  return { items: rows.slice(start, start + pageSize), total };
+  return { items: clients.slice(start, start + pageSize), total };
 }
 
 export async function getClient(id: string): Promise<Client | null> {
-  return store.find((c) => c.id === id) ?? null;
+  const supabase = createServerClient(cookies());
+
+  const { data, error } = await supabase
+    .from("clients")
+    .select(CLIENT_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load client: ${error.message}`);
+  if (!data) return null;
+
+  const row = data as ClientRow;
+  return toClient(row, await countForClient(supabase, row.id));
 }
 
 export async function createClient(input: { name: string; linkedin_url: string }): Promise<Client> {
-  const normalized = normalizeLinkedInUrl(input.linkedin_url);
-  if (!normalized.ok) {
-    throw new InvalidLinkedInUrlError();
-  }
-  // Identity is the normalized URL — dup-check on it (ArcBase v1 spec, OI-01).
-  if (store.some((c) => c.linkedin_url === normalized.value)) {
-    throw new DuplicateClientError(normalized.value);
-  }
+  const supabase = createServerClient(cookies());
 
-  const client: Client = {
-    id: nextId(),
-    name: input.name.trim(),
-    linkedin_url: normalized.value,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    postsCount: 0,
-  };
-  store = [client, ...store];
-  return client;
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({ name: input.name.trim(), linkedin_profile_url: input.linkedin_url.trim() })
+    .select(CLIENT_COLUMNS)
+    .single();
+  if (error) throw new Error(`Failed to create client: ${error.message}`);
+
+  return toClient(data as ClientRow, 0);
 }

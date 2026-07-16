@@ -12,6 +12,9 @@ import type { RecentPost } from "@/services/types";
 const HEAD = "font-mono text-[10px] tracking-[0.12em] uppercase";
 
 export function RecentPostsTable({ posts, postCount }: { posts: RecentPost[]; postCount: number }) {
+  // The BI read source doesn't expose a format; only show the Type column when a
+  // post actually carries one.
+  const showFormat = posts.some((post) => post.format);
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between border-b px-5 py-4">
@@ -32,9 +35,11 @@ export function RecentPostsTable({ posts, postCount }: { posts: RecentPost[]; po
             <TableHead scope="col" className={HEAD}>
               Date
             </TableHead>
-            <TableHead scope="col" className={HEAD}>
-              Type
-            </TableHead>
+            {showFormat && (
+              <TableHead scope="col" className={HEAD}>
+                Type
+              </TableHead>
+            )}
             <TableHead scope="col" className={`${HEAD} text-right`}>
               Impr.
             </TableHead>
@@ -53,14 +58,18 @@ export function RecentPostsTable({ posts, postCount }: { posts: RecentPost[]; po
               <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">
                 {post.date}
               </TableCell>
-              <TableCell>
-                <Badge
-                  variant="outline"
-                  className="font-mono text-[9.5px] tracking-[0.08em] text-muted-foreground uppercase"
-                >
-                  {post.format}
-                </Badge>
-              </TableCell>
+              {showFormat && (
+                <TableCell>
+                  {post.format && (
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[9.5px] tracking-[0.08em] text-muted-foreground uppercase"
+                    >
+                      {post.format}
+                    </Badge>
+                  )}
+                </TableCell>
+              )}
               <TableCell className="text-right font-mono text-sm tabular-nums">
                 {post.impressions.toLocaleString()}
               </TableCell>
