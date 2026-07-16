@@ -52,7 +52,7 @@ export function DashboardFilters({
         value={client}
         onValueChange={(v) => router.replace(hrefFor(v, range), { scroll: false })}
       >
-        <SelectTrigger className={TRIGGER} aria-label="Filter by client">
+        <SelectTrigger className={`${TRIGGER} max-w-55 sm:max-w-70`} aria-label="Filter by client">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
