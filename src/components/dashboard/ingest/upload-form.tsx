@@ -152,7 +152,7 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
             value={jsonText}
             onChange={(e) => setJsonText(e.target.value)}
             placeholder={JSON_PLACEHOLDER}
-            className="min-h-[150px] font-mono text-[12.5px]"
+            className="min-h-37.5 font-mono text-[12.5px]"
             aria-label="Paste JSON"
           />
         )}
