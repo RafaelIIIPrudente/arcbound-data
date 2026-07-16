@@ -46,11 +46,11 @@ export function KpiCards({
       </div>
 
       {kpis.map((kpi) => (
-        <div key={kpi.label} className="rounded-lg border bg-card p-5">
+        <div key={kpi.label} className="overflow-hidden rounded-lg border bg-card p-5">
           <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
             {kpi.label}
           </div>
-          <div className="mt-3 font-display text-[34px] leading-none font-extrabold tracking-tight tabular-nums">
+          <div className="mt-3 font-display text-2xl leading-none font-extrabold tracking-tight tabular-nums sm:text-[34px]">
             {kpi.value.toLocaleString()}
             {kpi.unit && (
               <span className="ml-1 font-mono text-xs font-normal text-muted-foreground">
