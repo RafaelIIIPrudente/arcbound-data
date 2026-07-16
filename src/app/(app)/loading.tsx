@@ -1,33 +1,51 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Suspense fallback for dashboard route transitions. The dashboard layout (shell)
-// stays mounted; only this content area swaps in while the next page loads.
-// Per-feature loading.tsx files (e.g. a customers-table skeleton) follow this
-// same pattern — copy this file into a segment to add one.
-const statCardKeys = ["stat-1", "stat-2", "stat-3"];
-const rowKeys = ["row-1", "row-2", "row-3", "row-4", "row-5"];
+// Suspense fallback for the (app) group. Shaped like the dashboard (its primary
+// consumer: KPI grid + charts + recent-posts table); it also serves as the
+// fallback for any segment without its own loading.tsx. Per-feature loading.tsx
+// files (clients, upload, resources, …) mirror their own layouts.
+const kpiKeys = ["k1", "k2", "k3", "k4"];
+const rowKeys = ["r1", "r2", "r3", "r4", "r5"];
 
 export default function DashboardLoading() {
   return (
     <div className="space-y-6">
-      {/* Page heading */}
-      <div className="space-y-2">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-4 w-72" />
+      {/* Eyebrow + subline / filters */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="flex gap-2.5">
+          <Skeleton className="h-9 w-36 rounded-md" />
+          <Skeleton className="h-9 w-36 rounded-md" />
+        </div>
       </div>
 
-      {/* Stat-card row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {statCardKeys.map((key) => (
-          <Skeleton key={key} className="h-28 w-full rounded-xl" />
+      {/* KPI grid: hero (2×2) + four cards */}
+      <div className="grid grid-cols-2 gap-3.5 md:auto-rows-fr md:grid-cols-4">
+        <Skeleton className="col-span-2 h-40 rounded-lg md:row-span-2 md:h-full" />
+        {kpiKeys.map((key) => (
+          <Skeleton key={key} className="h-28 rounded-lg" />
         ))}
       </div>
 
-      {/* Content / table block */}
-      <div className="space-y-3">
-        {rowKeys.map((key) => (
-          <Skeleton key={key} className="h-10 w-full" />
-        ))}
+      {/* Charts row */}
+      <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">
+        <Skeleton className="h-[264px] rounded-lg" />
+        <Skeleton className="h-[264px] rounded-lg" />
+      </div>
+
+      {/* Recent posts */}
+      <div className="rounded-lg border">
+        <div className="border-b px-5 py-4">
+          <Skeleton className="h-3 w-32" />
+        </div>
+        <div className="space-y-3 p-4">
+          {rowKeys.map((key) => (
+            <Skeleton key={key} className="h-6 w-full" />
+          ))}
+        </div>
       </div>
     </div>
   );
