@@ -14,6 +14,35 @@ import {
 import type { ReportPeriod } from "@/services/types";
 
 /**
+ * The URL a period option navigates to. Exported so the round trip with
+ * `parseReportPeriod` can be tested end to end (report-period-picker.test.ts).
+ *
+ * ⚠️ ALWAYS writes the param — including for all-time. An earlier version
+ * stripped it there to keep the default URL clean, which made "All time"
+ * unreachable: an absent param legitimately means "first visit, no choice yet"
+ * (client-tabs.tsx links here without one) and the decoder correctly resolves
+ * that to the newest month. Stripping the param made a deliberate choice
+ * indistinguishable from no choice, so the selection silently reverted.
+ *
+ * The decoder is right; the encoder was throwing the answer away.
+ */
+export function reportPeriodHref(pathname: string, periodKey: string): string {
+  return `${pathname}?period=${encodeURIComponent(periodKey)}`;
+}
+
+/**
+ * The Key Performance section caption for a period.
+ *
+ * Labels are NOT lowercased: "July 2026" and "Q3 2026" are proper nouns, and an
+ * earlier version rendered them as "july 2026". All-time is the one label that
+ * is ordinary prose rather than a name, so it alone reads better lowercased
+ * mid-sentence.
+ */
+export function scopeCaption(period: ReportPeriod): string {
+  return `Scoped to ${period.kind === "all" ? "all time" : period.label}`;
+}
+
+/**
  * Scopes the Key Performance section only. Reads = RSC: this component just
  * rewrites the `period` search param and the server component re-fetches.
  * `period` is the only param on this route and its current value arrives as a
@@ -32,12 +61,11 @@ export function ReportPeriodPicker({ periods, value }: { periods: ReportPeriod[]
 
   const allTime = periods.find((p) => p.kind === "all");
 
-  function hrefFor(next: string) {
-    return next === "all" ? pathname : `${pathname}?period=${encodeURIComponent(next)}`;
-  }
-
   return (
-    <Select value={value} onValueChange={(v) => router.replace(hrefFor(v), { scroll: false })}>
+    <Select
+      value={value}
+      onValueChange={(v) => router.replace(reportPeriodHref(pathname, v), { scroll: false })}
+    >
       <SelectTrigger
         className="w-auto max-w-55 gap-2 font-mono text-[11.5px] tracking-wide uppercase sm:max-w-70"
         aria-label="Period for key performance"

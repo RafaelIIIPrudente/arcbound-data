@@ -11,7 +11,10 @@ import { InteractionsByAssetChart } from "@/components/dashboard/report/interact
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
-import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
+import {
+  ReportPeriodPicker,
+  scopeCaption,
+} from "@/components/dashboard/report/report-period-picker";
 import { paths } from "@/paths";
 import { getClientReport } from "@/services/client-report";
 import { getClient } from "@/services/clients";
@@ -97,10 +100,7 @@ export default async function ClientReportPage({
           {/* SECTION 1 — scoped by the picker, which sits in this header so it is
               unambiguous that it governs this section and not the whole page. */}
           <section className="space-y-4">
-            <SectionHeader
-              title="Key performance"
-              scope={`Scoped to ${report.period.label.toLowerCase()}`}
-            >
+            <SectionHeader title="Key performance" scope={scopeCaption(report.period)}>
               <ReportPeriodPicker periods={report.availablePeriods} value={report.period.key} />
             </SectionHeader>
             <KeyPerformance
