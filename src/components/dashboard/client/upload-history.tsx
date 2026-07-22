@@ -29,7 +29,13 @@ function formatDate(iso: string): string {
   return `${date} · ${time}`;
 }
 
-export function UploadHistory({ uploads }: { uploads: Upload[] }) {
+/**
+ * `uploads === null` means the read FAILED. It renders as a stated problem, not
+ * as "No uploads yet" — an empty table is a claim about the data, and making a
+ * broken read look like a brand-new client is exactly the lie this screen was
+ * telling before.
+ */
+export function UploadHistory({ uploads }: { uploads: Upload[] | null }) {
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between border-b px-5 py-4">
@@ -39,7 +45,11 @@ export function UploadHistory({ uploads }: { uploads: Upload[] }) {
         </div>
       </div>
 
-      {uploads.length === 0 ? (
+      {uploads === null ? (
+        <p role="status" className="px-5 py-12 text-center text-sm text-muted-foreground">
+          Upload history could not be loaded.
+        </p>
+      ) : uploads.length === 0 ? (
         <p className="px-5 py-12 text-center text-sm text-muted-foreground">No uploads yet</p>
       ) : (
         <Table>

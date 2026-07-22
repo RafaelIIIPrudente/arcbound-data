@@ -17,8 +17,42 @@ export interface Client {
   linkedin_url: string;
   /** ISO 8601 date string. */
   createdAt: string;
-  /** Count of the Client's Posts. Mock-derived today; real once ingestion lands. */
-  postsCount: number;
+  /**
+   * Posts attributed to this Client in `bi.linkedin_post_latest`.
+   *
+   * ⚠️ `null` means the count could NOT BE READ — it is not a zero. A real `0`
+   * (the read succeeded and found nothing) and a failed read used to collapse
+   * into the same `0`, which rendered a broken pipeline and a brand-new client
+   * identically. The UI must keep them apart.
+   *
+   * CEILING: this separates read-failed from zero, and nothing more. A real `0`
+   * can still mean either "this Client has never posted" or "the downstream
+   * name-match attributed nothing to them" — attribution happens outside
+   * ArcBase (ADR 0009), so we cannot see which, and must not claim to.
+   */
+  postsCount: number | null;
+}
+
+/**
+ * When a Client was last ingested:
+ *   • an ISO 8601 string — the newest upload's timestamp
+ *   • `null`             — the read SUCCEEDED and this Client has never been ingested
+ *   • `"unavailable"`    — the uploads read FAILED, so we do not know
+ *
+ * Three states because "never ingested" and "we could not find out" are
+ * different facts, and a table that shows both as the same glyph is lying.
+ */
+export type LastUpload = string | null | "unavailable";
+
+/**
+ * A Client as the LIST screen shows it: the entity plus its newest ingest.
+ *
+ * Separate from `Client` on purpose — `lastUpload` is a list-screen concern,
+ * and folding it into the entity would force `getClient` to make an uploads
+ * round-trip that the detail page already makes for itself.
+ */
+export interface ClientListRow extends Client {
+  lastUpload: LastUpload;
 }
 
 export interface Paginated<T> {

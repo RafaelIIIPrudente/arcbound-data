@@ -6,13 +6,26 @@ import { listClients } from "@/services/clients";
 
 export const metadata: Metadata = { title: "Client list" };
 
+/**
+ * Rows fetched per request. Sized well above any realistic ArcBase client roster
+ * rather than paginated — the comp has no pager, and the table renders whatever
+ * it is handed. If this ever caps, `truncated` below makes it visible.
+ */
+const PAGE_SIZE = 500;
+
 export default async function ClientsPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
   const { q } = await searchParams;
-  const { items, total } = await listClients({ q, pageSize: 100 });
+  const { items, total } = await listClients({ q, pageSize: PAGE_SIZE });
+
+  // The table shows every row it is given and has no pagination (neither does
+  // the comp). If the fetch ever caps below the real total, the page SAYS SO —
+  // a row that vanishes silently is the failure mode this codebase has been
+  // bitten by before.
+  const truncated = items.length < total;
 
   return (
     <div className="space-y-6">
@@ -28,7 +41,15 @@ export default async function ClientsPage({
         </div>
         <AddClientDialog />
       </div>
-      <ClientsTable data={items} />
+      {truncated ? (
+        <p
+          role="status"
+          className="rounded-md border border-primary/30 bg-primary/5 px-3.5 py-2.5 font-mono text-xs text-foreground"
+        >
+          Showing the first {items.length} of {total} clients. Narrow the filter to see the rest.
+        </p>
+      ) : null}
+      <ClientsTable data={items} q={q ?? ""} />
     </div>
   );
 }

@@ -558,7 +558,10 @@ export async function getClientReport({
 
   // Computed ONCE per render, then used for both resolving the period and as the
   // report's own `availablePeriods`.
-  const latestWithFollowers = uploads.find((u) => u.followerCount != null);
+  // `listUploads` returns null when its read failed. Either way there is no
+  // follower count to report, and `followers: null` already renders as absent —
+  // so an unreadable uploads table behaves exactly as it did before.
+  const latestWithFollowers = uploads?.find((u) => u.followerCount != null);
   const periods = availablePeriods(rows);
 
   return buildClientReport(rows, toFormatMap(attributes), {

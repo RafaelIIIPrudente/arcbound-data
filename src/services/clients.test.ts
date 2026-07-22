@@ -38,12 +38,32 @@ function chainable(result: unknown): unknown {
   return proxy;
 }
 
-function mockSupabase(clientsResult: unknown, biResult: unknown) {
+/**
+ * `from` is TABLE-AWARE: `listClients` now reads `public.clients` AND
+ * `public.uploads`, so one shared result would let an uploads assertion pass on
+ * the clients payload. `uploadsResult` defaults to an empty, successful read.
+ */
+function mockSupabase(
+  clientsResult: unknown,
+  biResult: unknown,
+  uploadsResult: unknown = { data: [], error: null },
+) {
   supabase.current = {
-    from: () => chainable(clientsResult),
+    from: (table: string) => chainable(table === "uploads" ? uploadsResult : clientsResult),
     schema: () => ({ from: () => chainable(biResult) }),
   };
 }
+
+const UPLOAD = (clientId: string, createdAt: string) => ({
+  id: `u-${clientId}`,
+  client_id: clientId,
+  source_type: "csv",
+  rows_inserted: 1,
+  rows_updated: 0,
+  rows_unchanged: 0,
+  follower_count: null,
+  created_at: createdAt,
+});
 
 const ROW = (id: string, name: string) => ({
   id,
@@ -84,13 +104,65 @@ describe("clients service (real seam)", () => {
     expect(items[0]!.name).toBe("Priya Nadella");
   });
 
-  it("falls back to postsCount 0 when the bi view is unreachable", async () => {
+  // ⚠️ THIS TEST USED TO ASSERT `0` AND ENCODED THE DEFECT.
+  //
+  // A failed `bi` read and a client with no posts both produced `0`, so the
+  // table rendered a broken pipeline and an empty client with the same glyph.
+  // `null` now means "could not read"; `0` means a real, successfully-read zero.
+  it("reports postsCount as NULL — not 0 — when the bi view is unreachable", async () => {
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish")], error: null },
       { data: null, error: { message: "schema bi is not exposed" } },
     );
+
     const { items } = await listClients();
+
+    expect(items[0]!.postsCount).toBeNull();
+    // Nailed down explicitly: a reader skimming `toBeNull()` could otherwise
+    // assume the old zero still satisfies it.
+    expect(items[0]!.postsCount).not.toBe(0);
+  });
+
+  it("reports a REAL zero as 0, distinguishable from an unreadable count", async () => {
+    // The bi read SUCCEEDS and simply attributes no rows to this client.
+    mockSupabase({ data: [ROW("c1", "Bryan Wish")], error: null }, { data: [], error: null });
+
+    const { items } = await listClients();
+
     expect(items[0]!.postsCount).toBe(0);
+    expect(items[0]!.postsCount).not.toBeNull();
+  });
+
+  it("attaches each client's newest upload, and NULL for one never ingested", async () => {
+    mockSupabase(
+      { data: [ROW("c1", "Bryan Wish"), ROW("c2", "Priya Nadella")], error: null },
+      { data: [], error: null },
+      {
+        data: [UPLOAD("c1", "2026-07-15T09:00:00.000Z"), UPLOAD("c1", "2026-06-01T09:00:00.000Z")],
+        error: null,
+      },
+    );
+
+    const { items } = await listClients();
+
+    expect(items.find((c) => c.id === "c1")!.lastUpload).toBe("2026-07-15T09:00:00.000Z");
+    // Read succeeded, this client simply has no uploads → a known "never".
+    expect(items.find((c) => c.id === "c2")!.lastUpload).toBeNull();
+  });
+
+  it("marks lastUpload UNAVAILABLE — not 'never' — when the uploads read fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSupabase(
+      { data: [ROW("c1", "Bryan Wish")], error: null },
+      { data: [], error: null },
+      { data: null, error: { message: "permission denied" } },
+    );
+
+    const { items } = await listClients();
+
+    // Same principle as postsCount: a failed read must not masquerade as a fact.
+    expect(items[0]!.lastUpload).toBe("unavailable");
+    warn.mockRestore();
   });
 
   it("gets a client by id (null when absent)", async () => {
@@ -102,18 +174,22 @@ describe("clients service (real seam)", () => {
     expect(await getClient("missing")).toBeNull();
   });
 
-  it("fetches the client rows and the post counts CONCURRENTLY", async () => {
+  it("fetches the client rows, the post counts and the latest uploads CONCURRENTLY", async () => {
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish")], error: null },
       { data: [{ client_id: "c1" }], error: null },
+      { data: [UPLOAD("c1", "2026-07-15T09:00:00.000Z")], error: null },
     );
 
     await listClients();
 
-    // `fetchPostCounts` takes only the Supabase client — it reads nothing from
-    // the select — so it never needed to wait. Peak in-flight is 1 when it does
-    // and 2 when the two go out together.
-    expect(probe.peak).toBe(2);
+    // Neither `fetchPostCounts` nor `latestUploadByClient` reads anything out of
+    // the client select, so neither needed to wait. Peak in-flight is 1 if they
+    // are serialised and 3 when all three go out together.
+    //
+    // Counting PEAK rather than total is what makes this discriminate: a serial
+    // implementation issues the same three queries and would pass a total.
+    expect(probe.peak).toBe(3);
   });
 
   it("fetches the client row and its post count CONCURRENTLY", async () => {

@@ -12,11 +12,23 @@ import { listUploads } from "@/services/uploads";
 
 export const metadata: Metadata = { title: "Client detail" };
 
-function KpiCard({ label, value }: { label: string; value: string | number }) {
+/**
+ * `value === null` means the figure could NOT BE READ, and renders as an em dash
+ * with a spoken explanation — never as a 0, which would assert a fact we do not
+ * have (see `Client.postsCount`).
+ */
+function KpiCard({ label, value }: { label: string; value: string | number | null }) {
   return (
     <div className="min-w-30 flex-1 rounded-lg border bg-card p-5">
       <div className="font-display text-3xl leading-none font-extrabold tracking-tight tabular-nums">
-        {value}
+        {value === null ? (
+          <>
+            <span aria-hidden>—</span>
+            <span className="sr-only">{label} could not be read</span>
+          </>
+        ) : (
+          value
+        )}
       </div>
       <div className="mt-2 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
         {label}
@@ -30,8 +42,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const [client, uploads] = await Promise.all([getClient(id), listUploads(id)]);
   if (!client) notFound();
 
-  // Followers = the follower count captured with the most recent upload.
-  const latest = uploads[0];
+  // `uploads === null` means the read FAILED — not that there are none. The
+  // count renders as `—` rather than a `0` nobody could distinguish from a
+  // brand-new client (same rule as `postsCount`).
+  const uploadsUnavailable = uploads === null;
+
+  // Followers = the follower count captured with the most recent upload. Already
+  // `—` when there is no count to show, which now also covers a failed read.
+  const latest = uploads?.[0];
   const followers =
     latest && latest.followerCount != null ? latest.followerCount.toLocaleString() : "—";
 
@@ -64,7 +82,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           </a>
         </div>
         <div className="flex flex-wrap gap-3.5">
-          <KpiCard label="Uploads" value={uploads.length} />
+          <KpiCard label="Uploads" value={uploadsUnavailable ? null : uploads.length} />
           <KpiCard label="Posts" value={client.postsCount} />
           <KpiCard label="Followers" value={followers} />
         </div>
