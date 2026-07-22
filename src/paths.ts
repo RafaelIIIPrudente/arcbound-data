@@ -7,6 +7,7 @@ export const paths = {
   clients: {
     list: "/clients",
     details: (id: string) => `/clients/${id}`,
+    report: (id: string) => `/clients/${id}/report`,
   },
   upload: "/upload",
   resources: "/resources",

@@ -41,6 +41,11 @@ export interface PageTitle {
 export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname === paths.home) return { lead: "Post", accent: "analytics" };
   if (pathname === paths.clients.list) return { lead: "Client", accent: "list" };
+  // The report is nested under a client, so it must be matched BEFORE the
+  // generic client-detail rule below (which would otherwise swallow it).
+  if (pathname.startsWith(`${paths.clients.list}/`) && pathname.endsWith("/report")) {
+    return { lead: "LinkedIn", accent: "report" };
+  }
   if (pathname.startsWith(`${paths.clients.list}/`)) return { lead: "Client", accent: "detail" };
   if (pathname === paths.upload) return { lead: "Add post", accent: "metrics" };
   if (pathname === paths.resources) return { lead: "", accent: "Resources" };

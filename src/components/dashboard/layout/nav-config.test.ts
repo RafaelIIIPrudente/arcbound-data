@@ -37,6 +37,11 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive(paths.clients.list, "/")).toBe(false);
   });
 
+  it("keeps Client List active on the client LinkedIn report route", () => {
+    // The report is a nested client route — it must not orphan the nav.
+    expect(isNavItemActive(paths.clients.list, paths.clients.report("abc123"))).toBe(true);
+  });
+
   it("matches upload and resources on their own routes only", () => {
     expect(isNavItemActive(paths.upload, "/upload")).toBe(true);
     expect(isNavItemActive(paths.upload, "/uploads")).toBe(false);
@@ -50,6 +55,10 @@ describe("resolvePageTitle", () => {
     expect(resolvePageTitle("/")).toEqual({ lead: "Post", accent: "analytics" });
     expect(resolvePageTitle("/clients")).toEqual({ lead: "Client", accent: "list" });
     expect(resolvePageTitle("/clients/abc123")).toEqual({ lead: "Client", accent: "detail" });
+    expect(resolvePageTitle(paths.clients.report("abc123"))).toEqual({
+      lead: "LinkedIn",
+      accent: "report",
+    });
     expect(resolvePageTitle("/upload")).toEqual({ lead: "Add post", accent: "metrics" });
     expect(resolvePageTitle("/resources")).toEqual({ lead: "", accent: "Resources" });
   });

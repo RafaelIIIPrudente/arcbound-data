@@ -36,7 +36,12 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import { buildDashboardAnalytics, getDashboardAnalytics, type BiPostRow } from "./analytics";
+import {
+  buildDashboardAnalytics,
+  effectiveMs,
+  getDashboardAnalytics,
+  type BiPostRow,
+} from "./analytics";
 
 function biRow(over: Partial<BiPostRow>): BiPostRow {
   return {
@@ -114,15 +119,84 @@ const ROWS: BiPostRow[] = [
   }),
 ];
 
+describe("effectiveMs (pure)", () => {
+  it("uses estimated_post_date when it parses", () => {
+    expect(effectiveMs(biRow({ estimated_post_date: "2026-07-10" }))).toBe(
+      Date.parse("2026-07-10"),
+    );
+  });
+
+  it("falls back to scraped_at when estimated_post_date is null (hour-age posts)", () => {
+    // Shay's resolver leaves estimated_post_date NULL for "23h"-style ages. The
+    // scrape timestamp is the best available stand-in for when it was published.
+    const row = biRow({ estimated_post_date: null, scraped_at: "2026-07-15T09:00:00.000Z" });
+    expect(effectiveMs(row)).toBe(Date.parse("2026-07-15T09:00:00.000Z"));
+  });
+
+  it("falls back to scraped_at when estimated_post_date is unparseable", () => {
+    const row = biRow({
+      estimated_post_date: "not a date",
+      scraped_at: "2026-07-15T09:00:00.000Z",
+    });
+    expect(effectiveMs(row)).toBe(Date.parse("2026-07-15T09:00:00.000Z"));
+  });
+
+  it("is null when neither date is usable", () => {
+    expect(effectiveMs(biRow({ estimated_post_date: null, scraped_at: null }))).toBeNull();
+    expect(effectiveMs(biRow({ estimated_post_date: null, scraped_at: "nonsense" }))).toBeNull();
+  });
+});
+
+describe("hour-age posts (null estimated_post_date) are counted", () => {
+  it("counts an hour-age post in totalPosts and the current window", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+
+    // p4 has no estimated_post_date but was scraped 6h before NOW — it is a real
+    // post from within the window and must not be silently dropped.
+    expect(a.totalPosts).toBe(3);
+    expect(a.hero.value).toBe(1700); // 1000 + 500 + p4's 200
+  });
+
+  it("includes an hour-age post's impressions in the series buckets", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    // The series must reconcile with the hero, including the hour-age row.
+    expect(a.impressionsSeries.reduce((s, p) => s + p.value, 0)).toBe(1700);
+  });
+
+  it("still DISPLAYS post_age rather than a date for that post", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const p4 = a.recentPosts.find((p) => p.id === "p4")!;
+    // Counting it uses scraped_at; showing it must not — the scrape date is not
+    // the publish date, and "5h" is the more honest label.
+    expect(p4.date).toBe("5h");
+  });
+
+  it("still excludes a null-date post whose scrape falls outside the window", () => {
+    // Proves the fallback is a real date test, not a blanket include.
+    const stale = biRow({
+      linkedin_post_id: "p5",
+      estimated_post_date: null,
+      post_age: "3h",
+      impressions: 900,
+      scraped_at: "2026-05-20T10:00:00.000Z", // prior window, not current
+    });
+    const a = buildDashboardAnalytics([...ROWS, stale], { range: "30d", now: NOW });
+
+    expect(a.totalPosts).toBe(3); // unchanged — p5 is not in the current window
+    expect(a.hero.value).toBe(1700);
+  });
+});
+
 describe("buildDashboardAnalytics (pure)", () => {
   it("sums the current window and computes deltas vs the prior window", () => {
     const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
 
-    // Current window (Jul 1 + Jul 10) impressions = 1500; prior (May 20) = 600.
-    expect(a.hero).toEqual({ label: "Impressions", value: 1500, delta: 150, direction: "up" });
+    // Current window (Jul 1 + Jul 10 + the hour-age p4) impressions = 1700;
+    // prior (May 20) = 600. p4 counts via its scraped_at — see `effectiveMs`.
+    expect(a.hero).toEqual({ label: "Impressions", value: 1700, delta: 183, direction: "up" });
     expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Reposts", "Saves"]);
     const likes = a.kpis.find((k) => k.label === "Likes")!;
-    expect(likes.value).toBe(140);
+    expect(likes.value).toBe(150); // 100 + 40 + p4's 10
     expect(likes.direction).toBe("up");
     const saves = a.kpis.find((k) => k.label === "Saves")!;
     expect(saves.value).toBe(3); // grew from 0 in prior window
@@ -131,14 +205,14 @@ describe("buildDashboardAnalytics (pure)", () => {
 
   it("computes the weighted engagement rate and a signed points delta", () => {
     const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
-    // interactions 166 / impressions 1500 * 100 = 11.07; prior 36/600*100 = 6.0.
-    expect(a.engagement.value).toBeCloseTo(11.1, 1);
-    expect(a.engagement.delta).toBeCloseTo(5.1, 1);
+    // interactions 177 / impressions 1700 * 100 = 10.41; prior 36/600*100 = 6.0.
+    expect(a.engagement.value).toBeCloseTo(10.4, 1);
+    expect(a.engagement.delta).toBeCloseTo(4.4, 1);
   });
 
   it("counts the window, picks recent posts, and formats lastSync", () => {
     const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
-    expect(a.totalPosts).toBe(2); // hour-age (null date) is excluded from the window
+    expect(a.totalPosts).toBe(3); // hour-age (null date) counts via scraped_at
     expect(a.lastSync).toBe("2026-07-16 06:00"); // max scraped_at (p4)
 
     // Recent = newest first by estimated_post_date (fallback scraped_at). p4 (5h) is newest.
@@ -152,7 +226,7 @@ describe("buildDashboardAnalytics (pure)", () => {
   it("buckets the current window into a series that totals the hero value", () => {
     const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
     expect(a.impressionsSeries).toHaveLength(5); // 30d → 5 weekly buckets
-    expect(a.impressionsSeries.reduce((s, p) => s + p.value, 0)).toBe(1500);
+    expect(a.impressionsSeries.reduce((s, p) => s + p.value, 0)).toBe(1700);
     expect(a.engagementSeries).toHaveLength(5);
 
     expect(buildDashboardAnalytics(ROWS, { range: "7d", now: NOW }).impressionsSeries).toHaveLength(
@@ -164,7 +238,17 @@ describe("buildDashboardAnalytics (pure)", () => {
   });
 
   it("yields an empty dashboard when the current window has no posts", () => {
-    const priorOnly = [ROWS[2]!, ROWS[3]!]; // May post + null-date hour-age only
+    // May post + a null-date post scraped back in May. Neither falls in the
+    // current window, so the dashboard is genuinely empty. (p4 is deliberately
+    // NOT used here any more — its recent scrape now puts it in the window.)
+    const staleHourAge = biRow({
+      linkedin_post_id: "p5",
+      estimated_post_date: null,
+      post_age: "3h",
+      impressions: 900,
+      scraped_at: "2026-05-20T10:00:00.000Z",
+    });
+    const priorOnly = [ROWS[2]!, staleHourAge];
     const a = buildDashboardAnalytics(priorOnly, { range: "30d", now: NOW });
     expect(a.totalPosts).toBe(0);
     expect(a.hero.value).toBe(0);

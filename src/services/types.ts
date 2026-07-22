@@ -181,3 +181,77 @@ export interface PostAttributes {
   /** ISO 8601 date string. */
   recorded_at: string;
 }
+
+// ── Client LinkedIn Report ───────────────────────────────────────────────────
+// Read-model for `/clients/[id]/report`. Section 1 is scoped by the selected
+// ReportPeriod; sections 2 and 3 are always all-time (and say so in the UI).
+
+/**
+ * One selectable reporting window. `key` is the URL value and the React key;
+ * `label` is the only string ever shown to staff.
+ */
+export type ReportPeriod =
+  | { kind: "all"; key: "all"; label: string }
+  | { kind: "year"; key: string; label: string; year: number }
+  | { kind: "quarter"; key: string; label: string; year: number; quarter: number }
+  | { kind: "month"; key: string; label: string; year: number; month: number };
+
+/** A single figure in the Key Performance grid. `null` renders as an em dash. */
+export interface ReportFigure {
+  label: string;
+  value: number | null;
+  /** Appended to the value (e.g. "%"); most figures have none. */
+  unit?: string;
+  /** Marks a figure that is an approximation, so the UI can say so. */
+  approximate?: boolean;
+}
+
+/** One row of the Interactions Comparison table. */
+export interface InteractionsRow {
+  scope: "selected" | "prior3" | "allTime";
+  label: string;
+  likes: number;
+  comments: number;
+  /** `reposts` in the BI view — always labelled "Shares" in the UI. */
+  shares: number;
+}
+
+/** A monthly point. `value` is null for a month with no posts → a chart gap. */
+export interface MonthPoint {
+  label: string;
+  value: number | null;
+}
+
+/** One asset-type (Format Type) bucket. `format` is canonical, `label` human. */
+export interface AssetBucket {
+  format: PostFormat;
+  label: string;
+  value: number;
+  count: number;
+}
+
+export interface ClientReport {
+  period: ReportPeriod;
+  availablePeriods: ReportPeriod[];
+  /** Posts across the whole history, regardless of the selected period. */
+  totalPostsAllTime: number;
+  keyPerformance: {
+    /** Row 1 — scoped to the selected period. */
+    selected: ReportFigure[];
+    /** Row 2 — all-time averages. */
+    allTime: ReportFigure[];
+    /** Row 3 — all-time maxima (plus the approximate follower ratio). */
+    allTimeMax: ReportFigure[];
+  };
+  interactionsComparison: InteractionsRow[];
+  impressionsByMonth: MonthPoint[];
+  /** The reference line on the by-month chart: mean impressions per post. */
+  impressionsAverage: number;
+  /** Seven entries, Sunday → Saturday. */
+  impressionsByWeekday: { label: string; value: number }[];
+  interactionsByAsset: AssetBucket[];
+  /** Share of posts by asset type, as a percentage to one decimal place. */
+  postTypeDistribution: AssetBucket[];
+  /** True when the report source couldn't be read (distinct from "no data"). */
+  unavailable?: boolean;
+}

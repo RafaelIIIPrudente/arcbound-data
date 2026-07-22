@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { ClientTabs } from "@/components/dashboard/client/client-tabs";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
 import { paths } from "@/paths";
@@ -68,6 +69,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <KpiCard label="Followers" value={followers} />
         </div>
       </div>
+
+      <ClientTabs clientId={client.id} />
 
       <UploadHistory uploads={uploads} />
     </div>

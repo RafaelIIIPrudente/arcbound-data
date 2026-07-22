@@ -9,7 +9,9 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // `supabase/` is included so the script ⇄ migration sync guard can live next
+    // to the SQL files it protects (coverage still only measures `src/`).
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "supabase/**/*.{test,spec}.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
