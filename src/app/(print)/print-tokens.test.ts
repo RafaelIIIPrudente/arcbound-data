@@ -55,9 +55,38 @@ describe("the print palette stays in step with globals.css", () => {
     expect(printed.get("--print-column")).toBe(`${CHART_WIDTH}px`);
   });
 
-  it.each([...dark.keys()])("neutralises %s at the light value", (token) => {
-    // If this fails for a NEW token, add it to `.print-root` in print.css —
-    // otherwise that one value leaks through dark and prints nearly black.
-    expect(printed.get(token)).toBe(light.get(token));
+  /**
+   * The three surfaces the printed document deliberately keeps WHITE while the
+   * app is on warm paper. Everything else must stay in step with globals.css.
+   */
+  const PRINT_WHITE = new Set(["--background", "--card", "--popover"]);
+
+  it.each([...dark.keys()].filter((t) => !PRINT_WHITE.has(t)))(
+    "neutralises %s at the light value",
+    (token) => {
+      // If this fails for a NEW token, add it to `.print-root` in print.css —
+      // otherwise that one value leaks through dark and prints nearly black.
+      expect(printed.get(token)).toBe(light.get(token));
+    },
+  );
+
+  it.each([...PRINT_WHITE])(
+    "keeps %s WHITE on paper, diverging from the app on purpose",
+    (token) => {
+      // ⚠️ INTENTIONAL DIVERGENCE, NOT DRIFT.
+      //
+      // globals.css moved the app to #F4F3F0. The sheet does not follow: paper is
+      // already the ground, and flooding a page edge-to-edge with a tint burns
+      // toner, bands on cheap printers, and renders only when the reader has
+      // "Background graphics" enabled — the same PDF would look different for
+      // different people. White sheet, dark ink, warm hairlines.
+      expect(printed.get(token)).toBe("oklch(1 0 0)");
+      expect(printed.get(token)).not.toBe(dark.get(token));
+    },
+  );
+
+  it("proves the divergence is real, so the rule above is not vacuous", () => {
+    expect(light.get("--background")).toBe("#f4f3f0");
+    expect(printed.get("--background")).not.toBe(light.get("--background"));
   });
 });

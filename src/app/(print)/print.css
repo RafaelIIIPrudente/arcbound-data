@@ -48,37 +48,48 @@ html {
   margin-inline: auto;
   padding: 2rem;
 
+  /* ⚠️ THE SHEET STAYS WHITE. globals.css moved the APP to warm paper
+     (#F4F3F0); the printed document deliberately does not follow. Physical
+     paper is already the ground, and flooding a page edge-to-edge with a tint
+     burns toner, bands on cheap printers, and renders only when the reader has
+     "Background graphics" enabled — so the same PDF would look different for
+     different people. White sheet, dark ink.
+
+     Everything BELOW the surfaces tracks globals.css, so the document keeps the
+     app's ink, warm hairlines and accent. print-tokens.test.ts pins both halves
+     of that rule: surfaces white, everything else in step. */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+
+  --foreground: #1a1a1a;
+  --card-foreground: #1a1a1a;
+  --popover-foreground: #1a1a1a;
   --primary: #f63a3a;
   --primary-foreground: #ffffff;
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: #eae8e3;
+  --secondary-foreground: #1a1a1a;
+  --muted: #eae8e3;
+  --muted-foreground: rgba(26, 26, 26, 0.74);
+  --accent: #eae8e3;
+  --accent-foreground: #1a1a1a;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: rgba(26, 26, 26, 0.13);
+  --input: rgba(26, 26, 26, 0.13);
   --ring: #f63a3a;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: #f4f3f0;
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-primary: #1a1a1a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eae8e3;
+  --sidebar-accent-foreground: #1a1a1a;
+  --sidebar-border: rgba(26, 26, 26, 0.13);
+  --sidebar-ring: rgba(26, 26, 26, 0.35);
 
   background-color: var(--background);
   color: var(--foreground);
