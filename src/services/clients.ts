@@ -102,16 +102,23 @@ export async function listClients(opts: ListClientsOptions = {}): Promise<Pagina
 export async function getClient(id: string): Promise<Client | null> {
   const supabase = createServerClient(cookies());
 
-  const { data, error } = await supabase
-    .from("clients")
-    .select(CLIENT_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  // Two independent reads, issued together. The count filters on the id
+  // ARGUMENT, not on anything the select returns, so it never needed to wait:
+  // `clients.id` is a uuid, so the row's id and `id` are the same value, and
+  // `getClientReport` already filters this same BI view on the raw route param.
+  //
+  // Error precedence is unchanged. `countForClient` swallows its own failures
+  // and returns 0, so it can never reject — the only error that can surface
+  // here is still the select's, with the same message as before.
+  const [{ data, error }, postsCount] = await Promise.all([
+    supabase.from("clients").select(CLIENT_COLUMNS).eq("id", id).maybeSingle(),
+    countForClient(supabase, id),
+  ]);
+
   if (error) throw new Error(`Failed to load client: ${error.message}`);
   if (!data) return null;
 
-  const row = data as ClientRow;
-  return toClient(row, await countForClient(supabase, row.id));
+  return toClient(data as ClientRow, postsCount);
 }
 
 export async function createClient(input: { name: string; linkedin_url: string }): Promise<Client> {
