@@ -17,8 +17,42 @@ export interface Client {
   linkedin_url: string;
   /** ISO 8601 date string. */
   createdAt: string;
-  /** Count of the Client's Posts. Mock-derived today; real once ingestion lands. */
-  postsCount: number;
+  /**
+   * Posts attributed to this Client in `bi.linkedin_post_latest`.
+   *
+   * ⚠️ `null` means the count could NOT BE READ — it is not a zero. A real `0`
+   * (the read succeeded and found nothing) and a failed read used to collapse
+   * into the same `0`, which rendered a broken pipeline and a brand-new client
+   * identically. The UI must keep them apart.
+   *
+   * CEILING: this separates read-failed from zero, and nothing more. A real `0`
+   * can still mean either "this Client has never posted" or "the downstream
+   * name-match attributed nothing to them" — attribution happens outside
+   * ArcBase (ADR 0009), so we cannot see which, and must not claim to.
+   */
+  postsCount: number | null;
+}
+
+/**
+ * When a Client was last ingested:
+ *   • an ISO 8601 string — the newest upload's timestamp
+ *   • `null`             — the read SUCCEEDED and this Client has never been ingested
+ *   • `"unavailable"`    — the uploads read FAILED, so we do not know
+ *
+ * Three states because "never ingested" and "we could not find out" are
+ * different facts, and a table that shows both as the same glyph is lying.
+ */
+export type LastUpload = string | null | "unavailable";
+
+/**
+ * A Client as the LIST screen shows it: the entity plus its newest ingest.
+ *
+ * Separate from `Client` on purpose — `lastUpload` is a list-screen concern,
+ * and folding it into the entity would force `getClient` to make an uploads
+ * round-trip that the detail page already makes for itself.
+ */
+export interface ClientListRow extends Client {
+  lastUpload: LastUpload;
 }
 
 export interface Paginated<T> {
@@ -76,8 +110,22 @@ export interface DashboardAnalytics {
 
 export type SourceType = "csv" | "json";
 
-/** The five recognised Post format types; anything else is "unknown". */
-export type PostFormat = "image" | "carousel" | "link" | "text" | "video";
+/**
+ * The ten Post format types the LinkedIn scraper emits. Recognition is
+ * case-insensitive, but ArcBase stores whatever the Scrape sent, byte-for-byte
+ * (ADR 0009) — this union is the vocabulary we understand, not a storage format.
+ */
+export type PostFormat =
+  | "IMAGE"
+  | "DOCUMENT"
+  | "VIDEO"
+  | "TEXT"
+  | "POLL"
+  | "ARTICLE"
+  | "SLIDE_SHOW"
+  | "SHARE"
+  | "INSTANT_SHARE"
+  | "UNKNOWN";
 
 /** One scraped Post metric row — the 15-column scrape shape. */
 export interface PostRow {
@@ -95,7 +143,10 @@ export interface PostRow {
   engagement_rate: number;
   /** Nullable — the scrape may omit it. */
   saves: number | null;
-  /** Empty/unknown until reviewed; one of PostFormat once confident. */
+  /**
+   * The raw format as the Scrape sent it — any casing, never rewritten. Absent,
+   * unrecognised, or UNKNOWN values go to Format Review.
+   */
   post_format_type?: string;
   scraped_at: string;
 }
@@ -149,4 +200,146 @@ export interface Upload {
   followerCount: number | null;
   /** ISO 8601 date string. */
   createdAt: string;
+}
+
+// ── Post attributes ──────────────────────────────────────────────────────────
+// App-owned per-post facts that the externally-owned `bi.linkedin_post_latest`
+// does not expose. Today that is just the Format Type (Asset Type): ArcBase
+// already resolves it during upload review, so it records it here and joins it
+// to the BI rows at read time. Column names are the raw table columns.
+
+export interface PostAttributes {
+  linkedin_post_id: string;
+  /** The format EXACTLY as the Scrape sent it — any casing, never rewritten. */
+  post_format_type: string | null;
+  /** ISO 8601 date string. */
+  recorded_at: string;
+}
+
+// ── Client LinkedIn Report ───────────────────────────────────────────────────
+// Read-model for `/clients/[id]/report`. ALL THREE sections are scoped by the
+// selected ReportPeriod.
+//
+// Trends and Content Mix were pinned to all-time for a while, to mirror the
+// source Power BI report where the KPI pages are month-scoped and the charts sit
+// at full range. That is no longer the product decision — the picker governs the
+// whole page. What remains all-time BY DESIGN, and must not be rescoped, is:
+// `totalPostsAllTime`, both rows of `keyPerformance.matrix`,
+// `perThousandFollowers`, and the `allTime` row of `interactionsComparison`.
+
+/**
+ * One selectable reporting window. `key` is the URL value and the React key;
+ * `label` is the only string ever shown to staff.
+ */
+export type ReportPeriod =
+  | { kind: "all"; key: "all"; label: string }
+  | { kind: "year"; key: string; label: string; year: number }
+  | { kind: "quarter"; key: string; label: string; year: number; quarter: number }
+  | { kind: "month"; key: string; label: string; year: number; month: number };
+
+/** A single figure in the Key Performance grid. `null` renders as an em dash. */
+export interface ReportFigure {
+  label: string;
+  value: number | null;
+  /** Appended to the value (e.g. "%"); most figures have none. */
+  unit?: string;
+  /** Marks a figure that is an approximation, so the UI can say so. */
+  approximate?: boolean;
+}
+
+/** One row of the Interactions Comparison table. */
+export interface InteractionsRow {
+  scope: "selected" | "prior3" | "allTime";
+  label: string;
+  likes: number;
+  comments: number;
+  /** `reposts` in the BI view — always labelled "Shares" in the UI. */
+  shares: number;
+}
+
+/**
+ * One row of the all-time matrix on the Key Performance panel. The three cells
+ * ARE the matrix's three columns — post counts, per-post rates, interaction
+ * totals — so a row cannot be built with the wrong number of cells or with its
+ * columns transposed.
+ */
+export interface MatrixRow {
+  /** The row header, e.g. "Monthly avg". */
+  label: string;
+  posts: ReportFigure;
+  /**
+   * `null` where the measure does not exist for this row: a MAXIMUM has no
+   * per-post rate. Renders as an em dash — never as 0, which would be a claim.
+   */
+  perPost: ReportFigure | null;
+  interactions: ReportFigure;
+}
+
+/**
+ * The bucket granularity of the impressions series. A month period buckets by
+ * WEEK — bucketed by month it would be a single bar, which is not a chart.
+ */
+export type ImpressionsBucket = "month" | "week";
+
+/** A monthly point. `value` is null for a month with no posts → a chart gap. */
+export interface MonthPoint {
+  label: string;
+  value: number | null;
+}
+
+/** One asset-type (Format Type) bucket. `format` is canonical, `label` human. */
+export interface AssetBucket {
+  format: PostFormat;
+  label: string;
+  value: number;
+  count: number;
+}
+
+export interface ClientReport {
+  period: ReportPeriod;
+  availablePeriods: ReportPeriod[];
+  /** Posts across the whole history, regardless of the selected period. */
+  totalPostsAllTime: number;
+  keyPerformance: {
+    /**
+     * The hero: three figures scoped to the selected period. Also the print
+     * cover's three headline figures, so this array's shape and labels are
+     * read in two places.
+     */
+    selected: ReportFigure[];
+    /** All-time context, read against the matrix's column headers. */
+    matrix: MatrixRow[];
+    /**
+     * Interactions per 1,000 followers, all time. Its OWN field rather than a
+     * member of the maxima row, because it is an average — sitting it among
+     * maxima was invisible as nine loose cards and wrong in a labelled matrix.
+     */
+    perThousandFollowers: ReportFigure;
+  };
+  interactionsComparison: InteractionsRow[];
+  /**
+   * The impressions series for the selected period. NOT always months — a month
+   * period buckets by week (see `impressionsBucket`), which is why this is not
+   * called `impressionsByMonth` any more.
+   */
+  impressionsSeries: MonthPoint[];
+  /** Which granularity `impressionsSeries` actually used, so the card can say so. */
+  impressionsBucket: ImpressionsBucket;
+  /** The reference line on that chart: mean impressions per post, same scope. */
+  impressionsAverage: number;
+  /** Seven entries, Sunday → Saturday. */
+  impressionsByWeekday: { label: string; value: number }[];
+  interactionsByAsset: AssetBucket[];
+  /** Share of the period's posts by asset type, as a percentage to one decimal. */
+  postTypeDistribution: AssetBucket[];
+  /**
+   * Posts behind the two IMPRESSIONS charts — the period's rows that could be
+   * dated. Surfaced so a distribution over 5 posts reads differently from one
+   * over 500.
+   */
+  impressionsPostCount: number;
+  /** Posts behind the two ASSET charts — every row in the period. */
+  assetPostCount: number;
+  /** True when the report source couldn't be read (distinct from "no data"). */
+  unavailable?: boolean;
 }

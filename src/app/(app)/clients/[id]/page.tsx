@@ -3,19 +3,85 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { ClientTabs } from "@/components/dashboard/client/client-tabs";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
+import { followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
 import { paths } from "@/paths";
 import { getClient } from "@/services/clients";
 import { listUploads } from "@/services/uploads";
 
 export const metadata: Metadata = { title: "Client detail" };
 
-function KpiCard({ label, value }: { label: string; value: string | number }) {
+/**
+ * Movement since the previous ingest, in the same shape the dashboard KPI cards
+ * use: the ▲/▼ glyph carries direction visually and an sr-only word carries it
+ * for assistive tech, so direction is never conveyed by colour alone.
+ *
+ * A FLAT result prints `0` with no glyph. It must not borrow the em dash —
+ * that is reserved for "could not be read", and a confirmed no-change week is
+ * a finding, not missing data.
+ */
+function Delta({ delta, noun }: { delta: UploadDelta; noun: string }) {
+  if (delta.direction === "flat") {
+    return (
+      <span className="font-mono text-muted-foreground tabular-nums">
+        0<span className="sr-only"> change in {noun} since the previous upload</span>
+      </span>
+    );
+  }
+  const up = delta.direction === "up";
   return (
-    <div className="min-w-30 flex-1 rounded-lg border bg-card p-5">
-      <div className="font-display text-3xl leading-none font-extrabold tracking-tight tabular-nums">
-        {value}
+    <span className="font-mono text-primary tabular-nums">
+      <span aria-hidden>{up ? "▲" : "▼"}</span>
+      <span className="sr-only">{up ? "Up" : "Down"} </span>
+      {Math.abs(delta.value).toLocaleString()}
+      <span className="sr-only"> {noun} since the previous upload</span>
+    </span>
+  );
+}
+
+/**
+ * `value === null` means the figure could NOT BE READ, and renders as an em dash
+ * with a spoken explanation — never as a 0, which would assert a fact we do not
+ * have (see `Client.postsCount`).
+ *
+ * `delta` is optional: absent when there is no prior ingest to compare against.
+ * It sits beside the figure rather than under the label so the three cards keep
+ * the same height whether or not they carry one.
+ */
+function KpiCard({
+  label,
+  value,
+  delta,
+  deltaNoun,
+}: {
+  label: string;
+  value: string | number | null;
+  delta?: UploadDelta | null;
+  deltaNoun?: string;
+}) {
+  return (
+    // Content-sized, NOT `flex-1`. Growing to fill stretched three small
+    // figures across half the viewport and stranded them from the name they
+    // describe; the comp sizes them to their content.
+    <div className="min-w-30 rounded-lg border bg-card px-5 py-4">
+      <div className="flex items-baseline gap-2">
+        <div className="font-display text-3xl leading-none font-extrabold tracking-tight tabular-nums">
+          {value === null ? (
+            <>
+              <span aria-hidden>—</span>
+              <span className="sr-only">{label} could not be read</span>
+            </>
+          ) : (
+            value
+          )}
+        </div>
+        {delta && deltaNoun ? (
+          <div className="text-[11.5px]">
+            <Delta delta={delta} noun={deltaNoun} />
+          </div>
+        ) : null}
       </div>
       <div className="mt-2 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
         {label}
@@ -29,8 +95,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const [client, uploads] = await Promise.all([getClient(id), listUploads(id)]);
   if (!client) notFound();
 
-  // Followers = the follower count captured with the most recent upload.
-  const latest = uploads[0];
+  // `uploads === null` means the read FAILED — not that there are none. The
+  // count renders as `—` rather than a `0` nobody could distinguish from a
+  // brand-new client (same rule as `postsCount`).
+  const uploadsUnavailable = uploads === null;
+
+  // Followers = the follower count captured with the most recent upload. Already
+  // `—` when there is no count to show, which now also covers a failed read.
+  const latest = uploads?.[0];
   const followers =
     latest && latest.followerCount != null ? latest.followerCount.toLocaleString() : "—";
 
@@ -50,7 +122,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             <span className="text-primary">—</span>
             Client
           </div>
-          <h2 className="mt-2.5 font-display text-3xl leading-none font-extrabold tracking-tight">
+          <h2 className="mt-2.5 font-display text-[34px] leading-none font-extrabold tracking-tight">
             {client.name}
           </h2>
           <a
@@ -63,11 +135,25 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           </a>
         </div>
         <div className="flex flex-wrap gap-3.5">
-          <KpiCard label="Uploads" value={uploads.length} />
-          <KpiCard label="Posts" value={client.postsCount} />
-          <KpiCard label="Followers" value={followers} />
+          {/* Uploads carries no delta: "how many more uploads than last upload"
+              is a restatement of the count, not a second fact. */}
+          <KpiCard label="Uploads" value={uploadsUnavailable ? null : uploads.length} />
+          <KpiCard
+            label="Posts"
+            value={client.postsCount}
+            delta={postsDelta(uploads)}
+            deltaNoun="new posts"
+          />
+          <KpiCard
+            label="Followers"
+            value={followers}
+            delta={followersDelta(uploads)}
+            deltaNoun="followers"
+          />
         </div>
       </div>
+
+      <ClientTabs clientId={client.id} />
 
       <UploadHistory uploads={uploads} />
     </div>

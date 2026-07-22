@@ -20,6 +20,17 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Dev and production build get SEPARATE output directories.
+  //
+  // Both default to `.next`, so running `pnpm build` while `next dev` is up made
+  // the build replace the dev server's tree mid-write — after which dev ENOENTs
+  // on `.next/static/development/_buildManifest.js.tmp.*` forever, because the
+  // directory it renames into no longer exists. It cannot recover on its own.
+  //
+  // Production stays at `.next` on purpose: Dockerfile copies `.next/standalone`
+  // and `.next/static`, and `next start` resolves this same config. Only dev
+  // moves aside, so nothing downstream changes.
+  distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   async headers() {
     return [
       {

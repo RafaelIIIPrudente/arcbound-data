@@ -44,4 +44,14 @@ describe("UploadHistory", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("No uploads yet")).toBeInTheDocument();
   });
+
+  it("says the history could not be LOADED — never 'No uploads yet' — on a failed read", () => {
+    render(<UploadHistory uploads={null} />);
+
+    // ⚠️ The distinction the whole change exists for. "No uploads yet" is a
+    // claim about the client; this is a statement about the read.
+    expect(screen.getByText("Upload history could not be loaded.")).toBeInTheDocument();
+    expect(screen.queryByText("No uploads yet")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
 });

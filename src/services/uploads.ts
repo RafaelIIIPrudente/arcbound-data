@@ -39,7 +39,55 @@ function toUpload(row: UploadRow): Upload {
   };
 }
 
-export async function listUploads(clientId: string): Promise<Upload[]> {
+/**
+ * Newest upload timestamp PER CLIENT, in ONE query.
+ *
+ * ⚠️ EXISTS TO PREVENT AN N+1. The Client List needs each row's last ingest;
+ * calling `listUploads` per row would be one round-trip per client. This reads
+ * two columns for every upload, newest-first, and keeps the first row it sees
+ * per client — PostgREST has no `DISTINCT ON`, so the de-dupe happens here.
+ *
+ * Returns `null` when the read FAILS, never an empty map. An empty map is a
+ * real answer ("nobody has been ingested"); conflating the two would let a
+ * broken read render as a confident fact — the same defect that made every
+ * unreadable post count look like a zero.
+ */
+export async function latestUploadByClient(): Promise<Map<string, string> | null> {
+  try {
+    const supabase = createServerClient(cookies());
+    const { data, error } = await supabase
+      .from("uploads")
+      .select("client_id, created_at")
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.warn(`Failed to load latest uploads: ${error.message}`);
+      return null;
+    }
+
+    const latest = new Map<string, string>();
+    for (const row of (data ?? []) as { client_id: string; created_at: string }[]) {
+      // Newest-first, so the FIRST sighting of a client is its latest upload.
+      if (!latest.has(row.client_id)) latest.set(row.client_id, row.created_at);
+    }
+    return latest;
+  } catch (err) {
+    console.warn(
+      `Failed to load latest uploads: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+}
+
+/**
+ * One client's uploads, newest first.
+ *
+ * ⚠️ Returns `null` when the read FAILS — never an empty array. `[]` is a real
+ * answer ("this client has never been ingested"); returning it for a failed read
+ * made the detail page show `0` uploads and "No uploads yet", asserting a fact
+ * it did not have. Same rule as `Client.postsCount`: absence of data and a
+ * confirmed zero are different, and the UI keeps them apart.
+ */
+export async function listUploads(clientId: string): Promise<Upload[] | null> {
   try {
     const supabase = createServerClient(cookies());
     const { data, error } = await supabase
@@ -49,13 +97,13 @@ export async function listUploads(clientId: string): Promise<Upload[]> {
       .order("created_at", { ascending: false });
     if (error) {
       console.warn(`Failed to load uploads for client ${clientId}: ${error.message}`);
-      return [];
+      return null;
     }
     return ((data ?? []) as UploadRow[]).map(toUpload);
   } catch (err) {
     console.warn(
       `Failed to load uploads for client ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return [];
+    return null;
   }
 }

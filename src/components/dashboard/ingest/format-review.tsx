@@ -10,9 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FORMAT_CHOICES, FORMAT_LABELS } from "@/lib/post-format";
 import type { ReviewPost } from "@/services/types";
-
-const FORMATS = ["image", "carousel", "link", "text", "video"] as const;
 
 export function FormatReview({
   posts,
@@ -52,9 +51,10 @@ export function FormatReview({
                 <SelectValue placeholder="— select —" />
               </SelectTrigger>
               <SelectContent>
-                {FORMATS.map((format) => (
+                {/* The canonical value is submitted; staff only ever see the label. */}
+                {FORMAT_CHOICES.map((format) => (
                   <SelectItem key={format} value={format}>
-                    {format}
+                    {FORMAT_LABELS[format]}
                   </SelectItem>
                 ))}
               </SelectContent>

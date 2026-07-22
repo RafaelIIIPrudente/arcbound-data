@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Geist, Geist_Mono, Inter_Tight } from "next/font/google";
+import localFont from "next/font/local";
 
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -10,9 +10,35 @@ import "./globals.css";
 
 // ArcBase type system (design brief): Geist for body/UI, Geist Mono for labels,
 // Inter Tight for the wordmark and display headings.
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
-const interTight = Inter_Tight({ subsets: ["latin"], variable: "--font-inter-tight" });
+//
+// SELF-HOSTED, not `next/font/google`. Fetching these from Google at build time
+// made the build depend on a third-party network call: a transient failure
+// there aborted `next build` with a bare `NextFontError`, and a half-written
+// `.next` afterwards surfaced as unrelated-looking missing-manifest errors.
+// The files now live in ./fonts and the build is hermetic. See fonts/README.md
+// for provenance and licensing.
+//
+// Each file is the LATIN subset of the family's VARIABLE font — one file spans
+// weights 100-900, which is why `weight` is a range rather than a number. The
+// design uses 400/500/600/800, all covered.
+const geist = localFont({
+  src: "./fonts/geist-latin-variable.woff2",
+  variable: "--font-geist",
+  weight: "100 900",
+  display: "swap",
+});
+const geistMono = localFont({
+  src: "./fonts/geist-mono-latin-variable.woff2",
+  variable: "--font-geist-mono",
+  weight: "100 900",
+  display: "swap",
+});
+const interTight = localFont({
+  src: "./fonts/inter-tight-latin-variable.woff2",
+  variable: "--font-inter-tight",
+  weight: "100 900",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(config.site.url),

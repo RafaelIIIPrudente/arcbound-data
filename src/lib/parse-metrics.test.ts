@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildSnippet,
-  isValidFormat,
-  needsFormatReview,
-  parseCsv,
-  parseJson,
-} from "./parse-metrics";
+import { buildSnippet, needsFormatReview, parseCsv, parseJson } from "./parse-metrics";
 import type { PostRow } from "@/services/types";
 
 const HEADER =
@@ -94,17 +88,20 @@ describe("format review detection", () => {
     scraped_at: "2026-07-15T15:25:39.889Z",
   };
 
-  it("flags rows with a missing or invalid format and passes valid ones", () => {
+  it("flags rows with a missing, unrecognised, or UNKNOWN format", () => {
     expect(needsFormatReview({ ...base, post_format_type: "" })).toBe(true);
     expect(needsFormatReview({ ...base, post_format_type: "banana" })).toBe(true);
     expect(needsFormatReview({ ...base, post_format_type: undefined })).toBe(true);
-    expect(needsFormatReview({ ...base, post_format_type: "video" })).toBe(false);
-  });
-
-  it("validates the five known formats", () => {
-    expect(isValidFormat("carousel")).toBe(true);
-    expect(isValidFormat("")).toBe(false);
-    expect(isValidFormat("story")).toBe(false);
+    // Retired invented values are no longer recognised.
+    expect(needsFormatReview({ ...base, post_format_type: "carousel" })).toBe(true);
+    expect(needsFormatReview({ ...base, post_format_type: "link" })).toBe(true);
+    // UNKNOWN is storable but carries no information — it must still be reviewed.
+    expect(needsFormatReview({ ...base, post_format_type: "UNKNOWN" })).toBe(true);
+    expect(needsFormatReview({ ...base, post_format_type: "unknown" })).toBe(true);
+    // Real scraper values pass straight through, in any casing.
+    expect(needsFormatReview({ ...base, post_format_type: "DOCUMENT" })).toBe(false);
+    expect(needsFormatReview({ ...base, post_format_type: "SLIDE_SHOW" })).toBe(false);
+    expect(needsFormatReview({ ...base, post_format_type: "image" })).toBe(false);
   });
 
   it("builds a truncated content snippet", () => {

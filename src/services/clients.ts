@@ -1,8 +1,10 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import type { Client, Paginated } from "@/services/types";
+import type { Client, ClientListRow, LastUpload, Paginated } from "@/services/types";
+import { latestUploadByClient } from "@/services/uploads";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Clients seam (real). Reads/writes the externally-owned public.clients table and
@@ -24,7 +26,7 @@ interface ClientRow {
 
 const CLIENT_COLUMNS = "id, name, linkedin_profile_url, created_at";
 
-function toClient(row: ClientRow, postsCount: number): Client {
+function toClient(row: ClientRow, postsCount: number | null): Client {
   return {
     id: row.id,
     name: row.name,
@@ -34,37 +36,55 @@ function toClient(row: ClientRow, postsCount: number): Client {
   };
 }
 
-// Per-client post counts from bi.linkedin_post_latest. Best-effort: if the `bi`
-// schema isn't exposed to the API yet (see supabase/INGEST-WRITE-APPLY.md), fall
-// back to 0 rather than failing the whole list.
-async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
+/**
+ * Per-client post counts from bi.linkedin_post_latest.
+ *
+ * ⚠️ Returns `null` when the read FAILS — never an empty map. An empty map is a
+ * real answer ("the view attributes no posts to anyone"); returning it for a
+ * failed read made a `0` in the Client List mean either "no posts yet" or "the
+ * bi read broke", with no way for staff to tell which.
+ */
+async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, number> | null> {
   try {
     const { data, error } = await supabase
       .schema("bi")
       .from("linkedin_post_latest")
       .select("client_id");
-    if (error || !data) return counts;
+    if (error || !data) {
+      console.warn(`Failed to load post counts: ${error?.message ?? "no rows returned"}`);
+      return null;
+    }
+    const counts = new Map<string, number>();
     for (const row of data as { client_id: string | null }[]) {
       if (row.client_id) counts.set(row.client_id, (counts.get(row.client_id) ?? 0) + 1);
     }
-  } catch {
-    // bi schema unreachable → treat every count as 0 (best-effort).
+    return counts;
+  } catch (err) {
+    console.warn(`Failed to load post counts: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
-  return counts;
 }
 
-async function countForClient(supabase: SupabaseClient, clientId: string): Promise<number> {
+/** One client's post count, or `null` when the read failed (see `fetchPostCounts`). */
+async function countForClient(supabase: SupabaseClient, clientId: string): Promise<number | null> {
   try {
     const { count, error } = await supabase
       .schema("bi")
       .from("linkedin_post_latest")
       .select("*", { count: "exact", head: true })
       .eq("client_id", clientId);
-    if (error || count == null) return 0;
+    if (error || count == null) {
+      console.warn(
+        `Failed to count posts for client ${clientId}: ${error?.message ?? "no count returned"}`,
+      );
+      return null;
+    }
     return count;
-  } catch {
-    return 0;
+  } catch (err) {
+    console.warn(
+      `Failed to count posts for client ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
   }
 }
 
@@ -74,18 +94,36 @@ export interface ListClientsOptions {
   pageSize?: number;
 }
 
-export async function listClients(opts: ListClientsOptions = {}): Promise<Paginated<Client>> {
+export async function listClients(
+  opts: ListClientsOptions = {},
+): Promise<Paginated<ClientListRow>> {
   const { q, page = 1, pageSize = 10 } = opts;
   const supabase = createServerClient(cookies());
 
-  const { data, error } = await supabase
-    .from("clients")
-    .select(CLIENT_COLUMNS)
-    .order("created_at", { ascending: false });
+  // Three independent reads, issued together. Neither the counts nor the latest
+  // uploads read anything out of the client select, so none of them needed to
+  // wait; all three are joined to the rows in memory below.
+  //
+  // `latestUploadByClient` is ONE query for every client — reading uploads per
+  // row would be an N+1.
+  //
+  // Error precedence is unchanged: the two helpers swallow their own failures
+  // (signalling with `null`), so neither can reject, and the select's error is
+  // still the only one that can surface here.
+  const [{ data, error }, counts, latestUploads] = await Promise.all([
+    supabase.from("clients").select(CLIENT_COLUMNS).order("created_at", { ascending: false }),
+    fetchPostCounts(supabase),
+    latestUploadByClient(),
+  ]);
   if (error) throw new Error(`Failed to load clients: ${error.message}`);
 
-  const counts = await fetchPostCounts(supabase);
-  let clients = ((data ?? []) as ClientRow[]).map((row) => toClient(row, counts.get(row.id) ?? 0));
+  let clients = ((data ?? []) as ClientRow[]).map((row): ClientListRow => {
+    // A failed read means we don't know ANY client's value — `null`/"unavailable",
+    // never a fabricated 0 or "never ingested".
+    const lastUpload: LastUpload =
+      latestUploads === null ? "unavailable" : (latestUploads.get(row.id) ?? null);
+    return { ...toClient(row, counts === null ? null : (counts.get(row.id) ?? 0)), lastUpload };
+  });
 
   if (q && q.trim()) {
     const needle = q.trim().toLowerCase();
@@ -99,20 +137,45 @@ export async function listClients(opts: ListClientsOptions = {}): Promise<Pagina
   return { items: clients.slice(start, start + pageSize), total };
 }
 
-export async function getClient(id: string): Promise<Client | null> {
+/**
+ * One client by id, or `null`.
+ *
+ * MEMOISED PER REQUEST, keyed by `id`. React's `cache()` is REQUEST-scoped: the
+ * memo lives for one server render and is discarded with it, so one visitor's
+ * RLS-authorised read can never be served to another.
+ *
+ * ⚠️ Today this DEDUPES NOTHING — every call site reads a client exactly once
+ * per request (there is no `generateMetadata` to double the read). It is a guard
+ * on a cheap read, not a fix for measured duplicate work: the moment a second
+ * component on the same page needs the client, it costs one round-trip instead
+ * of two, and nobody has to notice.
+ *
+ * This must NOT be swapped for `unstable_cache` or anything that persists
+ * BETWEEN requests. That would move an RLS-enforced boundary out of the database
+ * and into application code, and it throws outright here anyway — the read is
+ * cookie-bound via `createServerClient(cookies())`.
+ */
+export const getClient = cache(async (id: string): Promise<Client | null> => {
   const supabase = createServerClient(cookies());
 
-  const { data, error } = await supabase
-    .from("clients")
-    .select(CLIENT_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  // Two independent reads, issued together. The count filters on the id
+  // ARGUMENT, not on anything the select returns, so it never needed to wait:
+  // `clients.id` is a uuid, so the row's id and `id` are the same value, and
+  // `getClientReport` already filters this same BI view on the raw route param.
+  //
+  // Error precedence is unchanged. `countForClient` swallows its own failures
+  // and returns 0, so it can never reject — the only error that can surface
+  // here is still the select's, with the same message as before.
+  const [{ data, error }, postsCount] = await Promise.all([
+    supabase.from("clients").select(CLIENT_COLUMNS).eq("id", id).maybeSingle(),
+    countForClient(supabase, id),
+  ]);
+
   if (error) throw new Error(`Failed to load client: ${error.message}`);
   if (!data) return null;
 
-  const row = data as ClientRow;
-  return toClient(row, await countForClient(supabase, row.id));
-}
+  return toClient(data as ClientRow, postsCount);
+});
 
 export async function createClient(input: { name: string; linkedin_url: string }): Promise<Client> {
   const supabase = createServerClient(cookies());

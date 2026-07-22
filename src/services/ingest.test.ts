@@ -34,11 +34,28 @@ const base = {
 beforeEach(() => rpcMock.mockReset());
 
 describe("resolveFormat (pure)", () => {
-  it("prefers the row's own valid format, then a resolved choice, then null", () => {
+  it("prefers the row's own confident format, then a resolved choice, then null", () => {
     expect(resolveFormat(makeRow("a", { post_format_type: "video" }))).toBe("video");
     expect(resolveFormat(makeRow("a", { post_format_type: "" }), { a: "image" })).toBe("image");
     expect(resolveFormat(makeRow("a", { post_format_type: "" }), { a: "nonsense" })).toBeNull();
     expect(resolveFormat(makeRow("a", { post_format_type: "" }))).toBeNull();
+  });
+
+  it("accepts the real scraper formats but sends UNKNOWN to review", () => {
+    expect(resolveFormat(makeRow("a", { post_format_type: "DOCUMENT" }))).toBe("DOCUMENT");
+    expect(resolveFormat(makeRow("a", { post_format_type: "SLIDE_SHOW" }))).toBe("SLIDE_SHOW");
+    // UNKNOWN is storable but not confident — it must fall through to review.
+    expect(resolveFormat(makeRow("a", { post_format_type: "UNKNOWN" }))).toBeNull();
+    // A resolved choice of UNKNOWN is not a resolution either.
+    expect(resolveFormat(makeRow("a", { post_format_type: "" }), { a: "UNKNOWN" })).toBeNull();
+  });
+
+  it("returns the RAW value it received, never a normalised one (ADR 0009)", () => {
+    expect(resolveFormat(makeRow("a", { post_format_type: "image" }))).toBe("image");
+    expect(resolveFormat(makeRow("a", { post_format_type: "Document" }))).toBe("Document");
+    expect(resolveFormat(makeRow("a", { post_format_type: "" }), { a: "document" })).toBe(
+      "document",
+    );
   });
 });
 
@@ -61,6 +78,17 @@ describe("computeReviewPosts (pure review gate)", () => {
   it("is empty when skipReview is set", () => {
     const rows = [makeRow("b", { post_format_type: "" })];
     expect(computeReviewPosts(rows, undefined, true)).toEqual([]);
+  });
+
+  it("reviews UNKNOWN rows but lets real scraper formats through", () => {
+    const rows = [
+      makeRow("doc", { post_format_type: "DOCUMENT" }),
+      makeRow("poll", { post_format_type: "POLL" }),
+      makeRow("lower", { post_format_type: "image" }),
+      makeRow("unk", { post_format_type: "UNKNOWN" }),
+    ];
+    const review = computeReviewPosts(rows, undefined, undefined);
+    expect(review.map((p) => p.linkedin_post_id)).toEqual(["unk"]);
   });
 });
 
@@ -108,10 +136,31 @@ describe("ingestMetrics (seam → RPC)", () => {
     rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
     const rows = [makeRow("b", { post_format_type: "" })];
 
-    await ingestMetrics({ ...base, rows, resolvedFormatTypes: { b: "carousel" } });
+    await ingestMetrics({ ...base, rows, resolvedFormatTypes: { b: "DOCUMENT" } });
 
     const args = rpcMock.mock.calls[0]![1];
-    expect(args.p_rows[0].post_format_type).toBe("carousel");
+    expect(args.p_rows[0].post_format_type).toBe("DOCUMENT");
+  });
+
+  it("writes format values to the RPC byte-for-byte raw (ADR 0009)", async () => {
+    rpcMock.mockResolvedValue({ data: { inserted: 2, updated: 0, unchanged: 0 }, error: null });
+    const rows = [
+      makeRow("a", { post_format_type: "DOCUMENT" }),
+      makeRow("b", { post_format_type: "image" }), // lowercase as received
+    ];
+
+    await ingestMetrics({ ...base, rows });
+
+    const args = rpcMock.mock.calls[0]![1];
+    // Recognition is case-insensitive; storage is NOT re-cased.
+    expect(args.p_rows.map((r: PostRow) => r.post_format_type)).toEqual(["DOCUMENT", "image"]);
+  });
+
+  it("routes an UNKNOWN row to review without calling the RPC", async () => {
+    const rows = [makeRow("u", { post_format_type: "UNKNOWN" })];
+    const result = await ingestMetrics({ ...base, rows });
+    expect(result.status).toBe("review");
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 
   it("throws when the RPC returns an error", async () => {

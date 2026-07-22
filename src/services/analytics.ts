@@ -70,17 +70,39 @@ function round1(v: number): number {
   return Math.round(v * 10) / 10;
 }
 
+/**
+ * The RESOLVED publish date, or null. DISPLAY ONLY — never use this to decide
+ * whether a post falls in a window; use `effectiveMs` for that.
+ */
 function estMs(row: BiPostRow): number | null {
   if (!row.estimated_post_date) return null;
   const t = Date.parse(row.estimated_post_date);
   return Number.isNaN(t) ? null : t;
 }
 
-function recencyMs(row: BiPostRow): number {
+/**
+ * When a post effectively happened, for WINDOWING and BUCKETING.
+ *
+ * Posts scraped with a relative age in hours ("23h") come back from
+ * `bi.linkedin_post_latest` with a NULL estimated_post_date — Shay's resolver
+ * only resolves day-granularity ages. Windowing on estimated_post_date alone
+ * therefore dropped yesterday's posts out of every KPI, series bucket, and
+ * totalPosts, even though they are the most recent posts the client has.
+ *
+ * `scraped_at` is the honest stand-in: an hour-age post was, by definition,
+ * published within a day of its scrape. It is NOT used for display — the
+ * recent-posts list keeps showing `post_age`, because the scrape date is not
+ * the date the post was published on.
+ */
+export function effectiveMs(row: BiPostRow): number | null {
   const est = estMs(row);
   if (est !== null) return est;
   const s = row.scraped_at ? Date.parse(row.scraped_at) : NaN;
-  return Number.isNaN(s) ? 0 : s;
+  return Number.isNaN(s) ? null : s;
+}
+
+function recencyMs(row: BiPostRow): number {
+  return effectiveMs(row) ?? 0;
 }
 
 function sumOf(rows: BiPostRow[], pick: (r: BiPostRow) => number | null): number {
@@ -134,11 +156,11 @@ export function buildDashboardAnalytics(
   const priorStart = nowMs - 2 * days * DAY_MS;
 
   const current = rows.filter((r) => {
-    const t = estMs(r);
+    const t = effectiveMs(r);
     return t !== null && t >= currentStart && t <= nowMs;
   });
   const prior = rows.filter((r) => {
-    const t = estMs(r);
+    const t = effectiveMs(r);
     return t !== null && t >= priorStart && t < currentStart;
   });
 
@@ -184,7 +206,8 @@ export function buildDashboardAnalytics(
   const impr = new Array<number>(bucketCount).fill(0);
   const inter = new Array<number>(bucketCount).fill(0);
   for (const r of current) {
-    const t = estMs(r)!;
+    // Non-null by construction: `current` is filtered on effectiveMs !== null.
+    const t = effectiveMs(r)!;
     const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((t - currentStart) / spanMs)));
     impr[idx]! += num(r.impressions);
     inter[idx]! += num(r.interactions);
