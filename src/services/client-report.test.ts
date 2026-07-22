@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BiPostRow } from "./analytics";
+import type { ReportPeriod } from "./types";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
 // One mock serves all three reads the report seam makes: the paged `bi` view,
@@ -207,6 +208,9 @@ const HISTORY: BiPostRow[] = [
 ];
 
 const JULY = { kind: "month", key: "2026-07", label: "July 2026", year: 2026, month: 6 } as const;
+const ALL_TIME = { kind: "all", key: "all", label: "All time" } as const;
+const Q3 = { kind: "quarter", key: "2026-Q3", label: "Q3 2026", year: 2026, quarter: 3 } as const;
+const YEAR_2026 = { kind: "year", key: "2026", label: "2026", year: 2026 } as const;
 
 beforeEach(() => {
   state.ranges = [];
@@ -342,6 +346,271 @@ describe("period scoping — what the picker moves, and what it deliberately doe
     // ...and the period really did resolve differently, so this is not vacuous.
     expect(build(oneMonth, "all").period.key).toBe("all");
     expect(build(oneMonth, undefined).period.key).toBe("2026-07");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PINNING GATE.
+//
+// Scoping the four charts to the selected period changes the data source of a
+// loop that ALSO computes `monthSpan`, `maxMonthlyPosts` and
+// `maxMonthlyInteractions` — three figures that are all-time BY DESIGN and feed
+// the Key Performance matrix. A one-character slip there rewrites the matrix
+// with numbers that still look entirely plausible, which is the worst failure
+// this codebase can produce: wrong analytics that read as right.
+//
+// So the whole of Key Performance and Interactions Comparison is pinned here,
+// deep-equal, under EVERY period kind — because the change affects each kind's
+// code path differently, and pinning one would prove nothing about the others.
+// If any number below moves, the change was not scoped correctly.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("all-time figures are INVARIANT to the selected period", () => {
+  const build = (period: ReportPeriod) =>
+    buildClientReport(HISTORY, new Map(), {
+      period,
+      now: NOW,
+      followers: 5000,
+      availablePeriods: availablePeriods(HISTORY),
+    });
+
+  // 5 posts over a Jan→Jul span (7 months); 185 interactions all-time.
+  const MATRIX = [
+    {
+      label: "Monthly avg",
+      posts: { label: "Avg monthly posts", value: 0.7 }, // 5 / 7
+      perPost: { label: "Avg interactions per post", value: 37 }, // 185 / 5
+      interactions: { label: "Avg monthly interactions", value: 26.4 }, // 185 / 7
+    },
+    {
+      label: "Monthly max",
+      posts: { label: "Max monthly posts", value: 2 }, // June
+      perPost: null,
+      interactions: { label: "Max monthly interactions", value: 130 }, // January
+    },
+  ];
+  const PER_1K = {
+    label: "Avg interactions per 1K followers",
+    value: 7.4, // (185 / 5) / 5000 * 1000
+    approximate: true,
+  };
+
+  it.each([
+    ["month", JULY],
+    ["quarter", Q3],
+    ["year", YEAR_2026],
+    ["all", ALL_TIME],
+  ] as const)("keeps the all-time matrix identical for a %s period", (_kind, period) => {
+    const { keyPerformance } = build(period);
+
+    expect(keyPerformance.matrix).toEqual(MATRIX);
+    expect(keyPerformance.perThousandFollowers).toEqual(PER_1K);
+  });
+
+  it("keeps the all-time row of Interactions Comparison identical for every period", () => {
+    for (const period of [JULY, Q3, YEAR_2026, ALL_TIME]) {
+      const allTime = build(period).interactionsComparison.find((r) => r.scope === "allTime")!;
+
+      expect(allTime).toEqual({
+        scope: "allTime",
+        label: "All time",
+        likes: 143,
+        comments: 28,
+        shares: 14,
+      });
+    }
+  });
+
+  it("keeps totalPostsAllTime at the full history for every period", () => {
+    for (const period of [JULY, Q3, YEAR_2026, ALL_TIME]) {
+      expect(build(period).totalPostsAllTime).toBe(5);
+    }
+  });
+
+  it("keeps the period-scoped figures scoped — the pin must not freeze everything", () => {
+    // Guard the guard. If the assertions above passed because the whole report
+    // had become period-invariant, this would fail: `selected` and the
+    // `selected`/`prior3` comparison rows MUST still move with the period.
+    const july = build(JULY);
+    const all = build(ALL_TIME);
+
+    expect(july.keyPerformance.selected.find((f) => f.label === "Total posts")!.value).toBe(1);
+    expect(all.keyPerformance.selected.find((f) => f.label === "Total posts")!.value).toBe(5);
+
+    const selectedRow = (r: ReturnType<typeof build>) =>
+      r.interactionsComparison.find((x) => x.scope === "selected")!;
+    expect(selectedRow(july).likes).toBe(10);
+    expect(selectedRow(all).likes).toBe(143);
+  });
+});
+
+describe("the four charts follow the selected period", () => {
+  const build = (period: ReportPeriod, rows = HISTORY, formats = new Map<string, string>()) =>
+    buildClientReport(rows, formats, {
+      period,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("scopes the impressions series to a quarter", () => {
+    // Q3 2026 is Jul–Sep; only jul1 falls in it, so the series is July alone —
+    // not the Jan→Jul span the all-time chart draws.
+    const report = build(Q3);
+
+    expect(report.impressionsBucket).toBe("month");
+    expect(report.impressionsSeries).toEqual([{ label: "Jul 26", value: 100 }]);
+  });
+
+  it("buckets a MONTH period by week, not by month", () => {
+    // Bucketed by month this would be a single bar, which is not a chart.
+    // July 2026 has 31 days → 5 blocks; jul1 is the 10th, so block 2 (8–14).
+    const report = build(JULY);
+
+    expect(report.impressionsBucket).toBe("week");
+    expect(report.impressionsSeries).toEqual([
+      { label: "1–7", value: null },
+      { label: "8–14", value: 100 },
+      { label: "15–21", value: null },
+      { label: "22–28", value: null },
+      { label: "29–31", value: null },
+    ]);
+  });
+
+  it("tiles a SHORT month exactly, with no orphaned trailing block", () => {
+    // February 2026 has 28 days → exactly 4 blocks, and the last one ends on
+    // the 28th rather than claiming days the month does not have.
+    const feb = {
+      kind: "month",
+      key: "2026-02",
+      label: "February 2026",
+      year: 2026,
+      month: 1,
+    } as const;
+    const rows = [
+      row({ linkedin_post_id: "f1", estimated_post_date: "2026-02-27", impressions: 50 }),
+    ];
+
+    const report = build(feb, rows);
+
+    expect(report.impressionsSeries.map((p) => p.label)).toEqual(["1–7", "8–14", "15–21", "22–28"]);
+    expect(report.impressionsSeries[3]!.value).toBe(50);
+  });
+
+  it("averages the reference line over the SAME rows the chart draws", () => {
+    // All-time mean impressions is (100+200+400+300+900)/5 = 380. Scoped to
+    // June it must be (200+400)/2 = 300 — a line through the all-time mean
+    // would sit above every bar it is drawn against.
+    const june = {
+      kind: "month",
+      key: "2026-06",
+      label: "June 2026",
+      year: 2026,
+      month: 5,
+    } as const;
+
+    expect(build(ALL_TIME).impressionsAverage).toBe(380);
+    expect(build(june).impressionsAverage).toBe(300);
+  });
+
+  it("scopes the weekday averages to the period", () => {
+    // June holds jun1 (Wed 10th, 200) and jun2 (Sat 20th, 400). Every other
+    // weekday is 0 for that month, though all-time they are not.
+    const june = {
+      kind: "month",
+      key: "2026-06",
+      label: "June 2026",
+      year: 2026,
+      month: 5,
+    } as const;
+    const byDay = Object.fromEntries(
+      build(june).impressionsByWeekday.map((d) => [d.label, d.value]),
+    );
+
+    expect(byDay["Wed"]).toBe(200);
+    expect(byDay["Sat"]).toBe(400);
+    expect(byDay["Fri"]).toBe(0); // jan1 was a Thursday all-time; not in June
+  });
+
+  it("scopes BOTH asset charts — one grouping feeds them both", () => {
+    const formats = new Map([
+      ["jul1", "IMAGE"],
+      ["jun1", "VIDEO"],
+      ["jun2", "VIDEO"],
+      ["may1", "IMAGE"],
+      ["jan1", "POLL"],
+    ]);
+    const june = {
+      kind: "month",
+      key: "2026-06",
+      label: "June 2026",
+      year: 2026,
+      month: 5,
+    } as const;
+
+    const report = build(june, HISTORY, formats);
+
+    // June is two VIDEO posts and nothing else — so 100%, not the 40% that the
+    // same two posts represent across the full history.
+    expect(report.interactionsByAsset).toEqual([
+      { format: "VIDEO", label: "Video", value: 18, count: 2 }, // (26 + 10) / 2
+    ]);
+    expect(report.postTypeDistribution).toEqual([
+      { format: "VIDEO", label: "Video", value: 100, count: 2 },
+    ]);
+  });
+
+  it("reproduces the previous all-time output when the period IS all-time", () => {
+    const formats = new Map([
+      ["jul1", "IMAGE"],
+      ["jun1", "VIDEO"],
+      ["jun2", "VIDEO"],
+      ["may1", "IMAGE"],
+      ["jan1", "POLL"],
+    ]);
+    const report = build(ALL_TIME, HISTORY, formats);
+
+    // 5 posts: 2 IMAGE, 2 VIDEO, 1 POLL — the distribution the charts drew
+    // before they were scoped at all.
+    expect(report.postTypeDistribution.map((b) => [b.format, b.value])).toEqual([
+      ["IMAGE", 40],
+      ["VIDEO", 40],
+      ["POLL", 20],
+    ]);
+    expect(report.impressionsSeries).toHaveLength(7); // Jan → Jul
+    expect(report.impressionsAverage).toBe(380);
+  });
+
+  it("reports the post count behind each chart, and they differ honestly", () => {
+    // An UNDATABLE row can be grouped by asset but cannot be placed on a time
+    // axis, so the two counts are genuinely different and must not be conflated.
+    const undatable = row({ linkedin_post_id: "ghost", interactions: 5 });
+    const report = build(ALL_TIME, [...HISTORY, undatable]);
+
+    expect(report.assetPostCount).toBe(6); // every row in the period
+    expect(report.impressionsPostCount).toBe(5); // only the datable ones
+  });
+
+  it("renders an EMPTY period as empty states, never zeros or NaN", () => {
+    // February holds no posts at all.
+    const feb = {
+      kind: "month",
+      key: "2026-02",
+      label: "February 2026",
+      year: 2026,
+      month: 1,
+    } as const;
+    const report = build(feb);
+
+    expect(report.impressionsSeries).toEqual([]); // not five null weeks
+    expect(report.interactionsByAsset).toEqual([]);
+    expect(report.postTypeDistribution).toEqual([]);
+    expect(report.impressionsAverage).toBe(0);
+    expect(report.impressionsPostCount).toBe(0);
+    expect(report.assetPostCount).toBe(0);
+    // The weekday axis keeps all seven days at zero rather than vanishing.
+    expect(report.impressionsByWeekday).toHaveLength(7);
+    expect(report.impressionsByWeekday.every((d) => d.value === 0)).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('null,"value":NaN');
   });
 });
 
@@ -483,18 +752,22 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("renders months with no posts as gaps, not as zero", () => {
+    // ALL_TIME, not JULY: a month period now buckets by WEEK, so months with
+    // gaps in them only exist for the wider periods. The rule under test — an
+    // empty bucket is null, never 0 — is unchanged.
     const report = buildClientReport(HISTORY, new Map(), {
-      period: JULY,
+      period: ALL_TIME,
       now: NOW,
       followers: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
     // Jan → Jul inclusive = 7 points; Feb, Mar, Apr are empty.
-    expect(report.impressionsByMonth).toHaveLength(7);
-    const feb = report.impressionsByMonth[1]!;
+    expect(report.impressionsBucket).toBe("month");
+    expect(report.impressionsSeries).toHaveLength(7);
+    const feb = report.impressionsSeries[1]!;
     expect(feb.value).toBeNull(); // a gap — NOT 0, which would read as "no reach"
-    expect(report.impressionsByMonth[0]!.value).toBe(900); // January
+    expect(report.impressionsSeries[0]!.value).toBe(900); // January
   });
 
   it("averages impressions by weekday across all seven days", () => {
@@ -613,7 +886,7 @@ describe("buildClientReport (pure)", () => {
     });
 
     expect(report.totalPostsAllTime).toBe(0);
-    expect(report.impressionsByMonth).toEqual([]);
+    expect(report.impressionsSeries).toEqual([]);
     expect(report.interactionsByAsset).toEqual([]);
     expect(report.postTypeDistribution).toEqual([]);
     expect(report.impressionsAverage).toBe(0);
@@ -647,7 +920,7 @@ describe("buildClientReport (pure)", () => {
 
     expect(report.totalPostsAllTime).toBe(130_000);
     // The min/max still bound the real window: June and July, nothing else.
-    expect(report.impressionsByMonth.map((p) => p.label)).toEqual(["Jun 26", "Jul 26"]);
+    expect(report.impressionsSeries.map((p) => p.label)).toEqual(["Jun 26", "Jul 26"]);
   });
 });
 

@@ -80,17 +80,25 @@ export default async function ClientReportPage({
           <h2 className="font-display text-3xl leading-none font-extrabold tracking-tight">
             {client.name}
           </h2>
-          {/* Opens the print-optimised document in its own tab, carrying the
-              period selected here so the export matches what is on screen. */}
-          <Link
-            href={`${paths.clients.reportPrint(client.id)}?period=${encodeURIComponent(report.period.key)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-[11px] tracking-widest text-muted-foreground uppercase transition-colors hover:bg-accent/50 hover:text-foreground"
-          >
-            <Printer className="size-3.5" aria-hidden />
-            Print / Export
-          </Link>
+          {/* The picker lives HERE, in the page header, because it governs all
+              three sections. It used to sit inside the Key Performance header,
+              which correctly signalled that it scoped that section alone — that
+              is no longer true, and a control placed inside one section while
+              driving the whole page misrepresents its own reach. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportPeriodPicker periods={report.availablePeriods} value={report.period.key} />
+            {/* Opens the print-optimised document in its own tab, carrying the
+                period selected here so the export matches what is on screen. */}
+            <Link
+              href={`${paths.clients.reportPrint(client.id)}?period=${encodeURIComponent(report.period.key)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-[11px] tracking-widest text-muted-foreground uppercase transition-colors hover:bg-accent/50 hover:text-foreground"
+            >
+              <Printer className="size-3.5" aria-hidden />
+              Print / Export
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -100,12 +108,9 @@ export default async function ClientReportPage({
         <AnalyticsUnavailable />
       ) : (
         <div className="space-y-10">
-          {/* SECTION 1 — scoped by the picker, which sits in this header so it is
-              unambiguous that it governs this section and not the whole page. */}
+          {/* ALL THREE sections follow the period chosen in the page header. */}
           <section className="space-y-4">
-            <SectionHeader title="Key performance" scope={scopeCaption(report.period)}>
-              <ReportPeriodPicker periods={report.availablePeriods} value={report.period.key} />
-            </SectionHeader>
+            <SectionHeader title="Key performance" scope={scopeCaption(report.period)} />
             <KeyPerformance
               keyPerformance={report.keyPerformance}
               hasPosts={report.totalPostsAllTime > 0}
@@ -113,23 +118,37 @@ export default async function ClientReportPage({
             <InteractionsComparison rows={report.interactionsComparison} />
           </section>
 
-          {/* SECTIONS 2 and 3 are deliberately all-time and say so. */}
           <section className="space-y-4">
-            <SectionHeader title="Engagement trends" scope="All time · every post on record" />
+            <SectionHeader title="Engagement trends" scope={scopeCaption(report.period)} />
             <div className="grid gap-3.5 xl:grid-cols-2">
               <ImpressionsByMonthChart
-                data={report.impressionsByMonth}
+                data={report.impressionsSeries}
                 average={report.impressionsAverage}
+                period={report.period}
+                postCount={report.impressionsPostCount}
+                bucket={report.impressionsBucket}
               />
-              <ImpressionsByWeekdayChart data={report.impressionsByWeekday} />
+              <ImpressionsByWeekdayChart
+                data={report.impressionsByWeekday}
+                period={report.period}
+                postCount={report.impressionsPostCount}
+              />
             </div>
           </section>
 
           <section className="space-y-4">
-            <SectionHeader title="Content mix" scope="All time · every post on record" />
+            <SectionHeader title="Content mix" scope={scopeCaption(report.period)} />
             <div className="grid gap-3.5 xl:grid-cols-2">
-              <InteractionsByAssetChart data={report.interactionsByAsset} />
-              <PostTypeDistributionChart data={report.postTypeDistribution} />
+              <InteractionsByAssetChart
+                data={report.interactionsByAsset}
+                period={report.period}
+                postCount={report.assetPostCount}
+              />
+              <PostTypeDistributionChart
+                data={report.postTypeDistribution}
+                period={report.period}
+                postCount={report.assetPostCount}
+              />
             </div>
           </section>
         </div>

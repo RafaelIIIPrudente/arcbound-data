@@ -17,7 +17,16 @@ import { InteractionsComparison } from "@/components/dashboard/report/interactio
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
 import { AssetLegend } from "@/components/dashboard/report/asset-legend";
 import { rampColor } from "@/components/dashboard/report/ramp";
-import type { AssetBucket, ClientReport, MonthPoint, SeriesPoint } from "@/services/types";
+import { ChartScope } from "@/components/dashboard/report/chart-scope";
+import { scopeCaption } from "@/components/dashboard/report/report-period";
+import type {
+  AssetBucket,
+  ClientReport,
+  ImpressionsBucket,
+  MonthPoint,
+  ReportPeriod,
+  SeriesPoint,
+} from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The six panels in document order, laid out for paper.
@@ -57,14 +66,27 @@ const EMPTY = "No posts in this period.";
 const CHART_CLASSNAME =
   "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line]:stroke-border";
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({
+  title,
+  period,
+  postCount,
+  children,
+}: {
+  title: string;
+  period: ReportPeriod;
+  postCount: number;
+  children: React.ReactNode;
+}) {
   return (
     <div className="print-block rounded-lg border p-5">
       <div className="mb-4 flex items-baseline justify-between gap-4">
         <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
           {title}
         </div>
-        <div className="font-mono text-[10.5px] text-muted-foreground">All time</div>
+        {/* The same scope badge the screen shows, so the document and the app
+            cannot disagree about what period a panel covers or how many posts
+            it rests on. */}
+        <ChartScope period={period} postCount={postCount} />
       </div>
       {children}
     </div>
@@ -100,9 +122,22 @@ function Section({
   );
 }
 
-function ImpressionsByMonth({ data, average }: { data: MonthPoint[]; average: number }) {
+function ImpressionsByMonth({
+  data,
+  average,
+  period,
+  postCount,
+  bucket,
+}: {
+  data: MonthPoint[];
+  average: number;
+  period: ReportPeriod;
+  postCount: number;
+  bucket: ImpressionsBucket;
+}) {
   return (
-    <Panel title="Average impressions by month">
+    // The heading follows the ACTUAL granularity — a month period buckets by week.
+    <Panel title={`Average impressions by ${bucket}`} period={period} postCount={postCount}>
       {data.length === 0 ? (
         <Empty />
       ) : (
@@ -154,11 +189,19 @@ function ImpressionsByMonth({ data, average }: { data: MonthPoint[]; average: nu
   );
 }
 
-function ImpressionsByWeekday({ data }: { data: SeriesPoint[] }) {
+function ImpressionsByWeekday({
+  data,
+  period,
+  postCount,
+}: {
+  data: SeriesPoint[];
+  period: ReportPeriod;
+  postCount: number;
+}) {
   const isEmpty = data.every((d) => d.value === 0);
 
   return (
-    <Panel title="Average impressions by day of week posted">
+    <Panel title="Average impressions by day of week posted" period={period} postCount={postCount}>
       {isEmpty ? (
         <Empty />
       ) : (
@@ -197,9 +240,17 @@ function ImpressionsByWeekday({ data }: { data: SeriesPoint[] }) {
   );
 }
 
-function InteractionsByAsset({ data }: { data: AssetBucket[] }) {
+function InteractionsByAsset({
+  data,
+  period,
+  postCount,
+}: {
+  data: AssetBucket[];
+  period: ReportPeriod;
+  postCount: number;
+}) {
   return (
-    <Panel title="Average interactions by asset type">
+    <Panel title="Average interactions by asset type" period={period} postCount={postCount}>
       {data.length === 0 ? (
         <Empty />
       ) : (
@@ -233,9 +284,17 @@ function InteractionsByAsset({ data }: { data: AssetBucket[] }) {
   );
 }
 
-function PostTypeDistribution({ data }: { data: AssetBucket[] }) {
+function PostTypeDistribution({
+  data,
+  period,
+  postCount,
+}: {
+  data: AssetBucket[];
+  period: ReportPeriod;
+  postCount: number;
+}) {
   return (
-    <Panel title="Post type distribution">
+    <Panel title="Post type distribution" period={period} postCount={postCount}>
       {data.length === 0 ? (
         <Empty />
       ) : (
@@ -282,7 +341,7 @@ function PostTypeDistribution({ data }: { data: AssetBucket[] }) {
 export function PrintReport({ report }: { report: ClientReport }) {
   return (
     <div className="space-y-10">
-      <Section title="Key performance" scope={`Scoped to ${report.period.label.toLowerCase()}`}>
+      <Section title="Key performance" scope={scopeCaption(report.period)}>
         <div className="print-block">
           <KeyPerformance
             keyPerformance={report.keyPerformance}
@@ -294,14 +353,32 @@ export function PrintReport({ report }: { report: ClientReport }) {
         </div>
       </Section>
 
-      <Section title="Engagement trends" scope="All time · every post on record">
-        <ImpressionsByMonth data={report.impressionsByMonth} average={report.impressionsAverage} />
-        <ImpressionsByWeekday data={report.impressionsByWeekday} />
+      <Section title="Engagement trends" scope={scopeCaption(report.period)}>
+        <ImpressionsByMonth
+          data={report.impressionsSeries}
+          average={report.impressionsAverage}
+          period={report.period}
+          postCount={report.impressionsPostCount}
+          bucket={report.impressionsBucket}
+        />
+        <ImpressionsByWeekday
+          data={report.impressionsByWeekday}
+          period={report.period}
+          postCount={report.impressionsPostCount}
+        />
       </Section>
 
-      <Section title="Content mix" scope="All time · every post on record">
-        <InteractionsByAsset data={report.interactionsByAsset} />
-        <PostTypeDistribution data={report.postTypeDistribution} />
+      <Section title="Content mix" scope={scopeCaption(report.period)}>
+        <InteractionsByAsset
+          data={report.interactionsByAsset}
+          period={report.period}
+          postCount={report.assetPostCount}
+        />
+        <PostTypeDistribution
+          data={report.postTypeDistribution}
+          period={report.period}
+          postCount={report.assetPostCount}
+        />
       </Section>
     </div>
   );

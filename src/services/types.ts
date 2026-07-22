@@ -217,8 +217,15 @@ export interface PostAttributes {
 }
 
 // ── Client LinkedIn Report ───────────────────────────────────────────────────
-// Read-model for `/clients/[id]/report`. Section 1 is scoped by the selected
-// ReportPeriod; sections 2 and 3 are always all-time (and say so in the UI).
+// Read-model for `/clients/[id]/report`. ALL THREE sections are scoped by the
+// selected ReportPeriod.
+//
+// Trends and Content Mix were pinned to all-time for a while, to mirror the
+// source Power BI report where the KPI pages are month-scoped and the charts sit
+// at full range. That is no longer the product decision — the picker governs the
+// whole page. What remains all-time BY DESIGN, and must not be rescoped, is:
+// `totalPostsAllTime`, both rows of `keyPerformance.matrix`,
+// `perThousandFollowers`, and the `allTime` row of `interactionsComparison`.
 
 /**
  * One selectable reporting window. `key` is the URL value and the React key;
@@ -268,6 +275,12 @@ export interface MatrixRow {
   interactions: ReportFigure;
 }
 
+/**
+ * The bucket granularity of the impressions series. A month period buckets by
+ * WEEK — bucketed by month it would be a single bar, which is not a chart.
+ */
+export type ImpressionsBucket = "month" | "week";
+
 /** A monthly point. `value` is null for a month with no posts → a chart gap. */
 export interface MonthPoint {
   label: string;
@@ -304,14 +317,29 @@ export interface ClientReport {
     perThousandFollowers: ReportFigure;
   };
   interactionsComparison: InteractionsRow[];
-  impressionsByMonth: MonthPoint[];
-  /** The reference line on the by-month chart: mean impressions per post. */
+  /**
+   * The impressions series for the selected period. NOT always months — a month
+   * period buckets by week (see `impressionsBucket`), which is why this is not
+   * called `impressionsByMonth` any more.
+   */
+  impressionsSeries: MonthPoint[];
+  /** Which granularity `impressionsSeries` actually used, so the card can say so. */
+  impressionsBucket: ImpressionsBucket;
+  /** The reference line on that chart: mean impressions per post, same scope. */
   impressionsAverage: number;
   /** Seven entries, Sunday → Saturday. */
   impressionsByWeekday: { label: string; value: number }[];
   interactionsByAsset: AssetBucket[];
-  /** Share of posts by asset type, as a percentage to one decimal place. */
+  /** Share of the period's posts by asset type, as a percentage to one decimal. */
   postTypeDistribution: AssetBucket[];
+  /**
+   * Posts behind the two IMPRESSIONS charts — the period's rows that could be
+   * dated. Surfaced so a distribution over 5 posts reads differently from one
+   * over 500.
+   */
+  impressionsPostCount: number;
+  /** Posts behind the two ASSET charts — every row in the period. */
+  assetPostCount: number;
   /** True when the report source couldn't be read (distinct from "no data"). */
   unavailable?: boolean;
 }

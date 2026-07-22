@@ -24,9 +24,12 @@ export function ClientTabs({ clientId }: { clientId: string }) {
   ];
 
   return (
+    // A ruled row with an accent marker on the active tab, not a grey pill.
+    // The pill was stock shadcn and the one element on the page speaking a
+    // different language than every mono-uppercase eyebrow around it.
     <nav
       aria-label="Client sections"
-      className="inline-flex h-9 w-fit max-w-full items-center justify-center gap-1 overflow-x-auto rounded-lg bg-muted p-[3px]"
+      className="flex max-w-full items-center gap-7 overflow-x-auto border-b"
     >
       {tabs.map((tab) => {
         const isActive = pathname === tab.href;
@@ -36,11 +39,11 @@ export function ClientTabs({ clientId }: { clientId: string }) {
             href={tab.href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "inline-flex h-full items-center justify-center rounded-md border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap transition-all",
-              "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
+              "-mb-px border-b-2 pb-2.5 font-mono text-[11px] tracking-[0.12em] whitespace-nowrap uppercase transition-colors",
+              "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
               isActive
-                ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
-                : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground",
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             {tab.label}

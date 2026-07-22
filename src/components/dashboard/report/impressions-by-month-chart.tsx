@@ -8,31 +8,43 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { MonthPoint } from "@/services/types";
+import type { ImpressionsBucket, MonthPoint, ReportPeriod } from "@/services/types";
+
+import { ChartScope } from "./chart-scope";
 
 const config = {
   value: { label: "Avg impressions", color: "var(--primary)" },
 } satisfies ChartConfig;
 
 /**
- * Average impressions per month across the FULL history, with a reference line
- * at the overall average. Months with no posts arrive as `value: null` and
+ * Average impressions per bucket across the SELECTED period, with a reference
+ * line at that period's average. Empty buckets arrive as `value: null` and
  * render as gaps — plotting them as 0 would claim we posted and got no reach.
+ *
+ * ⚠️ THE TITLE FOLLOWS THE DATA. A month period buckets by WEEK (bucketed by
+ * month it would be one bar), so the heading must say which — a card titled "by
+ * month" showing weeks is a lie, and a fixed title is the defect this replaced.
  */
 export function ImpressionsByMonthChart({
   data,
   average,
+  period,
+  postCount,
+  bucket,
 }: {
   data: MonthPoint[];
   average: number;
+  period: ReportPeriod;
+  postCount: number;
+  bucket: ImpressionsBucket;
 }) {
   return (
     <div className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
-          Average impressions by month
+          Average impressions by {bucket}
         </div>
-        <div className="font-mono text-[10.5px] text-muted-foreground">All time</div>
+        <ChartScope period={period} postCount={postCount} />
       </div>
 
       {data.length === 0 ? (

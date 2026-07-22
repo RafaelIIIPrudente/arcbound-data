@@ -10,6 +10,7 @@ import type {
   ClientReport,
   InteractionsRow,
   MatrixRow,
+  ImpressionsBucket,
   MonthPoint,
   PostFormat,
   ReportFigure,
@@ -205,6 +206,89 @@ function groupByFormat(
   return groups;
 }
 
+// ── impressions series (period-scoped) ───────────────────────────────────────
+
+/** A row paired with its RESOLVED timestamp — the placeable subset. */
+interface PlacedRow {
+  row: BiPostRow;
+  ms: number;
+}
+
+/**
+ * Average impressions per CALENDAR MONTH, from the first month with a post to
+ * the last. A month with no posts is a GAP (`null`), never a zero — zero would
+ * read as "we posted and got no reach", which is a different fact.
+ */
+function monthSeries(dated: PlacedRow[]): MonthPoint[] {
+  if (dated.length === 0) return [];
+
+  const buckets = new Map<string, number[]>();
+  let firstMs = Infinity;
+  let lastMs = -Infinity;
+  for (const { row, ms } of dated) {
+    const d = new Date(ms);
+    const key = monthKey(d.getUTCFullYear(), d.getUTCMonth());
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(num(row.impressions));
+    else buckets.set(key, [num(row.impressions)]);
+    // Bounds accumulated in this pass, not by spreading every timestamp into
+    // Math.min — that throws RangeError past the engine's argument limit.
+    if (ms < firstMs) firstMs = ms;
+    if (ms > lastMs) lastMs = ms;
+  }
+
+  const last = new Date(lastMs);
+  const lastYear = last.getUTCFullYear();
+  const lastMonth = last.getUTCMonth();
+  const first = new Date(firstMs);
+  let year = first.getUTCFullYear();
+  let month = first.getUTCMonth();
+
+  const points: MonthPoint[] = [];
+  while (year < lastYear || (year === lastYear && month <= lastMonth)) {
+    const bucket = buckets.get(monthKey(year, month));
+    points.push({
+      label: `${SHORT_MONTHS[month]} ${String(year).slice(2)}`,
+      value: bucket ? mean(bucket) : null,
+    });
+    month += 1;
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
+  }
+  return points;
+}
+
+/**
+ * Average impressions per WEEK within one calendar month.
+ *
+ * A month bucketed BY MONTH is a single bar, which is not a chart — so a month
+ * period buckets by week instead. These are day-of-month blocks (1–7, 8–14, …),
+ * not ISO weeks: a month is the only period this runs for, so blocks tile it
+ * exactly, need no cross-month reasoning, and label themselves unambiguously.
+ */
+function weekSeries(dated: PlacedRow[], year: number, month: number): MonthPoint[] {
+  if (dated.length === 0) return [];
+
+  // Day 0 of the NEXT month is the last day of this one.
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const bucketCount = Math.ceil(daysInMonth / 7);
+  const buckets: number[][] = Array.from({ length: bucketCount }, () => []);
+
+  for (const { row, ms } of dated) {
+    const day = new Date(ms).getUTCDate();
+    // The last block absorbs the short tail (29–31) rather than orphaning it.
+    const index = Math.min(Math.floor((day - 1) / 7), bucketCount - 1);
+    buckets[index]!.push(num(row.impressions));
+  }
+
+  return buckets.map((bucket, i) => ({
+    label: `${i * 7 + 1}–${Math.min((i + 1) * 7, daysInMonth)}`,
+    value: bucket.length > 0 ? mean(bucket) : null,
+  }));
+}
+
 // ── the aggregation (pure, deterministic given `now`) ────────────────────────
 
 export interface BuildOptions {
@@ -240,6 +324,12 @@ export function buildClientReport(
       ? rows
       : placeable.filter((d) => d.ms >= start && d.ms < end).map((d) => d.row);
 
+  // The period's DATABLE rows, kept with their timestamps. The charts need a
+  // date to bucket by, so they read this rather than `selected` — which for
+  // all-time is every row, including any that could not be dated at all.
+  const selectedPlaceable =
+    period.kind === "all" ? placeable : placeable.filter((d) => d.ms >= start && d.ms < end);
+
   // Prior 3 calendar months, counted back from the month the period starts in.
   // All-time has nothing before it, so it anchors on `now` instead — giving the
   // useful "last 3 months vs all time" contrast rather than a row of zeros.
@@ -251,13 +341,22 @@ export function buildClientReport(
   const sum = (rs: BiPostRow[], pick: (r: BiPostRow) => number | null): number =>
     rs.reduce((s, r) => s + num(pick(r)), 0);
 
-  // ── monthly buckets (all-time) ─────────────────────────────────────────────
+  // ── all-time monthly statistics (Key Performance ONLY) ─────────────────────
   //
-  // The window bounds are accumulated in THIS pass rather than derived after it.
-  // `Math.min(...times)` spread every timestamp into a single call, which throws
-  // RangeError past the engine's argument limit (~100k–125k on current V8) — a
-  // hard crash on a large client's history, not a slowdown. This loop already
-  // visits every placeable row, so the bounds cost nothing extra here.
+  // ⚠️ DELIBERATELY ALL-TIME. `monthSpan`, `maxMonthlyPosts` and
+  // `maxMonthlyInteractions` feed the Key Performance matrix, whose two rows are
+  // all-time monthly statistics by design. The four CHARTS below moved to the
+  // selected period; these three did NOT, and they must keep reading
+  // `placeable` (the full datable history) rather than the period's subset.
+  //
+  // This walk used to also build `impressionsByMonth`, which is exactly why it
+  // is now separate: sharing one loop meant one data source, and scoping the
+  // chart would have silently rescoped the matrix to match.
+  //
+  // The window bounds are accumulated in the first pass rather than derived
+  // after it. `Math.min(...times)` spread every timestamp into a single call,
+  // which throws RangeError past the engine's argument limit (~100k–125k on
+  // current V8) — a hard crash on a large client's history, not a slowdown.
   const monthly = new Map<string, BiPostRow[]>();
   let firstMs = Infinity;
   let lastMs = -Infinity;
@@ -271,31 +370,22 @@ export function buildClientReport(
     if (ms > lastMs) lastMs = ms;
   }
 
-  const impressionsByMonth: MonthPoint[] = [];
   let monthSpan = 0;
   let maxMonthlyPosts = 0;
   let maxMonthlyInteractions = 0;
 
-  // Holds the line the `times.length > 0` check held: with no datable rows the
-  // bounds stay Infinity/-Infinity (as `Math.min()` returned Infinity for an
-  // empty spread), so the month walk must not run — impressionsByMonth stays
-  // empty and monthSpan stays 0.
+  // With no datable rows the bounds stay Infinity/-Infinity, so the walk must
+  // not run — monthSpan stays 0 and the matrix reports 0 rather than NaN.
   if (placeable.length > 0) {
-    const first = new Date(firstMs);
     const last = new Date(lastMs);
-    let year = first.getUTCFullYear();
-    let month = first.getUTCMonth();
     const lastYear = last.getUTCFullYear();
     const lastMonth = last.getUTCMonth();
+    const first = new Date(firstMs);
+    let year = first.getUTCFullYear();
+    let month = first.getUTCMonth();
 
     while (year < lastYear || (year === lastYear && month <= lastMonth)) {
       const bucket = monthly.get(monthKey(year, month)) ?? [];
-      impressionsByMonth.push({
-        label: `${SHORT_MONTHS[month]} ${String(year).slice(2)}`,
-        // A month with no posts is a GAP, never a zero — zero would read as
-        // "we posted and got no reach", which is a different fact.
-        value: bucket.length > 0 ? mean(bucket.map((r) => num(r.impressions))) : null,
-      });
       maxMonthlyPosts = Math.max(maxMonthlyPosts, bucket.length);
       maxMonthlyInteractions = Math.max(
         maxMonthlyInteractions,
@@ -310,9 +400,20 @@ export function buildClientReport(
     }
   }
 
-  // ── weekday buckets (all-time) ─────────────────────────────────────────────
+  // ── impressions series (SELECTED PERIOD) ───────────────────────────────────
+  //
+  // Granularity follows the period: a month bucketed by month is a single bar,
+  // so a month period buckets by WEEK. `impressionsBucket` travels with the data
+  // so the card can title itself honestly rather than always claiming "month".
+  const impressionsBucket: ImpressionsBucket = period.kind === "month" ? "week" : "month";
+  const impressionsSeries =
+    period.kind === "month"
+      ? weekSeries(selectedPlaceable, period.year, period.month)
+      : monthSeries(selectedPlaceable);
+
+  // ── weekday buckets (SELECTED PERIOD) ──────────────────────────────────────
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
-  for (const { row, ms } of placeable) {
+  for (const { row, ms } of selectedPlaceable) {
     weekdayBuckets[new Date(ms).getUTCDay()]!.push(num(row.impressions));
   }
   const impressionsByWeekday = WEEKDAYS.map((label, i) => ({
@@ -320,8 +421,9 @@ export function buildClientReport(
     value: mean(weekdayBuckets[i]!),
   }));
 
-  // ── asset-type buckets (all-time) ──────────────────────────────────────────
-  const groups = groupByFormat(rows, formatMap);
+  // ── asset-type buckets (SELECTED PERIOD) ───────────────────────────────────
+  // ONE `groups` feeds BOTH asset charts, so scoping it scopes both.
+  const groups = groupByFormat(selected, formatMap);
   const interactionsByAsset: AssetBucket[] = [...groups.entries()]
     .map(([format, bucket]) => ({
       format,
@@ -335,7 +437,8 @@ export function buildClientReport(
     .map(([format, bucket]) => ({
       format,
       label: FORMAT_LABELS[format],
-      value: rows.length > 0 ? round1((bucket.length / rows.length) * 100) : 0,
+      // Share of the SELECTED period's posts, matching the bucket source above.
+      value: selected.length > 0 ? round1((bucket.length / selected.length) * 100) : 0,
       count: bucket.length,
     }))
     .sort((a, b) => b.value - a.value);
@@ -418,11 +521,24 @@ export function buildClientReport(
       comparisonRow("prior3", "Prior 3 months", prior3),
       comparisonRow("allTime", "All time", rows),
     ],
-    impressionsByMonth,
-    impressionsAverage: mean(placeable.map((d) => num(d.row.impressions))),
+    impressionsSeries,
+    impressionsBucket,
+    // The reference line must average the SAME data the chart draws, or it is a
+    // line through someone else's numbers.
+    impressionsAverage: mean(selectedPlaceable.map((d) => num(d.row.impressions))),
     impressionsByWeekday,
     interactionsByAsset,
     postTypeDistribution,
+    // ── small-N honesty ──────────────────────────────────────────────────────
+    // All-time framing guaranteed these charts drew on the full history. Scoped
+    // to a month they may draw on a handful of posts, where "Image 40%" is noise
+    // wearing the costume of a finding — so every chart states its own N.
+    //
+    // TWO counts because the charts genuinely differ: the impressions charts can
+    // only plot rows that could be DATED, while the asset charts group every row
+    // in the period. Reporting one number for both would overstate one of them.
+    impressionsPostCount: selectedPlaceable.length,
+    assetPostCount: selected.length,
   };
 }
 

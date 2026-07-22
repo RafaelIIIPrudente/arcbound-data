@@ -8,7 +8,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { SeriesPoint } from "@/services/types";
+import type { ReportPeriod, SeriesPoint } from "@/services/types";
+
+import { ChartScope } from "./chart-scope";
 
 const config = {
   value: { label: "Avg impressions", color: "var(--primary)" },
@@ -22,7 +24,15 @@ const config = {
  * measures. This panel therefore charts IMPRESSIONS and is titled as such. The
  * two pages are not directly comparable; do not relabel this "views".
  */
-export function ImpressionsByWeekdayChart({ data }: { data: SeriesPoint[] }) {
+export function ImpressionsByWeekdayChart({
+  data,
+  period,
+  postCount,
+}: {
+  data: SeriesPoint[];
+  period: ReportPeriod;
+  postCount: number;
+}) {
   const isEmpty = data.every((d) => d.value === 0);
 
   return (
@@ -31,7 +41,7 @@ export function ImpressionsByWeekdayChart({ data }: { data: SeriesPoint[] }) {
         <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
           Average impressions by day of week posted
         </div>
-        <div className="font-mono text-[10.5px] text-muted-foreground">All time</div>
+        <ChartScope period={period} postCount={postCount} />
       </div>
 
       {isEmpty ? (

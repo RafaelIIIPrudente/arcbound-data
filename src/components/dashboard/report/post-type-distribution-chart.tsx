@@ -8,7 +8,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { AssetBucket } from "@/services/types";
+import type { AssetBucket, ReportPeriod } from "@/services/types";
+
+import { ChartScope } from "./chart-scope";
 
 import { AssetLegend } from "./asset-legend";
 import { rampColor } from "./ramp";
@@ -22,14 +24,22 @@ const config = {
  * horizontal bars ranked descending. Uses the same rank-keyed single-hue ramp as
  * the interactions panel, so colour means the same thing across the section.
  */
-export function PostTypeDistributionChart({ data }: { data: AssetBucket[] }) {
+export function PostTypeDistributionChart({
+  data,
+  period,
+  postCount,
+}: {
+  data: AssetBucket[];
+  period: ReportPeriod;
+  postCount: number;
+}) {
   return (
     <div className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
           Post type distribution
         </div>
-        <div className="font-mono text-[10.5px] text-muted-foreground">All time</div>
+        <ChartScope period={period} postCount={postCount} />
       </div>
 
       {data.length === 0 ? (
