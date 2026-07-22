@@ -252,24 +252,37 @@ export function buildClientReport(
     rs.reduce((s, r) => s + num(pick(r)), 0);
 
   // ── monthly buckets (all-time) ─────────────────────────────────────────────
+  //
+  // The window bounds are accumulated in THIS pass rather than derived after it.
+  // `Math.min(...times)` spread every timestamp into a single call, which throws
+  // RangeError past the engine's argument limit (~100k–125k on current V8) — a
+  // hard crash on a large client's history, not a slowdown. This loop already
+  // visits every placeable row, so the bounds cost nothing extra here.
   const monthly = new Map<string, BiPostRow[]>();
+  let firstMs = Infinity;
+  let lastMs = -Infinity;
   for (const { row, ms } of placeable) {
     const d = new Date(ms);
     const key = monthKey(d.getUTCFullYear(), d.getUTCMonth());
     const bucket = monthly.get(key);
     if (bucket) bucket.push(row);
     else monthly.set(key, [row]);
+    if (ms < firstMs) firstMs = ms;
+    if (ms > lastMs) lastMs = ms;
   }
 
-  const times = placeable.map((d) => d.ms);
   const impressionsByMonth: MonthPoint[] = [];
   let monthSpan = 0;
   let maxMonthlyPosts = 0;
   let maxMonthlyInteractions = 0;
 
-  if (times.length > 0) {
-    const first = new Date(Math.min(...times));
-    const last = new Date(Math.max(...times));
+  // Holds the line the `times.length > 0` check held: with no datable rows the
+  // bounds stay Infinity/-Infinity (as `Math.min()` returned Infinity for an
+  // empty spread), so the month walk must not run — impressionsByMonth stays
+  // empty and monthSpan stays 0.
+  if (placeable.length > 0) {
+    const first = new Date(firstMs);
+    const last = new Date(lastMs);
     let year = first.getUTCFullYear();
     let month = first.getUTCMonth();
     const lastYear = last.getUTCFullYear();
@@ -426,8 +439,11 @@ const REPORT_COLUMNS =
  */
 export const PAGE_SIZE = 1000;
 
-/** Guard against an unbounded loop if the server ever ignores `.range()`. */
-const MAX_PAGES = 50;
+/**
+ * Hard ceiling on pages per read — 50,000 rows. Exported so the tests assert
+ * the cap the module actually enforces rather than restating the number.
+ */
+export const MAX_PAGES = 50;
 
 export interface ClientReportOptions {
   clientId: string;
@@ -452,29 +468,79 @@ export async function getClientReport({
   let rows: BiPostRow[] = [];
   try {
     const supabase = createClient(cookies());
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const from = page * PAGE_SIZE;
-      const query = supabase
-        .schema("bi")
-        .from("linkedin_post_latest")
-        .select(REPORT_COLUMNS)
-        .eq("client_id", clientId)
-        // Stable ordering — without it, paging can repeat or skip rows.
-        .order("linkedin_post_id", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
 
-      const { data, error } = await query;
-      if (error) {
-        console.warn(
-          `Client report unavailable — bi.linkedin_post_latest read failed: ${error.message}`,
-        );
-        return { ...fallback(), unavailable: true };
+    const pageQuery = (page: number, opts?: { count: "exact" }) => {
+      const from = page * PAGE_SIZE;
+      return (
+        supabase
+          .schema("bi")
+          .from("linkedin_post_latest")
+          .select(REPORT_COLUMNS, opts)
+          .eq("client_id", clientId)
+          // Stable ordering — without it, CONCURRENT ranges can overlap or skip
+          // rows. Required on every page, not just the first.
+          .order("linkedin_post_id", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1)
+      );
+    };
+
+    // Page 0 carries the count that sizes the rest, so it is the one read that
+    // genuinely has to go first. The serial walk it replaces cost one round-trip
+    // PER PAGE because it only learned it was done by seeing a short page.
+    //
+    // The count must be "exact". "planned" and "estimated" are PostgREST's cheap
+    // approximations, and an under-estimate would compute too few pages and drop
+    // rows silently — the failure this paging exists to prevent.
+    const firstPage = await pageQuery(0, { count: "exact" });
+    if (firstPage.error) {
+      console.warn(
+        `Client report unavailable — bi.linkedin_post_latest read failed: ${firstPage.error.message}`,
+      );
+      return { ...fallback(), unavailable: true };
+    }
+
+    rows = (firstPage.data ?? []) as BiPostRow[];
+    // A null count would mean the server ignored the option; fall back to what
+    // page 0 actually returned rather than guessing at a total.
+    const total = firstPage.count ?? rows.length;
+
+    let pageCount = Math.ceil(total / PAGE_SIZE);
+    if (pageCount > MAX_PAGES) {
+      // The old loop hit this cap and truncated in SILENCE. The count makes the
+      // truncation observable, which is the point of asking for it.
+      console.warn(
+        `Client report truncated — client ${clientId} has ${total} posts, above the ` +
+          `${MAX_PAGES * PAGE_SIZE}-row read cap (${MAX_PAGES} pages × ${PAGE_SIZE}). ` +
+          `Reporting on the first ${MAX_PAGES * PAGE_SIZE}.`,
+      );
+      pageCount = MAX_PAGES;
+    }
+
+    if (pageCount > 1) {
+      // `Promise.all` preserves INPUT order, so the pages concatenate 1..n after
+      // page 0 regardless of which returns first. Do not swap it for a construct
+      // that resolves out of order.
+      const rest = await Promise.all(
+        Array.from({ length: pageCount - 1 }, (_, i) => pageQuery(i + 1)),
+      );
+
+      // ⚠️ SCAN EVERY PAGE BEFORE USING ANY OF THEM.
+      //
+      // Supabase RESOLVES with `{ error }` rather than rejecting, so a failed
+      // page arrives looking like a normal result while its siblings hold real
+      // rows. Concatenating what succeeded would report a partial history as a
+      // complete one — a silent wrong number, which is worse than the
+      // unavailable banner because it looks like data.
+      for (const { error } of rest) {
+        if (error) {
+          console.warn(
+            `Client report unavailable — bi.linkedin_post_latest read failed: ${error.message}`,
+          );
+          return { ...fallback(), unavailable: true };
+        }
       }
 
-      const batch = (data ?? []) as BiPostRow[];
-      rows = rows.concat(batch);
-      // A short page means we've reached the end.
-      if (batch.length < PAGE_SIZE) break;
+      for (const { data } of rest) rows = rows.concat((data ?? []) as BiPostRow[]);
     }
   } catch (err) {
     console.warn(

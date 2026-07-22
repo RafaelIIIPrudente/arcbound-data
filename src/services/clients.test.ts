@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks: hermetic — a proxy stands in for the Supabase query builder so no
@@ -100,6 +102,20 @@ describe("clients service (real seam)", () => {
     expect(await getClient("missing")).toBeNull();
   });
 
+  it("fetches the client rows and the post counts CONCURRENTLY", async () => {
+    mockSupabase(
+      { data: [ROW("c1", "Bryan Wish")], error: null },
+      { data: [{ client_id: "c1" }], error: null },
+    );
+
+    await listClients();
+
+    // `fetchPostCounts` takes only the Supabase client — it reads nothing from
+    // the select — so it never needed to wait. Peak in-flight is 1 when it does
+    // and 2 when the two go out together.
+    expect(probe.peak).toBe(2);
+  });
+
   it("fetches the client row and its post count CONCURRENTLY", async () => {
     mockSupabase({ data: ROW("c1", "Bryan Wish"), error: null }, { count: 5, error: null });
 
@@ -145,5 +161,31 @@ describe("clients service (real seam)", () => {
   it("throws when the clients query errors", async () => {
     mockSupabase({ data: null, error: { message: "denied" } }, { data: [], error: null });
     await expect(listClients()).rejects.toThrow(/Failed to load clients: denied/);
+  });
+});
+
+describe("getClient's memoisation is REQUEST-scoped", () => {
+  // A SOURCE GUARD, for the reason spelled out in src/lib/auth/session.test.ts:
+  // React's `cache()` only memoises inside a server render, and vitest has no
+  // render context, so the memo itself is not behaviourally testable here. What
+  // matters and IS testable is that it never becomes cross-request — which for a
+  // read this cookie-bound would move an RLS boundary into application code.
+  const source = readFileSync(join(process.cwd(), "src/services/clients.ts"), "utf8");
+
+  // Comments stripped: the doc comment NAMES `unstable_cache` to warn against
+  // it, and matching raw text would flag that warning as the violation.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("uses React cache(), not a cross-request store", () => {
+    expect(code).toMatch(/import\s*\{\s*cache\s*\}\s*from\s*["']react["']/);
+    expect(code).toMatch(/export const getClient = cache\(/);
+    expect(code).not.toMatch(/unstable_cache/);
+  });
+
+  it("strips comments without stripping the code it is checking", () => {
+    // Guard the guard: proves the stripping left real code behind rather than
+    // emptying the file and passing vacuously.
+    expect(code).toContain("countForClient(supabase, id)");
+    expect(code).not.toContain("move an RLS-enforced boundary");
   });
 });

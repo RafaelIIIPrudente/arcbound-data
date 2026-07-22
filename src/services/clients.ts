@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -78,13 +79,19 @@ export async function listClients(opts: ListClientsOptions = {}): Promise<Pagina
   const { q, page = 1, pageSize = 10 } = opts;
   const supabase = createServerClient(cookies());
 
-  const { data, error } = await supabase
-    .from("clients")
-    .select(CLIENT_COLUMNS)
-    .order("created_at", { ascending: false });
+  // Two independent reads, issued together. `fetchPostCounts` takes only the
+  // Supabase client — it reads nothing from the select — so it never needed to
+  // wait; the counts are joined to the rows in memory below.
+  //
+  // Error precedence is unchanged: `fetchPostCounts` swallows its own failures
+  // and returns an empty map, so it can never reject, and the select's error is
+  // still the only one that can surface here.
+  const [{ data, error }, counts] = await Promise.all([
+    supabase.from("clients").select(CLIENT_COLUMNS).order("created_at", { ascending: false }),
+    fetchPostCounts(supabase),
+  ]);
   if (error) throw new Error(`Failed to load clients: ${error.message}`);
 
-  const counts = await fetchPostCounts(supabase);
   let clients = ((data ?? []) as ClientRow[]).map((row) => toClient(row, counts.get(row.id) ?? 0));
 
   if (q && q.trim()) {
@@ -99,7 +106,25 @@ export async function listClients(opts: ListClientsOptions = {}): Promise<Pagina
   return { items: clients.slice(start, start + pageSize), total };
 }
 
-export async function getClient(id: string): Promise<Client | null> {
+/**
+ * One client by id, or `null`.
+ *
+ * MEMOISED PER REQUEST, keyed by `id`. React's `cache()` is REQUEST-scoped: the
+ * memo lives for one server render and is discarded with it, so one visitor's
+ * RLS-authorised read can never be served to another.
+ *
+ * ⚠️ Today this DEDUPES NOTHING — every call site reads a client exactly once
+ * per request (there is no `generateMetadata` to double the read). It is a guard
+ * on a cheap read, not a fix for measured duplicate work: the moment a second
+ * component on the same page needs the client, it costs one round-trip instead
+ * of two, and nobody has to notice.
+ *
+ * This must NOT be swapped for `unstable_cache` or anything that persists
+ * BETWEEN requests. That would move an RLS-enforced boundary out of the database
+ * and into application code, and it throws outright here anyway — the read is
+ * cookie-bound via `createServerClient(cookies())`.
+ */
+export const getClient = cache(async (id: string): Promise<Client | null> => {
   const supabase = createServerClient(cookies());
 
   // Two independent reads, issued together. The count filters on the id
@@ -119,7 +144,7 @@ export async function getClient(id: string): Promise<Client | null> {
   if (!data) return null;
 
   return toClient(data as ClientRow, postsCount);
-}
+});
 
 export async function createClient(input: { name: string; linkedin_url: string }): Promise<Client> {
   const supabase = createServerClient(cookies());

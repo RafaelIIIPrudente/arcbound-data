@@ -9,13 +9,24 @@ const { state } = vi.hoisted(() => ({
   state: {
     /** [from, to] of each `.range()` call on the bi view, in order. */
     ranges: [] as number[][],
-    /** One entry per bi page, served in order. */
+    /** One entry per bi page, served BY PAGE INDEX (not by call order). */
     biPages: [] as unknown[][],
     biError: null as { message: string } | null,
+    /** Fail exactly one page, to prove a LATE failure still fails the whole read. */
+    biErrorOnPage: null as number | null,
+    /** What `count: "exact"` reports. Defaults to the total rows in `biPages`. */
+    biCount: null as number | null,
+    /** The `count` option each bi request carried — `undefined` when it asked for none. */
+    countOptions: [] as (string | undefined)[],
+    /** Ids per `.in()` on post_attributes, in call order — observes merged ROW order. */
+    attributeIdChunks: [] as string[][],
     attributes: [] as unknown[],
     uploads: [] as unknown[],
     schemaCalls: [] as string[],
     fromCalls: [] as string[],
+    /** Concurrency probe: bi requests outstanding now, and the most at once. */
+    inFlight: 0,
+    peakInFlight: 0,
   },
 }));
 
@@ -29,18 +40,46 @@ vi.mock("@/lib/supabase/server", () => ({
         from: (t: string) => {
           state.fromCalls.push(t);
           const q: Record<string, unknown> = {};
-          q.select = () => q;
+          // Captured per QUERY, not globally: concurrent pages are all built
+          // before any resolves, so a shared cursor would serve them all the
+          // same page and the merge would look correct while being wrong.
+          let page = 0;
+          let countOption: string | undefined;
+          q.select = (_columns: string, opts?: { count?: string }) => {
+            countOption = opts?.count;
+            state.countOptions.push(opts?.count);
+            return q;
+          };
           q.eq = () => q;
           q.or = () => q;
           q.order = () => q;
           q.range = (from: number, to: number) => {
             state.ranges.push([from, to]);
+            // Derived from the request itself (`from / pageLength`) so the mock
+            // never has to know PAGE_SIZE and cannot drift from the module.
+            page = from / (to - from + 1);
             return q;
           };
           q.then = (resolve: (v: unknown) => unknown) => {
-            const index = state.ranges.length - 1;
-            const data = state.biPages[index] ?? [];
-            return Promise.resolve({ data, error: state.biError }).then(resolve);
+            state.inFlight += 1;
+            state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
+            // Settled on a LATER macrotask so overlap is observable. Resolving
+            // immediately would drain each page before the next was issued, and
+            // peak in-flight would read 1 even for a fully concurrent caller.
+            return new Promise((r) => setTimeout(r, 0))
+              .then(() => {
+                state.inFlight -= 1;
+                const error =
+                  state.biError ??
+                  (state.biErrorOnPage === page ? { message: `page ${page} exploded` } : null);
+                const total = state.biPages.reduce((n, p) => n + p.length, 0);
+                return {
+                  data: error ? null : (state.biPages[page] ?? []),
+                  error,
+                  count: countOption === "exact" ? (state.biCount ?? total) : null,
+                };
+              })
+              .then(resolve);
           };
           return q;
         },
@@ -52,7 +91,10 @@ vi.mock("@/lib/supabase/server", () => ({
       const q: Record<string, unknown> = {};
       q.select = () => q;
       q.eq = () => q;
-      q.in = () => q;
+      q.in = (_column: string, ids: string[]) => {
+        state.attributeIdChunks.push(ids);
+        return q;
+      };
       q.order = () => q;
       q.then = (resolve: (v: unknown) => unknown) =>
         Promise.resolve({
@@ -68,6 +110,7 @@ import {
   availablePeriods,
   buildClientReport,
   getClientReport,
+  MAX_PAGES,
   PAGE_SIZE,
   parseReportPeriod,
 } from "./client-report";
@@ -93,6 +136,22 @@ function row(over: Partial<BiPostRow>): BiPostRow {
     uploaded_at: null,
     ...over,
   };
+}
+
+/**
+ * Pages of the given sizes. Ids encode `page-offset`, so the merged order is
+ * observable rather than inferred from a row count that any ordering satisfies.
+ */
+function pagesOf(sizes: number[]): BiPostRow[][] {
+  return sizes.map((size, page) =>
+    Array.from({ length: size }, (_, i) =>
+      row({
+        linkedin_post_id: `p${page}-${i}`,
+        estimated_post_date: "2026-07-01",
+        impressions: 1,
+      }),
+    ),
+  );
 }
 
 const NOW = new Date("2026-07-16T12:00:00.000Z");
@@ -153,10 +212,16 @@ beforeEach(() => {
   state.ranges = [];
   state.biPages = [];
   state.biError = null;
+  state.biErrorOnPage = null;
+  state.biCount = null;
+  state.countOptions = [];
+  state.attributeIdChunks = [];
   state.attributes = [];
   state.uploads = [];
   state.schemaCalls = [];
   state.fromCalls = [];
+  state.inFlight = 0;
+  state.peakInFlight = 0;
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -202,6 +267,81 @@ describe("parseReportPeriod (pure)", () => {
 
   it("falls back to all-time when no month has data", () => {
     expect(parseReportPeriod(undefined, availablePeriods([])).key).toBe("all");
+  });
+});
+
+describe("period scoping — what the picker moves, and what it deliberately does not", () => {
+  // ⚠️ THIS DOCUMENTS A DELIBERATE DESIGN, NOT A BUG.
+  //
+  // Key Performance renders a period-scoped HERO row above an ALL-TIME matrix
+  // (see the doc comment in key-performance.tsx). Only the hero answers to the
+  // period picker: the "Monthly avg"/"Monthly max" matrix and the per-1K line
+  // are all-time by construction and MUST NOT move when the period changes.
+  //
+  // Consequence, and the reason this block exists: on a client whose posts all
+  // sit in the newest month, selecting "All time" selects the SAME ROWS, so the
+  // hero is identical too and literally nothing changes but the caption. That
+  // reads as a broken picker and is correct behaviour. Anyone re-investigating
+  // "All time does nothing" should start here.
+  const build = (rows: BiPostRow[], key: string | undefined) => {
+    const periods = availablePeriods(rows);
+    return buildClientReport(rows, new Map(), {
+      period: parseReportPeriod(key, periods),
+      now: NOW,
+      followers: 1000,
+      availablePeriods: periods,
+    });
+  };
+  const figures = (r: ReturnType<typeof build>) =>
+    r.keyPerformance.selected.map((f) => [f.label, f.value]);
+
+  // Jul ×2, Jun ×1, May ×1 — a period change genuinely changes the row set.
+  const SPREAD = [
+    row({ linkedin_post_id: "jul1", estimated_post_date: "2026-07-10", interactions: 10 }),
+    row({ linkedin_post_id: "jul2", estimated_post_date: "2026-07-11", interactions: 20 }),
+    row({ linkedin_post_id: "jun1", estimated_post_date: "2026-06-10", interactions: 100 }),
+    row({ linkedin_post_id: "may1", estimated_post_date: "2026-05-10", interactions: 500 }),
+  ];
+
+  it("widens the HERO figures when the period widens to all-time", () => {
+    expect(figures(build(SPREAD, undefined))).toEqual([
+      ["Total posts", 2],
+      ["Avg interactions", 15],
+      ["Total interactions", 30],
+    ]);
+    expect(figures(build(SPREAD, "all"))).toEqual([
+      ["Total posts", 4],
+      ["Avg interactions", 157.5],
+      ["Total interactions", 630],
+    ]);
+  });
+
+  it("leaves the all-time matrix and per-1K line UNCHANGED by the period", () => {
+    const month = build(SPREAD, undefined);
+    const all = build(SPREAD, "all");
+
+    // Identical on purpose. If a future change makes these track the period,
+    // that is a product decision, not a bug fix — and this test should be the
+    // thing that forces the conversation.
+    expect(all.keyPerformance.matrix).toEqual(month.keyPerformance.matrix);
+    expect(all.keyPerformance.perThousandFollowers).toEqual(
+      month.keyPerformance.perThousandFollowers,
+    );
+  });
+
+  it("produces IDENTICAL figures for all-time and newest-month when every post sits in one month", () => {
+    // The live shape at ~50 posts, and the whole explanation for "All time does
+    // nothing": same rows in, same numbers out.
+    const oneMonth = [
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-10", interactions: 10 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-11", interactions: 20 }),
+      row({ linkedin_post_id: "c", estimated_post_date: "2026-07-12", interactions: 30 }),
+    ];
+
+    expect(figures(build(oneMonth, "all"))).toEqual(figures(build(oneMonth, undefined)));
+    // ...and the period really did resolve differently, so this is not vacuous.
+    expect(build(oneMonth, "all").period.key).toBe("all");
+    expect(build(oneMonth, undefined).period.key).toBe("2026-07");
   });
 });
 
@@ -481,6 +621,34 @@ describe("buildClientReport (pure)", () => {
     // Weekday axis still renders all seven days at zero rather than vanishing.
     expect(report.impressionsByWeekday).toHaveLength(7);
   });
+
+  it("aggregates a row set past the engine's spread-argument limit without throwing", () => {
+    // ⚠️ THE SIZE IS THE TEST. `Math.min(...times)` spread every timestamp into
+    // ONE call; past the argument limit V8 throws RangeError — a hard crash on
+    // a large client, not a slowdown. Measured on this Node (v25): 100k spreads
+    // fine, 125k throws. 130k clears the threshold with margin, and a 200-row
+    // fixture would pass against the BROKEN implementation and prove nothing.
+    const many = Array.from({ length: 130_000 }, (_, i) =>
+      row({
+        linkedin_post_id: `p${i}`,
+        // Spread across two months so the month walk does real work too.
+        estimated_post_date: i % 2 === 0 ? "2026-06-10" : "2026-07-10",
+        impressions: 1,
+        interactions: 1,
+      }),
+    );
+
+    const report = buildClientReport(many, new Map(), {
+      period: { kind: "all", key: "all", label: "All time" },
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods([]),
+    });
+
+    expect(report.totalPostsAllTime).toBe(130_000);
+    // The min/max still bound the real window: June and July, nothing else.
+    expect(report.impressionsByMonth.map((p) => p.label)).toEqual(["Jun 26", "Jul 26"]);
+  });
 });
 
 describe("getClientReport (seam → paged bi read)", () => {
@@ -501,12 +669,91 @@ describe("getClientReport (seam → paged bi read)", () => {
     expect(report.totalPostsAllTime).toBe(PAGE_SIZE + 1); // merged, not truncated
   });
 
-  it("stops after a short page rather than requesting forever", async () => {
-    state.biPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
+  it("issues exactly ONE request when the count fits in a single page", async () => {
+    state.biPages = pagesOf([1]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
     expect(state.ranges).toHaveLength(1);
+  });
+
+  it("asks for an EXACT count, on the first page only", async () => {
+    state.biPages = pagesOf([PAGE_SIZE, 500]);
+
+    await getClientReport({ clientId: "c1", period: "all" });
+
+    // "planned"/"estimated" are PostgREST's cheap approximations. An
+    // under-estimate would compute too few pages and silently drop rows —
+    // exactly the silent-wrong-numbers failure the paging exists to prevent.
+    expect(state.countOptions).toEqual(["exact", undefined]);
+  });
+
+  it("issues exactly one request per page and merges them in PAGE ORDER", async () => {
+    const pages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]); // count defaults to 2500
+
+    state.biPages = pages;
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    expect(state.ranges).toEqual([
+      [0, PAGE_SIZE - 1],
+      [PAGE_SIZE, 2 * PAGE_SIZE - 1],
+      [2 * PAGE_SIZE, 3 * PAGE_SIZE - 1],
+    ]);
+    expect(report.totalPostsAllTime).toBe(2500);
+
+    // Row ORDER, observed downstream rather than asserted on a shuffled count:
+    // the seam hands `listPostAttributes` the merged ids, and its chunk queries
+    // are built in that order. Concurrency that resolved out of order would
+    // scramble this while leaving the row COUNT correct.
+    expect(state.attributeIdChunks.flat()).toEqual(pages.flat().map((r) => r.linkedin_post_id));
+  });
+
+  it("issues pages 1..n CONCURRENTLY, not one after another", async () => {
+    state.biPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
+
+    await getClientReport({ clientId: "c1", period: "all" });
+
+    // ⚠️ THE DISCRIMINATING ASSERTION FOR THE WHOLE SLICE.
+    //
+    // A serial walk peaks at 1 in-flight BY CONSTRUCTION, so this fails against
+    // it — which is the only reason to trust it. Asserting the request COUNT
+    // would pass under serial and parallel alike and prove nothing.
+    //
+    // Page 0 goes alone (it carries the count that sizes the rest), then pages
+    // 1 and 2 go out together: peak 2.
+    expect(state.peakInFlight).toBeGreaterThan(1);
+    expect(state.peakInFlight).toBe(2);
+  });
+
+  it("fails the WHOLE read when a LATER page errors, never a partial result", async () => {
+    state.biPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
+    state.biErrorOnPage = 2;
+
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    // Supabase RESOLVES with `{ error }` rather than rejecting, so a failed page
+    // arrives looking like a normal result while its siblings hold real rows.
+    // Reporting those 2000 rows as the client's history would be a silent wrong
+    // number — worse than the unavailable banner, because it looks like data.
+    expect(report.unavailable).toBe(true);
+    expect(report.totalPostsAllTime).toBe(0);
+  });
+
+  it("warns and caps the read when the count exceeds the page cap", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.biPages = pagesOf([PAGE_SIZE]); // pages 1..49 serve []
+    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE
+
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    expect(state.ranges).toHaveLength(MAX_PAGES);
+    // Truncated, but still a REPORT — the rows we got, not an error page.
+    expect(report.unavailable).toBeUndefined();
+    expect(report.totalPostsAllTime).toBe(PAGE_SIZE);
+    // The count made this observable; the old loop truncated silently.
+    const message = warn.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(message).toContain("60000");
+    expect(message).toContain(String(MAX_PAGES * PAGE_SIZE));
   });
 
   it("reads the externally-owned bi view", async () => {
