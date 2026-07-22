@@ -1,0 +1,107 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   Print rules for the exported Client LinkedIn Report. Every print concern for
+   the document lives in this one file; the components carry only the semantic
+   classes `.print-root`, `.print-cover` and `.print-block`.
+
+   The export mechanism is the browser's own print dialog — there is no PDF
+   toolchain and no headless browser.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@page {
+  size: Letter;
+  margin: 16mm 15mm 15mm;
+}
+
+/* NOT optional. Chrome drops background fills when printing unless told
+   otherwise, which would strip every chart bar and card to a bare outline. */
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ── Force the light palette ─────────────────────────────────────────────────
+   next-themes puts `dark` on <html>, which a nested layout cannot remove
+   server-side — and a dark-mode export is a black rectangle on paper.
+
+   Custom properties inherit, so re-declaring them on the document root wins for
+   this subtree in both themes, with no client JS and no flash. These are the
+   `:root` values from globals.css verbatim; the print-tokens test asserts this
+   block stays in step with it, and covers every token `.dark` overrides.
+
+   This works because nothing in the report uses `dark:` utility variants — the
+   components are entirely token-driven, so neutralising the tokens is enough. */
+.print-root {
+  color-scheme: light;
+
+  /* THE PAPER CONTENT COLUMN, in CSS px: Letter (215.9mm) less the 15mm side
+     margins above = 185.9mm ≈ 702.6px at 96dpi, rounded down.
+
+     The print charts are drawn at exactly this width (CHART_WIDTH in
+     print-report.tsx) because they cannot be measured — see that file. The
+     on-screen preview therefore has to reserve the same column, or a chart that
+     fits on paper overflows in the browser. print-tokens.test.ts asserts the
+     two numbers stay equal. */
+  --print-column: 700px;
+
+  width: 100%;
+  max-width: calc(var(--print-column) + 4rem); /* + the 2rem padding each side */
+  margin-inline: auto;
+  padding: 2rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #f63a3a;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #f63a3a;
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* ── Pagination ──────────────────────────────────────────────────────────────
+   The cover is the ONLY forced break. Breaking between sections as well would
+   just produce half-empty pages; content flows, and individual blocks are
+   protected from being split across the fold. */
+.print-cover {
+  break-after: page;
+}
+
+.print-block {
+  break-inside: avoid;
+}
+
+@media print {
+  /* The on-screen preview is centred in the viewport; on paper the @page
+     margin does that job, so the wrapper must not add its own. */
+  .print-root {
+    margin: 0;
+    padding: 0;
+    max-width: none;
+  }
+}

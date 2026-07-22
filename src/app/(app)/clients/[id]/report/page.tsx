@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Printer } from "lucide-react";
 
 import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
@@ -70,9 +70,22 @@ export default async function ClientReportPage({
           <span className="text-primary">—</span>
           LinkedIn report
         </div>
-        <h2 className="mt-2.5 font-display text-3xl leading-none font-extrabold tracking-tight">
-          {client.name}
-        </h2>
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-3xl leading-none font-extrabold tracking-tight">
+            {client.name}
+          </h2>
+          {/* Opens the print-optimised document in its own tab, carrying the
+              period selected here so the export matches what is on screen. */}
+          <Link
+            href={`${paths.clients.reportPrint(client.id)}?period=${encodeURIComponent(report.period.key)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-[11px] tracking-widest text-muted-foreground uppercase transition-colors hover:bg-accent/50 hover:text-foreground"
+          >
+            <Printer className="size-3.5" aria-hidden />
+            Print / Export
+          </Link>
+        </div>
       </div>
 
       <ClientTabs clientId={client.id} />

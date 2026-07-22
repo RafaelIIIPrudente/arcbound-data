@@ -8,6 +8,10 @@ export const paths = {
     list: "/clients",
     details: (id: string) => `/clients/${id}`,
     report: (id: string) => `/clients/${id}/report`,
+    // The print-optimised export of the report above. `(print)` is a route
+    // GROUP, so it never appears in the URL — this path is auth-gated by the
+    // same default-deny rule as every other app route (see lib/route-access).
+    reportPrint: (id: string) => `/clients/${id}/report/print`,
   },
   upload: "/upload",
   resources: "/resources",

@@ -332,6 +332,78 @@ describe("buildClientReport (pure)", () => {
     expect(ratio.approximate).toBe(true); // followers are per-Upload, not per-post
   });
 
+  it("leads the scoped row with Total posts, Avg interactions, Total interactions", () => {
+    const report = buildClientReport(HISTORY, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+    });
+
+    // Order matters: this row reproduces a page of the analytics engineer's
+    // Power BI report, and a reader compares them side by side.
+    expect(report.keyPerformance.selected.map((f) => f.label)).toEqual([
+      "Total posts",
+      "Avg interactions",
+      "Total interactions",
+    ]);
+  });
+
+  it("totals interactions from the `interactions` field, NOT from likes + comments + reposts", () => {
+    // `interactions` is its own column in the externally-owned BI view and is
+    // not guaranteed to equal the components — the view may count saves, or
+    // clicks, or apply a definition of its own. These rows make the two
+    // readings disagree on purpose: summing the field gives 150, deriving it
+    // from likes + comments + reposts gives 20.
+    const divergent: BiPostRow[] = [
+      row({
+        linkedin_post_id: "jul-a",
+        estimated_post_date: "2026-07-04",
+        likes: 10,
+        comments: 5,
+        reposts: 2,
+        interactions: 100,
+      }),
+      row({
+        linkedin_post_id: "jul-b",
+        estimated_post_date: "2026-07-18",
+        likes: 1,
+        comments: 1,
+        reposts: 1,
+        interactions: 50,
+      }),
+    ];
+
+    const report = buildClientReport(divergent, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+    });
+
+    const total = report.keyPerformance.selected.find((f) => f.label === "Total interactions")!;
+    expect(total.value).toBe(150);
+  });
+
+  it("reports 0 interactions, never NaN, for a period with no posts", () => {
+    // February is empty in HISTORY, so the selected set is genuinely [].
+    const february = {
+      kind: "month",
+      key: "2026-02",
+      label: "February 2026",
+      year: 2026,
+      month: 1,
+    } as const;
+
+    const report = buildClientReport(HISTORY, new Map(), {
+      period: february,
+      now: NOW,
+      followers: null,
+    });
+
+    const total = report.keyPerformance.selected.find((f) => f.label === "Total interactions")!;
+    expect(total.value).toBe(0);
+    expect(Number.isNaN(total.value)).toBe(false);
+  });
+
   it("produces an empty report for a client with zero posts, without throwing", () => {
     const report = buildClientReport([], new Map(), {
       period: { kind: "all", key: "all", label: "All time" },

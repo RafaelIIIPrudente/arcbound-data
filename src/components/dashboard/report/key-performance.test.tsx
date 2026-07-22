@@ -8,8 +8,8 @@ import { KeyPerformance } from "./key-performance";
 const GRID: ClientReport["keyPerformance"] = {
   selected: [
     { label: "Total posts", value: 12 },
-    { label: "Avg impressions", value: 1234 },
     { label: "Avg interactions", value: 56 },
+    { label: "Total interactions", value: 1234 },
   ],
   allTime: [
     { label: "Avg monthly posts", value: 4.5 },

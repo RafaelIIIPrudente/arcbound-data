@@ -321,8 +321,13 @@ export function buildClientReport(
   const keyPerformance = {
     selected: [
       { label: "Total posts", value: selected.length },
-      { label: "Avg impressions", value: mean(selected.map((r) => num(r.impressions))) },
       { label: "Avg interactions", value: mean(selected.map((r) => num(r.interactions))) },
+      // SUM THE FIELD — never likes + comments + reposts. `interactions` is its
+      // own column in the externally-owned BI view and is not guaranteed to
+      // equal its components (the view may count saves, clicks, or apply its
+      // own definition). A derived total that disagreed with the per-metric
+      // panels below would discredit the whole document.
+      { label: "Total interactions", value: sum(selected, (r) => r.interactions) },
     ] satisfies ReportFigure[],
     allTime: [
       { label: "Avg monthly posts", value: monthSpan > 0 ? round1(rows.length / monthSpan) : 0 },
