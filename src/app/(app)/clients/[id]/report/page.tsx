@@ -11,10 +11,8 @@ import { InteractionsByAssetChart } from "@/components/dashboard/report/interact
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
-import {
-  ReportPeriodPicker,
-  scopeCaption,
-} from "@/components/dashboard/report/report-period-picker";
+import { scopeCaption } from "@/components/dashboard/report/report-period";
+import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
 import { paths } from "@/paths";
 import { getClientReport } from "@/services/client-report";
 import { getClient } from "@/services/clients";

@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { BiPostRow } from "@/services/analytics";
 import { availablePeriods, parseReportPeriod } from "@/services/client-report";
 
-import { reportPeriodHref, scopeCaption } from "./report-period-picker";
+import { reportPeriodHref, scopeCaption } from "./report-period";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE ROUND TRIP.
@@ -20,6 +22,8 @@ import { reportPeriodHref, scopeCaption } from "./report-period-picker";
 // the encoding is reimplemented here — a test that restates what it is testing
 // would have passed happily throughout the bug.
 // ─────────────────────────────────────────────────────────────────────────────
+
+const MODULE = "src/components/dashboard/report/report-period.ts";
 
 const PATHNAME = "/clients/8f3c/report";
 /** Only used to make the relative href parseable; never navigated to. */
@@ -85,6 +89,30 @@ describe("period URL round trip (picker encodes → client-report decodes)", () 
     // client-tabs.tsx links to the report with no param and relies on this, so
     // the fix above must not have traded one broken path for another.
     expect(parseReportPeriod(undefined, PERIODS).key).toBe("2026-07");
+  });
+});
+
+describe("the server/client boundary these helpers straddle", () => {
+  it('keeps report-period.ts free of "use client"', () => {
+    // THIS IS NOT COSMETIC. `scopeCaption` is CALLED by the report page, an
+    // RSC. A "use client" directive turns every export in a module into a
+    // client reference, and a server component cannot call one — it throws
+    // "Attempted to call scopeCaption() from the server" at request time.
+    //
+    // Nothing else catches it: the report route is dynamic, so `next build`
+    // never executes it, and in vitest the directive is inert, so the tests
+    // below pass either way. This assertion is the only thing standing between
+    // that mistake and a runtime error in production.
+    const source = readFileSync(join(process.cwd(), MODULE), "utf8");
+
+    expect(source).not.toMatch(/^\s*["']use client["']/m);
+  });
+
+  it("reads the module it is guarding", () => {
+    // Guard the guard: a wrong path would make the assertion above vacuous.
+    const source = readFileSync(join(process.cwd(), MODULE), "utf8");
+
+    expect(source).toContain("export function scopeCaption");
   });
 });
 
