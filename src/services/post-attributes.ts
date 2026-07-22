@@ -49,21 +49,35 @@ export async function listPostAttributes(postIds: string[]): Promise<PostAttribu
 
   try {
     const supabase = createClient(cookies());
-    const rows: PostAttributes[] = [];
 
-    for (const ids of chunk(postIds, CHUNK_SIZE)) {
-      const { data, error } = await supabase
-        .from("post_attributes")
-        .select(ATTRIBUTE_COLUMNS)
-        .in("linkedin_post_id", ids);
+    // The chunks are independent, so they go out together rather than costing
+    // one serial round-trip each. `Promise.all` preserves INPUT order, which
+    // keeps the flattened result in chunk order — byte-identical to the loop
+    // this replaced. Do not swap it for a construct that resolves out of order.
+    const results = await Promise.all(
+      chunk(postIds, CHUNK_SIZE).map((ids) =>
+        supabase.from("post_attributes").select(ATTRIBUTE_COLUMNS).in("linkedin_post_id", ids),
+      ),
+    );
+
+    // ⚠️ CHECK EVERY CHUNK BEFORE RETURNING ANYTHING.
+    //
+    // Supabase RESOLVES with `{ error }` for a query error rather than
+    // rejecting, so a failed chunk arrives looking like a normal result. The
+    // serial loop short-circuited on the first failure and returned []; now
+    // that all chunks are already in flight, later ones can fail after earlier
+    // ones have succeeded. Returning what did succeed would be a silent partial
+    // result — a change to the contract dressed up as an optimisation.
+    //
+    // Scanning in order also reports the SAME chunk's message the loop did.
+    for (const { error } of results) {
       if (error) {
         console.warn(`Failed to load post attributes: ${error.message}`);
         return [];
       }
-      rows.push(...((data ?? []) as PostAttributes[]));
     }
 
-    return rows;
+    return results.flatMap(({ data }) => (data ?? []) as PostAttributes[]);
   } catch (err) {
     console.warn(
       `Failed to load post attributes: ${err instanceof Error ? err.message : String(err)}`,

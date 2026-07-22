@@ -219,7 +219,12 @@ describe("buildClientReport (pure)", () => {
       ["c", "  Document  "],
     ]);
 
-    const report = buildClientReport(rows, formats, { period: JULY, now: NOW, followers: null });
+    const report = buildClientReport(rows, formats, {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
 
     const docs = report.interactionsByAsset.filter((b) => b.format === "DOCUMENT");
     expect(docs).toHaveLength(1);
@@ -235,7 +240,12 @@ describe("buildClientReport (pure)", () => {
     ];
     const formats = new Map([["a", "VIDEO"]]); // "b" has no attribute row at all
 
-    const report = buildClientReport(rows, formats, { period: JULY, now: NOW, followers: null });
+    const report = buildClientReport(rows, formats, {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
 
     const unknown = report.postTypeDistribution.find((b) => b.format === "UNKNOWN")!;
     expect(unknown).toBeDefined();
@@ -248,7 +258,12 @@ describe("buildClientReport (pure)", () => {
     const rows = [row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })];
     const formats = new Map([["a", "CAROUSEL_V2"]]);
 
-    const report = buildClientReport(rows, formats, { period: JULY, now: NOW, followers: null });
+    const report = buildClientReport(rows, formats, {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
 
     expect(report.postTypeDistribution.map((b) => b.format)).toEqual(["UNKNOWN"]);
   });
@@ -258,6 +273,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
 
     const by = (scope: string) => report.interactionsComparison.find((r) => r.scope === scope)!;
@@ -278,6 +294,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
 
     const selected = report.keyPerformance.selected;
@@ -285,8 +302,44 @@ describe("buildClientReport (pure)", () => {
     expect(report.totalPostsAllTime).toBe(5);
 
     // All-time max monthly posts is June's 2 — never the selected month's 1.
-    const max = report.keyPerformance.allTimeMax;
-    expect(max.find((f) => f.label === "Max monthly posts")!.value).toBe(2);
+    const max = report.keyPerformance.matrix.find((r) => r.label === "Monthly max")!;
+    expect(max.posts.value).toBe(2);
+  });
+
+  it("keeps every key-performance figure at the value the old 3x3 grid showed", () => {
+    // THE RESHAPE GUARD. Moving nine figures from three flat arrays into a hero
+    // plus a matrix is presentation only — this pins all nine so a value that
+    // shifted during the move cannot pass as a layout change.
+    const report = buildClientReport(HISTORY, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(HISTORY),
+    });
+    const { selected, matrix, perThousandFollowers } = report.keyPerformance;
+    const value = (label: string) => selected.find((f) => f.label === label)!.value;
+
+    // Hero — the selected period (July holds one post, interactions 13).
+    expect(value("Total posts")).toBe(1);
+    expect(value("Avg interactions")).toBe(13);
+    expect(value("Total interactions")).toBe(13);
+
+    // Matrix row 1 — all-time averages over a 7-month span (Jan → Jul).
+    const avg = matrix.find((r) => r.label === "Monthly avg")!;
+    expect(avg.posts.value).toBe(0.7); // 5 posts / 7 months
+    expect(avg.perPost!.value).toBe(37); // 185 interactions / 5 posts
+    expect(avg.interactions.value).toBe(26.4); // 185 / 7 months
+
+    // Matrix row 2 — all-time maxima. The per-post cell is genuinely ABSENT:
+    // a maximum has no per-post rate, and it must never render as 0.
+    const max = matrix.find((r) => r.label === "Monthly max")!;
+    expect(max.posts.value).toBe(2); // June
+    expect(max.perPost).toBeNull();
+    expect(max.interactions.value).toBe(130); // January
+
+    // The follower ratio is an AVERAGE, so it no longer sits among the maxima.
+    expect(perThousandFollowers.value).toBeNull(); // no upload carries a count
+    expect(perThousandFollowers.approximate).toBe(true);
   });
 
   it("renders months with no posts as gaps, not as zero", () => {
@@ -294,6 +347,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
 
     // Jan → Jul inclusive = 7 points; Feb, Mar, Apr are empty.
@@ -308,6 +362,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
 
     expect(report.impressionsByWeekday.map((d) => d.label)).toEqual([
@@ -326,8 +381,10 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
-    const ratio = report.keyPerformance.allTimeMax.find((f) => f.label.includes("1K followers"))!;
+    const ratio = report.keyPerformance.perThousandFollowers;
+    expect(ratio.label).toContain("1K followers");
     expect(ratio.value).toBeNull();
     expect(ratio.approximate).toBe(true); // followers are per-Upload, not per-post
   });
@@ -337,6 +394,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
 
     // Order matters: this row reproduces a page of the analytics engineer's
@@ -377,6 +435,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(divergent),
     });
 
     const total = report.keyPerformance.selected.find((f) => f.label === "Total interactions")!;
@@ -397,6 +456,7 @@ describe("buildClientReport (pure)", () => {
       period: february,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(HISTORY),
     });
 
     const total = report.keyPerformance.selected.find((f) => f.label === "Total interactions")!;
@@ -409,6 +469,7 @@ describe("buildClientReport (pure)", () => {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods([]),
     });
 
     expect(report.totalPostsAllTime).toBe(0);

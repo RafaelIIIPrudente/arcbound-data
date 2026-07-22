@@ -216,6 +216,24 @@ export interface InteractionsRow {
   shares: number;
 }
 
+/**
+ * One row of the all-time matrix on the Key Performance panel. The three cells
+ * ARE the matrix's three columns — post counts, per-post rates, interaction
+ * totals — so a row cannot be built with the wrong number of cells or with its
+ * columns transposed.
+ */
+export interface MatrixRow {
+  /** The row header, e.g. "Monthly avg". */
+  label: string;
+  posts: ReportFigure;
+  /**
+   * `null` where the measure does not exist for this row: a MAXIMUM has no
+   * per-post rate. Renders as an em dash — never as 0, which would be a claim.
+   */
+  perPost: ReportFigure | null;
+  interactions: ReportFigure;
+}
+
 /** A monthly point. `value` is null for a month with no posts → a chart gap. */
 export interface MonthPoint {
   label: string;
@@ -236,12 +254,20 @@ export interface ClientReport {
   /** Posts across the whole history, regardless of the selected period. */
   totalPostsAllTime: number;
   keyPerformance: {
-    /** Row 1 — scoped to the selected period. */
+    /**
+     * The hero: three figures scoped to the selected period. Also the print
+     * cover's three headline figures, so this array's shape and labels are
+     * read in two places.
+     */
     selected: ReportFigure[];
-    /** Row 2 — all-time averages. */
-    allTime: ReportFigure[];
-    /** Row 3 — all-time maxima (plus the approximate follower ratio). */
-    allTimeMax: ReportFigure[];
+    /** All-time context, read against the matrix's column headers. */
+    matrix: MatrixRow[];
+    /**
+     * Interactions per 1,000 followers, all time. Its OWN field rather than a
+     * member of the maxima row, because it is an average — sitting it among
+     * maxima was invisible as nine loose cards and wrong in a labelled matrix.
+     */
+    perThousandFollowers: ReportFigure;
   };
   interactionsComparison: InteractionsRow[];
   impressionsByMonth: MonthPoint[];

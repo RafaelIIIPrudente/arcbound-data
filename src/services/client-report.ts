@@ -9,6 +9,7 @@ import type {
   AssetBucket,
   ClientReport,
   InteractionsRow,
+  MatrixRow,
   MonthPoint,
   PostFormat,
   ReportFigure,
@@ -211,12 +212,24 @@ export interface BuildOptions {
   now: Date;
   /** Newest recorded follower count, or null when no upload carries one. */
   followers: number | null;
+  /**
+   * The periods the data supports — PASSED IN, not derived here.
+   *
+   * Every caller has already computed this to resolve `period`, and recomputing
+   * it internally ran a second full `withDates` pass (date-parsing every row)
+   * plus three sorts to produce a value the caller was already holding.
+   *
+   * Required rather than optional-with-a-default on purpose: a default would let
+   * the double compute quietly return. It also SHADOWS the `availablePeriods`
+   * function inside this scope, so recomputing here no longer type-checks.
+   */
+  availablePeriods: ReportPeriod[];
 }
 
 export function buildClientReport(
   rows: BiPostRow[],
   formatMap: Map<string, string>,
-  { period, now, followers }: BuildOptions,
+  { period, now, followers, availablePeriods }: BuildOptions,
 ): ClientReport {
   const dated = withDates(rows);
   const placeable = dated.filter((d): d is { row: BiPostRow; ms: number } => d.ms !== null);
@@ -329,27 +342,44 @@ export function buildClientReport(
       // panels below would discredit the whole document.
       { label: "Total interactions", value: sum(selected, (r) => r.interactions) },
     ] satisfies ReportFigure[],
-    allTime: [
-      { label: "Avg monthly posts", value: monthSpan > 0 ? round1(rows.length / monthSpan) : 0 },
-      { label: "Avg interactions per post", value: round1(avgInteractionsPerPost) },
+    // Two rows against three columns: posts · per-post rate · interaction
+    // total. Same figures, same rounding, as the flat arrays this replaced —
+    // the matrix only makes the structure that was always there visible.
+    matrix: [
       {
-        label: "Avg monthly interactions",
-        value: monthSpan > 0 ? round1(totalInteractions / monthSpan) : 0,
+        label: "Monthly avg",
+        posts: {
+          label: "Avg monthly posts",
+          value: monthSpan > 0 ? round1(rows.length / monthSpan) : 0,
+        },
+        perPost: { label: "Avg interactions per post", value: round1(avgInteractionsPerPost) },
+        interactions: {
+          label: "Avg monthly interactions",
+          value: monthSpan > 0 ? round1(totalInteractions / monthSpan) : 0,
+        },
       },
-    ] satisfies ReportFigure[],
-    allTimeMax: [
-      { label: "Max monthly posts", value: maxMonthlyPosts },
       {
-        // Followers are captured per Upload, not per post, so this ratio pairs a
-        // per-post average with a single point-in-time follower count. Marked
-        // approximate so the UI can say so rather than implying precision.
-        label: "Avg interactions per 1K followers",
-        value:
-          followers && followers > 0 ? round1((avgInteractionsPerPost / followers) * 1000) : null,
-        approximate: true,
+        label: "Monthly max",
+        posts: { label: "Max monthly posts", value: maxMonthlyPosts },
+        // A maximum has no per-post rate. The cell is genuinely absent, so it
+        // renders as an em dash; a 0 here would assert something untrue.
+        perPost: null,
+        interactions: { label: "Max monthly interactions", value: maxMonthlyInteractions },
       },
-      { label: "Max monthly interactions", value: maxMonthlyInteractions },
-    ] satisfies ReportFigure[],
+    ] satisfies MatrixRow[],
+    // Followers are captured per Upload, not per post, so this ratio pairs a
+    // per-post average with a single point-in-time follower count. Marked
+    // approximate so the UI can say so rather than implying precision.
+    //
+    // It stands apart from the matrix because it is an AVERAGE: it used to sit
+    // in the maxima row, which nobody could see when the figures were nine
+    // detached cards and which reads as an error once the rows are labelled.
+    perThousandFollowers: {
+      label: "Avg interactions per 1K followers",
+      value:
+        followers && followers > 0 ? round1((avgInteractionsPerPost / followers) * 1000) : null,
+      approximate: true,
+    } satisfies ReportFigure,
   };
 
   const comparisonRow = (
@@ -367,7 +397,7 @@ export function buildClientReport(
 
   return {
     period,
-    availablePeriods: availablePeriods(rows),
+    availablePeriods,
     totalPostsAllTime: rows.length,
     keyPerformance,
     interactionsComparison: [
@@ -409,12 +439,15 @@ export async function getClientReport({
   period,
 }: ClientReportOptions): Promise<ClientReport> {
   const now = new Date();
-  const fallback = (): ClientReport =>
-    buildClientReport([], new Map(), {
-      period: parseReportPeriod(period, availablePeriods([])),
+  const fallback = (): ClientReport => {
+    const periods = availablePeriods([]);
+    return buildClientReport([], new Map(), {
+      period: parseReportPeriod(period, periods),
       now,
+      availablePeriods: periods,
       followers: null,
     });
+  };
 
   let rows: BiPostRow[] = [];
   try {
@@ -457,12 +490,15 @@ export async function getClientReport({
     listUploads(clientId),
   ]);
 
+  // Computed ONCE per render, then used for both resolving the period and as the
+  // report's own `availablePeriods`.
   const latestWithFollowers = uploads.find((u) => u.followerCount != null);
   const periods = availablePeriods(rows);
 
   return buildClientReport(rows, toFormatMap(attributes), {
     period: parseReportPeriod(period, periods),
     now,
+    availablePeriods: periods,
     followers: latestWithFollowers?.followerCount ?? null,
   });
 }

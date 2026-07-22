@@ -51,10 +51,15 @@ export default async function ClientReportPage({
 }) {
   const [{ id }, { period }] = await Promise.all([params, searchParams]);
 
-  const client = await getClient(id);
+  // Independent reads — `getClientReport` takes the id, not the client — so they
+  // go out together rather than one waiting on the other. Fetching a report for
+  // a client that turns out not to exist is harmless: the rows come back empty
+  // and the result is discarded by the notFound() below.
+  const [client, report] = await Promise.all([
+    getClient(id),
+    getClientReport({ clientId: id, period }),
+  ]);
   if (!client) notFound();
-
-  const report = await getClientReport({ clientId: id, period });
 
   return (
     <div className="space-y-8">
@@ -103,7 +108,6 @@ export default async function ClientReportPage({
             </SectionHeader>
             <KeyPerformance
               keyPerformance={report.keyPerformance}
-              periodLabel={report.period.label}
               hasPosts={report.totalPostsAllTime > 0}
             />
             <InteractionsComparison rows={report.interactionsComparison} />

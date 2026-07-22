@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import type { BiPostRow } from "@/services/analytics";
-import { buildClientReport } from "@/services/client-report";
+import { availablePeriods, buildClientReport } from "@/services/client-report";
 import type { ClientReport, ReportPeriod } from "@/services/types";
 
 import { PrintReport } from "./print-report";
@@ -68,6 +68,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods([]),
     });
 
     expect(() => render(document_(report))).not.toThrow();
@@ -102,6 +103,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: 5000,
+      availablePeriods: availablePeriods(rows),
     });
 
     const { container } = render(document_(report));
@@ -119,6 +121,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      availablePeriods: availablePeriods(rows),
     });
 
     render(document_(report));

@@ -28,10 +28,13 @@ export default async function ClientReportPrintPage({
 }) {
   const [{ id }, { period }] = await Promise.all([params, searchParams]);
 
-  const client = await getClient(id);
+  // Independent reads — see the on-screen report page for the reasoning. The
+  // report for a non-existent client is discarded by the notFound() below.
+  const [client, report] = await Promise.all([
+    getClient(id),
+    getClientReport({ clientId: id, period }),
+  ]);
   if (!client) notFound();
-
-  const report = await getClientReport({ clientId: id, period });
 
   if (report.unavailable) {
     return <AnalyticsUnavailable />;

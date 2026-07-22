@@ -286,7 +286,6 @@ export function PrintReport({ report }: { report: ClientReport }) {
         <div className="print-block">
           <KeyPerformance
             keyPerformance={report.keyPerformance}
-            periodLabel={report.period.label}
             hasPosts={report.totalPostsAllTime > 0}
           />
         </div>
