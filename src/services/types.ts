@@ -167,3 +167,17 @@ export interface Upload {
   /** ISO 8601 date string. */
   createdAt: string;
 }
+
+// ── Post attributes ──────────────────────────────────────────────────────────
+// App-owned per-post facts that the externally-owned `bi.linkedin_post_latest`
+// does not expose. Today that is just the Format Type (Asset Type): ArcBase
+// already resolves it during upload review, so it records it here and joins it
+// to the BI rows at read time. Column names are the raw table columns.
+
+export interface PostAttributes {
+  linkedin_post_id: string;
+  /** The format EXACTLY as the Scrape sent it — any casing, never rewritten. */
+  post_format_type: string | null;
+  /** ISO 8601 date string. */
+  recorded_at: string;
+}
