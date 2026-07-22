@@ -12,7 +12,8 @@ export const MOCK_RESOURCES: Resource[] = [
   },
   {
     id: "RES-0002",
-    title: "Post format taxonomy (image / carousel / link / text / video)",
+    title:
+      "Post format taxonomy (Image / Document / Video / Text / Poll / Article / Slide show / Share / Instant share / Unknown)",
     url: "https://www.notion.so/arcbound/post-format-taxonomy",
     createdAt: "2026-01-06T11:30:00.000Z",
   },

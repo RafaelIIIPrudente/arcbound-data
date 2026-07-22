@@ -76,8 +76,22 @@ export interface DashboardAnalytics {
 
 export type SourceType = "csv" | "json";
 
-/** The five recognised Post format types; anything else is "unknown". */
-export type PostFormat = "image" | "carousel" | "link" | "text" | "video";
+/**
+ * The ten Post format types the LinkedIn scraper emits. Recognition is
+ * case-insensitive, but ArcBase stores whatever the Scrape sent, byte-for-byte
+ * (ADR 0009) — this union is the vocabulary we understand, not a storage format.
+ */
+export type PostFormat =
+  | "IMAGE"
+  | "DOCUMENT"
+  | "VIDEO"
+  | "TEXT"
+  | "POLL"
+  | "ARTICLE"
+  | "SLIDE_SHOW"
+  | "SHARE"
+  | "INSTANT_SHARE"
+  | "UNKNOWN";
 
 /** One scraped Post metric row — the 15-column scrape shape. */
 export interface PostRow {
@@ -95,7 +109,10 @@ export interface PostRow {
   engagement_rate: number;
   /** Nullable — the scrape may omit it. */
   saves: number | null;
-  /** Empty/unknown until reviewed; one of PostFormat once confident. */
+  /**
+   * The raw format as the Scrape sent it — any casing, never rewritten. Absent,
+   * unrecognised, or UNKNOWN values go to Format Review.
+   */
   post_format_type?: string;
   scraped_at: string;
 }

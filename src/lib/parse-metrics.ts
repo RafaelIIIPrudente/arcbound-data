@@ -1,19 +1,24 @@
 import Papa from "papaparse";
 import { z } from "zod";
 
-import type { PostFormat, PostRow } from "@/services/types";
+import { isConfidentFormat } from "@/lib/post-format";
+import type { PostRow } from "@/services/types";
 
 // Pure, environment-agnostic parsing + validation for a scrape (CSV or JSON).
 // papaparse handles RFC-4180 quoting (post_content may contain commas, quotes,
 // and newlines); a zod schema validates every row. No I/O, no Date.now/random.
 
-const FORMATS: readonly PostFormat[] = ["image", "carousel", "link", "text", "video"];
-const FORMAT_SET = new Set<string>(FORMATS);
-
-/** True when `format` is one of the five recognised Post format types. */
-export function isValidFormat(format?: string): format is PostFormat {
-  return typeof format === "string" && FORMAT_SET.has(format);
-}
+// The format vocabulary lives in the dependency-free @/lib/post-format so that
+// client components (the Format Review dropdown) don't pull papaparse + zod into
+// the browser bundle. Re-exported here so existing import paths keep working.
+export {
+  FORMAT_CHOICES,
+  FORMAT_LABELS,
+  FORMATS,
+  isConfidentFormat,
+  isRecognizedFormat,
+  toCanonicalFormat,
+} from "@/lib/post-format";
 
 // A required numeric field: coerces "385" → 385, rejects "", null, undefined,
 // and non-numeric strings (guards against z.coerce turning "" into 0).
@@ -91,9 +96,9 @@ export function parseJson(text: string): ParseResult {
   return validateRows(data);
 }
 
-/** A new Post needs review when its format is missing or not a recognised type. */
+/** A new Post needs review whenever its format isn't one we're confident in. */
 export function needsFormatReview(row: PostRow): boolean {
-  return !isValidFormat(row.post_format_type);
+  return !isConfidentFormat(row.post_format_type);
 }
 
 /** A compact, single-line content snippet for the review list. */

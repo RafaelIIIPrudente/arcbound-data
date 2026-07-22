@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { z } from "zod";
 
-import { buildSnippet, isValidFormat } from "@/lib/parse-metrics";
+import { buildSnippet, isConfidentFormat } from "@/lib/parse-metrics";
 import { createClient } from "@/lib/supabase/server";
 import type { IngestResult, PostRow, ReviewPost, SourceType } from "@/services/types";
 
@@ -30,11 +30,17 @@ export interface IngestInput {
 
 type SeamResult = Extract<IngestResult, { status: "review" | "ok" }>;
 
-/** The confident format for a row: its own valid format, else a resolved choice, else null. */
+/**
+ * The confident format for a row: its own confident format, else a resolved
+ * choice, else null (→ review). Returns the value exactly as received — raw
+ * casing is preserved all the way to the RPC (ADR 0009).
+ */
 export function resolveFormat(row: PostRow, resolved?: Record<string, string>): string | null {
-  if (isValidFormat(row.post_format_type)) return row.post_format_type;
+  const own = row.post_format_type;
+  if (own !== undefined && isConfidentFormat(own)) return own;
   const chosen = resolved?.[row.linkedin_post_id];
-  return isValidFormat(chosen) ? chosen : null;
+  if (chosen !== undefined && isConfidentFormat(chosen)) return chosen;
+  return null;
 }
 
 /**

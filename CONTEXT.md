@@ -51,9 +51,16 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Follower Count** — a Client's follower total captured with a Scrape. Stored
   per-Upload, which gives a follower history over time.
 
-- **Format Type** — an optional classification of a Post
-  (`image` / `carousel` / `link` / `text` / `video`). Unknown when the Scrape
-  omits it.
+- **Format Type** (a.k.a. **Asset Type**) — how a Post was published, as reported
+  by the Scrape: `IMAGE`, `DOCUMENT`, `VIDEO`, `TEXT`, `POLL`, `ARTICLE`,
+  `SLIDE_SHOW`, `SHARE`, `INSTANT_SHARE`, or `UNKNOWN`. ArcBase stores the value
+  exactly as received and never rewrites it. A Post whose Format Type is absent,
+  unrecognised, or `UNKNOWN` goes to **Format Review**.
+
+- **Format Review** — the step in an Upload where staff assign a Format Type to
+  Posts that arrived without a usable one. Staff may instead trust the Scrape and
+  skip, which leaves the value as it arrived. No Post is written until review is
+  resolved or skipped.
 
 - **Resource** — a team reference link (a title and a URL) shown on the Resources
   screen.
