@@ -419,6 +419,10 @@ describe("all-time figures are INVARIANT to the selected period", () => {
         likes: 143,
         comments: 28,
         shares: 14,
+        // Extended, not weakened: every HISTORY post carries a real `saves: 0`,
+        // so the scope is fully reported and the sum is a genuine zero.
+        saves: 0,
+        savesPartial: false,
       });
     }
   });
@@ -1061,5 +1065,91 @@ describe("getClientReport (seam → paged bi read)", () => {
 
     expect(report.unavailable).toBe(true);
     expect(report.totalPostsAllTime).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SAVES IN THE INTERACTIONS COMPARISON — THREE STATES.
+//
+// ⚠️ `saves` is genuinely nullable: the scrape may omit it. The other three
+// metrics coerce an absent value to 0 safely; saves cannot, because a 0 would
+// report an absent measurement as a measured one. And a PARTIAL sum printed as
+// a total is the same lie in a subtler form.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("comparisonRow — saves keeps its three states apart", () => {
+  const build = (rows: BiPostRow[]) =>
+    buildClientReport(rows, new Map(), {
+      period: ALL_TIME,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+  const allTimeRow = (rows: BiPostRow[]) =>
+    build(rows).interactionsComparison.find((r) => r.scope === "allTime")!;
+
+  it("sums saves and marks the scope complete when EVERY post reported them", () => {
+    const result = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: 3 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", saves: 4 }),
+    ]);
+
+    expect(result.saves).toBe(7);
+    expect(result.savesPartial).toBe(false);
+  });
+
+  it("reports NULL — never 0 — when no post in the scope reported saves", () => {
+    const result = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: null }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", saves: null }),
+    ]);
+
+    // A 0 here would claim these posts were saved zero times. We do not know.
+    expect(result.saves).toBeNull();
+    expect(result.saves).not.toBe(0);
+    expect(result.savesPartial).toBe(false);
+  });
+
+  it("marks a MIXED scope partial, summing only the posts that reported", () => {
+    const result = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: 3 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", saves: null }),
+      row({ linkedin_post_id: "c", estimated_post_date: "2026-07-03", saves: 4 }),
+    ]);
+
+    // The sum is real but INCOMPLETE — a lower bound, and flagged as one.
+    expect(result.saves).toBe(7);
+    expect(result.savesPartial).toBe(true);
+  });
+
+  it("distinguishes a measured ZERO from an absent measurement", () => {
+    // ⚠️ THE DISCRIMINATING PAIR. Both scopes "have no saves"; only one of them
+    // is a fact. Collapsing them is the defect this repo has fixed three times.
+    const measured = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: 0 }),
+    ]);
+    const absent = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: null }),
+    ]);
+
+    expect(measured.saves).toBe(0);
+    expect(measured.savesPartial).toBe(false);
+    expect(absent.saves).toBeNull();
+  });
+
+  it("scopes saves to the period, like every other metric in the table", () => {
+    const rows = [
+      row({ linkedin_post_id: "jul", estimated_post_date: "2026-07-10", saves: 5 }),
+      row({ linkedin_post_id: "jan", estimated_post_date: "2026-01-10", saves: 100 }),
+    ];
+    const report = buildClientReport(rows, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+    const selected = report.interactionsComparison.find((r) => r.scope === "selected")!;
+    expect(selected.saves).toBe(5);
+    expect(report.interactionsComparison.find((r) => r.scope === "allTime")!.saves).toBe(105);
   });
 });

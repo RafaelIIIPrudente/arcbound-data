@@ -88,6 +88,10 @@ function toPostRow(row: BiPostRow, formatMap: Map<string, string>): ClientPostRo
     shares: num(row.reposts),
     saves: nullableNum(row.saves),
     interactions: num(row.interactions),
+    // ⚠️ THE VIEW'S FIGURE, PASSED THROUGH UNTOUCHED. Not `interactions /
+    // impressions` — ArcBase computes that only as a reconciliation check in the
+    // Data Quality panel, and never renders it. A missing rate stays missing.
+    engagementRate: nullableNum(row.calculated_engagement_rate),
   };
 }
 

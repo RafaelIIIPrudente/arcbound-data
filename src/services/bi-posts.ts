@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { readAllPages, type PagedRead, type PageReader } from "@/lib/supabase/paged";
+import { asPage, readAllPages, type PagedRead, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
 import { effectiveMs, type BiPostRow } from "@/services/analytics";
 import type { ReportPeriod } from "@/services/types";
@@ -32,13 +32,19 @@ export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
  * The columns every post-reading screen needs. `post_url` is here for the
  * drill-down's outbound link; the report ignores it.
  *
- * The two engagement-rate columns the view also carries
- * (`provided_engagement_rate` and `calculated_engagement_rate`) are DELIBERATELY
- * absent: nobody has declared which is authoritative, and selecting one would
- * silently pick a winner. Reconciling them is its own slice.
+ * BOTH engagement-rate columns are selected, and that is deliberate:
+ *   • `calculated_engagement_rate` — the VIEW's per-post figure, and the one
+ *     ArcBase ships. Per ADR 0009 the BI views own the analytics contract, so
+ *     ArcBase reads their number rather than deriving a rival one.
+ *   • `provided_engagement_rate` — the SCRAPER's own figure. Never rendered.
+ *     Read solely so the Data Quality panel can RECONCILE the two and report
+ *     where they disagree.
+ *
+ * Reading both is what makes a disagreement visible instead of a matter of which
+ * column someone happened to pick.
  */
 const POST_COLUMNS =
-  "client_id, linkedin_post_id, post_url, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, scraped_at";
+  "client_id, linkedin_post_id, post_url, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, provided_engagement_rate, calculated_engagement_rate, scraped_at";
 
 /**
  * A row paired with its RESOLVED timestamp — the placeable subset. `ms` is the
@@ -125,9 +131,10 @@ const BI_LABEL = "bi.linkedin_post_latest";
  * once per read AND inside `readAllPages`'s try — meaning a throw from
  * `createClient` still degrades to `unavailable` rather than escaping.
  *
- * The cast is unavoidable: the `bi` schema is not in the generated database
- * types, so the builder's row type is untyped here. It is the one place that
- * knowledge lives.
+ * ⚠️ `POST_COLUMNS` AND `BiPostRow` ARE A PAIR. `asPage` asserts the row type
+ * rather than checking it (see its doc comment), so adding a column here without
+ * adding the field there — or vice versa — compiles cleanly and misleads at
+ * runtime. Edit the two together.
  */
 function postPageReader(clientId?: string): PageReader<BiPostRow> {
   let supabase: ReturnType<typeof createClient> | undefined;
@@ -135,16 +142,12 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
     supabase ??= createClient(cookies());
     const base = supabase.schema("bi").from("linkedin_post_latest").select(POST_COLUMNS, opts);
     const scoped = clientId === undefined ? base : base.eq("client_id", clientId);
-    return (
+    return asPage<BiPostRow>(
       scoped
         // Stable ordering — without it, CONCURRENT ranges can overlap or skip
         // rows. Required on every page, not just the first.
         .order("linkedin_post_id", { ascending: true })
-        .range(from, to) as unknown as PromiseLike<{
-        data: BiPostRow[] | null;
-        error: { message: string } | null;
-        count?: number | null;
-      }>
+        .range(from, to),
     );
   };
 }

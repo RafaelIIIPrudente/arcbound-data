@@ -279,16 +279,25 @@ describe("readClientPostRows (paged bi read)", () => {
     expect(state.selects[0]).toContain("post_url");
   });
 
-  it("does NOT select either engagement-rate column", async () => {
-    // ⚠️ DELIBERATE. The view carries `provided_engagement_rate` (the scraper's)
-    // and `calculated_engagement_rate` (its own), and nobody has declared which
-    // is authoritative. Selecting one would silently pick a winner and bury the
-    // discrepancy; reconciling them is its own slice.
+  it("selects BOTH engagement-rate columns, so the two can be reconciled", async () => {
+    // ⚠️ THIS TEST USED TO ASSERT THE OPPOSITE, AND THE REVERSAL IS THE POINT.
+    //
+    // It previously pinned that NEITHER rate column was selected, because nobody
+    // had declared which was authoritative and picking one would have silently
+    // buried the discrepancy. That question is now settled: the view's
+    // `calculated_engagement_rate` is the per-post figure ArcBase ships (ADR 0009
+    // — the BI views own the analytics contract), and the scraper's
+    // `provided_engagement_rate` is read ALONGSIDE it purely so the Data Quality
+    // panel can report where the two disagree.
+    //
+    // Reading both is what makes a disagreement visible instead of a matter of
+    // which column somebody happened to pick.
     state.pages = [[row({ linkedin_post_id: "a" })]];
 
     await readClientPostRows("c1");
 
-    expect(state.selects[0]).not.toContain("engagement_rate");
+    expect(state.selects[0]).toContain("calculated_engagement_rate");
+    expect(state.selects[0]).toContain("provided_engagement_rate");
   });
 
   it("pages past the PostgREST 1000-row cap and merges every page in order", async () => {

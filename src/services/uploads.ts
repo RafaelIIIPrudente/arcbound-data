@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { readAllPages, type PageReader } from "@/lib/supabase/paged";
+import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Upload } from "@/services/types";
 
@@ -52,16 +52,14 @@ function uploadPageReader<T>(columns: string): PageReader<T> {
   let supabase: ReturnType<typeof createServerClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createServerClient(cookies());
-    return supabase
-      .from("uploads")
-      .select(columns, opts)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, to) as unknown as PromiseLike<{
-      data: T[] | null;
-      error: { message: string } | null;
-      count?: number | null;
-    }>;
+    return asPage<T>(
+      supabase
+        .from("uploads")
+        .select(columns, opts)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
   };
 }
 

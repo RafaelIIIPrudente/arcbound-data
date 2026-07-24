@@ -347,6 +347,85 @@ describe("getClientPosts — row mapping", () => {
   });
 });
 
+describe("engagement rate comes from the VIEW, not from ArcBase", () => {
+  it("passes the view's calculated rate through untouched", async () => {
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "a",
+          estimated_post_date: "2026-07-10",
+          calculated_engagement_rate: 6.23,
+        }),
+      ],
+    ];
+
+    const { rows } = await getClientPosts({ clientId: "c1", period: "all" });
+
+    expect(rows[0]!.engagementRate).toBe(6.23);
+  });
+
+  it("reports NULL rather than deriving a rate the view did not publish", async () => {
+    // ⚠️ THE ROW HAS EVERYTHING NEEDED: 1000 impressions and 62 interactions
+    // would give 6.2%. ArcBase must not compute it — that would be a third rate
+    // definition wearing the view's name, which is the defect this slice closes.
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "a",
+          estimated_post_date: "2026-07-10",
+          impressions: 1000,
+          interactions: 62,
+          calculated_engagement_rate: null,
+        }),
+      ],
+    ];
+
+    const { rows } = await getClientPosts({ clientId: "c1", period: "all" });
+
+    expect(rows[0]!.engagementRate).toBeNull();
+  });
+
+  it("ignores the SCRAPER's rate entirely — only the view's is shipped", async () => {
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "a",
+          estimated_post_date: "2026-07-10",
+          provided_engagement_rate: 99.9,
+          calculated_engagement_rate: 6.2,
+        }),
+      ],
+    ];
+
+    const { rows } = await getClientPosts({ clientId: "c1", period: "all" });
+
+    // Per ADR 0009 the BI views own the analytics contract.
+    expect(rows[0]!.engagementRate).toBe(6.2);
+  });
+
+  it("keeps a measured zero rate as 0, distinct from an absent one", async () => {
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "zero",
+          estimated_post_date: "2026-07-10",
+          calculated_engagement_rate: 0,
+        }),
+        row({
+          linkedin_post_id: "absent",
+          estimated_post_date: "2026-07-11",
+          calculated_engagement_rate: null,
+        }),
+      ],
+    ];
+
+    const { rows } = await getClientPosts({ clientId: "c1", period: "all" });
+
+    expect(rows.find((r) => r.id === "zero")!.engagementRate).toBe(0);
+    expect(rows.find((r) => r.id === "absent")!.engagementRate).toBeNull();
+  });
+});
+
 describe("getClientPosts — the display cap", () => {
   it("reports no cap when every row fits", async () => {
     const { rows, totalInPeriod, cappedTo } = await getClientPosts({

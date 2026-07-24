@@ -31,16 +31,57 @@ export function visibleInteractionRows(rows: InteractionsRow[]): InteractionsRow
     selected.label === allTime.label &&
     selected.likes === allTime.likes &&
     selected.comments === allTime.comments &&
-    selected.shares === allTime.shares;
+    selected.shares === allTime.shares &&
+    // Saves joins the comparison so the collapse stays CONSERVATIVE: two rows
+    // that differ only in saves are two facts, not one repeated, and must not be
+    // silently merged into whichever happened to be kept.
+    selected.saves === allTime.saves;
 
   return isDuplicate ? rows.filter((r) => r.scope !== "selected") : rows;
 }
 
 /**
- * Likes / Comments / Shares by Selected Period / Prior 3 Months / All Time.
+ * The Saves cell — three states, deliberately distinguishable.
+ *
+ * ⚠️ `saves` IS GENUINELY NULLABLE: the scrape may omit it. Summing absent values
+ * as zero would report a missing measurement as a measured one, and a partial
+ * sum printed as a total is the same lie in a subtler form. So:
+ *   • null    → em dash, with the reason spoken
+ *   • partial → the sum, marked as a LOWER BOUND
+ *   • whole   → a plain sum
+ */
+function SavesCell({ row }: { row: InteractionsRow }) {
+  if (row.saves === null) {
+    return (
+      <>
+        <span aria-hidden>—</span>
+        <span className="sr-only">Saves were not reported for any post in this period</span>
+      </>
+    );
+  }
+  if (row.savesPartial) {
+    return (
+      <>
+        <span aria-hidden>≥ </span>
+        <span className="sr-only">At least </span>
+        {row.saves.toLocaleString()}
+        <span className="sr-only"> — some posts in this period did not report saves</span>
+      </>
+    );
+  }
+  return <>{row.saves.toLocaleString()}</>;
+}
+
+/**
+ * Likes / Comments / Shares / Saves by Selected Period / Prior 3 Months / All Time.
  *
  * The underlying BI field is `reposts`; staff always see "Shares", which is what
  * LinkedIn itself calls the action.
+ *
+ * ⚠️ SHARED WITH THE PRINT REPORT (print/print-report.tsx), which renders it into
+ * a 700px paper column (`--print-column` in print.css). Five columns fit — cells
+ * are `p-2` and every metric cell is short — but any FURTHER column needs the
+ * printed sheet checked by eye before it ships, not just the test suite.
  */
 export function InteractionsComparison({ rows }: { rows: InteractionsRow[] }) {
   const visible = visibleInteractionRows(rows);
@@ -72,6 +113,9 @@ export function InteractionsComparison({ rows }: { rows: InteractionsRow[] }) {
                 <TableHead className="text-right font-mono text-[10px] tracking-[0.12em] uppercase">
                   Shares
                 </TableHead>
+                <TableHead className="text-right font-mono text-[10px] tracking-[0.12em] uppercase">
+                  Saves
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -86,6 +130,9 @@ export function InteractionsComparison({ rows }: { rows: InteractionsRow[] }) {
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {row.shares.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <SavesCell row={row} />
                   </TableCell>
                 </TableRow>
               ))}

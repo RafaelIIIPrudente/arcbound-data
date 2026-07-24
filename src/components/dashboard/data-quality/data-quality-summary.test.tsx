@@ -12,10 +12,22 @@ const HEALTHY: DataQualitySources = {
   uploadsUnavailable: false,
 };
 
+const NO_RATE_FINDINGS: DataQuality["rates"] = {
+  postsMissingRate: 0,
+  rateDisagreements: 0,
+  rateComparablePosts: 0,
+  rateMedianRatio: null,
+  rateScale: null,
+  aggregateFormulaMatches: null,
+  formulaCheckedPosts: 0,
+  formulaMismatches: 0,
+};
+
 function data(over: Partial<DataQuality> = {}): DataQuality {
   return {
     rows: [],
     unattributedPosts: 0,
+    rates: NO_RATE_FINDINGS,
     sources: HEALTHY,
     ...over,
   };

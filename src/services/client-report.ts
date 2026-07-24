@@ -466,14 +466,28 @@ export function buildClientReport(
     scope: InteractionsRow["scope"],
     label: string,
     rs: BiPostRow[],
-  ): InteractionsRow => ({
-    scope,
-    label,
-    likes: sum(rs, (r) => r.likes),
-    comments: sum(rs, (r) => r.comments),
-    // `reposts` in the view; ALWAYS "Shares" to staff.
-    shares: sum(rs, (r) => r.reposts),
-  });
+  ): InteractionsRow => {
+    // ⚠️ SAVES IS COUNTED, NOT SUMMED THROUGH `num()`. The other three metrics
+    // can safely coerce an absent value to 0; saves cannot, because the scrape
+    // genuinely omits it and a 0 would report an absent measurement as a
+    // measured one. So the posts that carried a value are counted separately,
+    // which is what makes the three states below distinguishable.
+    const withSaves = rs.filter((r) => typeof r.saves === "number" && Number.isFinite(r.saves));
+
+    return {
+      scope,
+      label,
+      likes: sum(rs, (r) => r.likes),
+      comments: sum(rs, (r) => r.comments),
+      // `reposts` in the view; ALWAYS "Shares" to staff.
+      shares: sum(rs, (r) => r.reposts),
+      // No post carried saves → we do not know, and an em dash says so.
+      saves: withSaves.length === 0 ? null : sum(withSaves, (r) => r.saves),
+      // Some did and some did not → the sum is real but INCOMPLETE, and the
+      // table marks it as a lower bound rather than printing it as a total.
+      savesPartial: withSaves.length > 0 && withSaves.length < rs.length,
+    };
+  };
 
   return {
     period,

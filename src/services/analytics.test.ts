@@ -194,7 +194,7 @@ describe("buildDashboardAnalytics (pure)", () => {
     // Current window (Jul 1 + Jul 10 + the hour-age p4) impressions = 1700;
     // prior (May 20) = 600. p4 counts via its scraped_at — see `effectiveMs`.
     expect(a.hero).toEqual({ label: "Impressions", value: 1700, delta: 183, direction: "up" });
-    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Reposts", "Saves"]);
+    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Shares", "Saves"]);
     const likes = a.kpis.find((k) => k.label === "Likes")!;
     expect(likes.value).toBe(150); // 100 + 40 + p4's 10
     expect(likes.direction).toBe("up");
@@ -257,6 +257,87 @@ describe("buildDashboardAnalytics (pure)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE AGGREGATE RATE IS IMPRESSION-WEIGHTED, AND MUST STAY THAT WAY.
+//
+// ⚠️ A rate over a SET of posts is a ratio of TOTALS — Σinteractions / Σimpressions
+// — never the mean of the posts' individual rates. Averaging per-post rates gives
+// a 12-impression post the same say as a 100,000-impression one, which is not
+// what "engagement rate for this period" means to anybody reading it.
+//
+// This is pinned rather than merely commented because the temptation to "simplify"
+// it into a mean is real, and the two agree on uniform fixtures — so a fixture
+// with EVEN impressions would pass under both formulas and prove nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the dashboard engagement rate is impression-weighted, not a mean of rates", () => {
+  // Wildly uneven on purpose. Post A: 100,000 impressions, 1,000 interactions
+  // → 1%. Post B: 10 impressions, 5 interactions → 50%.
+  //
+  //   weighted : (1000 + 5) / (100000 + 10) × 100 = 1.0049…  ≈ 1.0
+  //   mean     : (1 + 50) / 2                     = 25.5
+  //
+  // A 25× gap. Nothing subtle can hide in it.
+  const LOPSIDED = [
+    biRow({
+      linkedin_post_id: "whale",
+      impressions: 100_000,
+      interactions: 1_000,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+    biRow({
+      linkedin_post_id: "minnow",
+      impressions: 10,
+      interactions: 5,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+  ];
+
+  it("reports the ratio of TOTALS, not the average of the two posts' rates", () => {
+    const a = buildDashboardAnalytics(LOPSIDED, { range: "30d", now: NOW });
+
+    expect(a.engagement.value).toBeCloseTo(1.0, 1);
+    // Spelled out so the failure message names the defect rather than a number:
+    // 25.5 is what the mean-of-rates formula returns.
+    expect(a.engagement.value).not.toBeCloseTo(25.5, 1);
+  });
+
+  it("lets one high-impression post dominate, which is the whole point", () => {
+    // Swapping the SMALL post's rate must barely move the figure. Under a mean
+    // of rates this jumps by ~25 points; weighted, it moves by ~0.005.
+    const quieterMinnow = [
+      LOPSIDED[0]!,
+      biRow({
+        linkedin_post_id: "minnow",
+        impressions: 10,
+        interactions: 0,
+        scraped_at: "2026-07-15T00:00:00.000Z",
+      }),
+    ];
+
+    const before = buildDashboardAnalytics(LOPSIDED, { range: "30d", now: NOW }).engagement.value;
+    const after = buildDashboardAnalytics(quieterMinnow, { range: "30d", now: NOW }).engagement
+      .value;
+
+    expect(Math.abs(after - before)).toBeLessThan(0.5);
+  });
+
+  it("reports 0 — not NaN — when the period has impressions of zero", () => {
+    const noReach = [
+      biRow({
+        linkedin_post_id: "a",
+        impressions: 0,
+        interactions: 0,
+        scraped_at: "2026-07-15T00:00:00.000Z",
+      }),
+    ];
+
+    const a = buildDashboardAnalytics(noReach, { range: "30d", now: NOW });
+
+    expect(a.engagement.value).toBe(0);
+    expect(Number.isNaN(a.engagement.value)).toBe(false);
+  });
+});
+
 describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
   beforeEach(() => {
     biState.rows = [];
@@ -273,7 +354,7 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     expect(biState.schemaCalls).toContain("bi");
     expect(biState.fromCalls).toContain("linkedin_post_latest");
     expect(a.hero.label).toBe("Impressions");
-    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Reposts", "Saves"]);
+    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Shares", "Saves"]);
     expect(Array.isArray(a.impressionsSeries)).toBe(true);
     expect(Array.isArray(a.recentPosts)).toBe(true);
   });

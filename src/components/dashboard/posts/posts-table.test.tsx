@@ -21,6 +21,7 @@ function post(over: Partial<ClientPostRow> & { id: string }): ClientPostRow {
     shares: 1,
     saves: 3,
     interactions: 16,
+    engagementRate: 6.2,
     ...over,
   };
 }
@@ -279,5 +280,57 @@ describe("sorting", () => {
 
     // Sorting posts by their opening words answers no question anyone has.
     expect(screen.queryByRole("button", { name: /sort by post$/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("engagement rate — the VIEW's figure, never one ArcBase computed", () => {
+  it("renders the view's rate to one decimal place with a unit", () => {
+    render(<PostsTable data={[post({ id: "a", engagementRate: 6.234 })]} />);
+
+    expect(screen.getByText("6.2%")).toBeInTheDocument();
+  });
+
+  it("renders an em dash — never a derived stand-in — when the view carries no rate", () => {
+    // ⚠️ THE ROW HAS EVERYTHING NEEDED TO COMPUTE ONE: 100 impressions and 16
+    // interactions would give 16.0%. ArcBase deliberately does not, because a
+    // figure the view did not publish is not a figure this table may invent.
+    render(
+      <PostsTable
+        data={[post({ id: "a", engagementRate: null, impressions: 100, interactions: 16 })]}
+      />,
+    );
+
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText(/Engagement rate not reported/i)).toBeInTheDocument();
+    expect(screen.queryByText("16.0%")).not.toBeInTheDocument();
+  });
+
+  it("renders a measured zero rate as 0.0%, not as an em dash", () => {
+    render(<PostsTable data={[post({ id: "a", engagementRate: 0 })]} />);
+
+    // A post that reached people and engaged nobody is a fact, not missing data.
+    expect(screen.getByText("0.0%")).toBeInTheDocument();
+    expect(within(bodyRows()[0]!).queryByText("—")).not.toBeInTheDocument();
+  });
+
+  it("sorts by rate, parking posts with no rate last in BOTH directions", async () => {
+    const user = userEvent.setup();
+    render(
+      <PostsTable
+        data={[
+          post({ id: "mid", snippet: "Post mid", engagementRate: 5 }),
+          post({ id: "none", snippet: "Post none", engagementRate: null }),
+          post({ id: "high", snippet: "Post high", engagementRate: 9 }),
+        ]}
+      />,
+    );
+    const sortRate = screen.getByRole("button", { name: "Sort by engagement rate" });
+
+    // A missing rate must never sort as 0% and rank as the worst performer.
+    await user.click(sortRate);
+    expect(snippets()).toEqual(["Post high", "Post mid", "Post none"]);
+
+    await user.click(sortRate);
+    expect(snippets()).toEqual(["Post mid", "Post high", "Post none"]);
   });
 });

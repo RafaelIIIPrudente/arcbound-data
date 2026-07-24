@@ -10,7 +10,7 @@ import { paths } from "@/paths";
 import { isNavItemActive, navItems } from "./nav-config";
 
 /**
- * ArcBase sidebar. Fixed 236px frame with the wordmark, the four nav items
+ * ArcBase sidebar. Fixed 236px frame with the wordmark, the five nav items
  * (Geist-Mono labels with a left accent bar marking the active route), and a
  * footer — per docs/arcbase-dashboard-design-brief. Single-tenant, so there is
  * no organisation navigation (ADR 0007).

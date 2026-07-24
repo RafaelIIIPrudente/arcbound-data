@@ -11,7 +11,12 @@
 // (`fetchPostCounts` and `latestUploadByClient`). One implementation cannot
 // regress in one place and not another.
 //
-// `grep -rn "\.range(" src` should find this file and nothing else.
+// THE DIVISION OF LABOUR: this module owns the LOOP — how many pages, in what
+// order, and what to do when one of them fails. Each reader owns its own RANGED
+// REQUEST, because only the caller knows its table, its columns, and its
+// filters. So `grep -rn "\.range(" src` finds this file plus one call per
+// reader, and that is correct: pulling the request construction in here would
+// couple the pager to schemas it has no business knowing.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -47,6 +52,32 @@ export type PageReader<T> = (
   to: number,
   opts?: { count: "exact" },
 ) => PromiseLike<PageResult<T>>;
+
+/**
+ * Adapt a Supabase query builder to the `PageResult<T>` a `PageReader` returns.
+ *
+ * ⚠️ THIS IS THE ONLY TYPE ASSERTION IN THE DATA-ACCESS PATH, AND IT IS HERE SO
+ * THERE IS EXACTLY ONE OF IT.
+ *
+ * It cannot be avoided today. The envelope is fine — `PostgrestResponse` really
+ * does carry `{ data, error, count }`, and its error really does have a
+ * `message` — but the ROW TYPE cannot be inferred: this repo has no generated
+ * database types for the `bi` schema, and every reader passes its column list as
+ * a RUNTIME STRING, so the builder's element type is unknowable at compile time.
+ *
+ * ⚠️ WHAT THIS COSTS, STATED PLAINLY: `T` is asserted, not checked. Change a
+ * reader's `.select()` column list and nothing here will complain — the shape
+ * keeps claiming whatever `T` says. That is a real hole, and it is the reason
+ * this lives in one documented place instead of being copy-pasted at each
+ * reader, where three copies would drift apart silently.
+ *
+ * The fix that would remove it entirely is generated types covering `bi.*`
+ * (`pnpm db:types` does not reach that schema today). Until then, treat each
+ * reader's column list and its row type as a pair that must be edited together.
+ */
+export function asPage<T>(builder: PromiseLike<unknown>): PromiseLike<PageResult<T>> {
+  return builder as PromiseLike<PageResult<T>>;
+}
 
 export interface PagedRead<T> {
   rows: T[];

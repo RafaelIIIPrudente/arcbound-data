@@ -2,7 +2,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { readAllPages } from "@/lib/supabase/paged";
+import { asPage, readAllPages } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Client, ClientListRow, LastUpload, Paginated } from "@/services/types";
 import { latestUploadByClient } from "@/services/uploads";
@@ -58,18 +58,16 @@ function toClient(row: ClientRow, postsCount: number | null): Client {
 async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, number> | null> {
   const { rows, unavailable, truncated } = await readAllPages<{ client_id: string | null }>(
     (from, to, opts) =>
-      supabase
-        .schema("bi")
-        .from("linkedin_post_latest")
-        .select("client_id", opts)
-        // Stable ordering — CONCURRENT ranges can otherwise overlap or skip
-        // rows. Ordering by a column that is not selected is fine.
-        .order("linkedin_post_id", { ascending: true })
-        .range(from, to) as unknown as PromiseLike<{
-        data: { client_id: string | null }[] | null;
-        error: { message: string } | null;
-        count?: number | null;
-      }>,
+      asPage<{ client_id: string | null }>(
+        supabase
+          .schema("bi")
+          .from("linkedin_post_latest")
+          .select("client_id", opts)
+          // Stable ordering — CONCURRENT ranges can otherwise overlap or skip
+          // rows. Ordering by a column that is not selected is fine.
+          .order("linkedin_post_id", { ascending: true })
+          .range(from, to),
+      ),
     "bi.linkedin_post_latest",
   );
   if (unavailable || truncated) return null;

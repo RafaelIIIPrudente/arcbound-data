@@ -4,7 +4,13 @@ import { readAllPostRows } from "@/services/bi-posts";
 import { listClientRegistry } from "@/services/clients";
 import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
 import { listAllUploads } from "@/services/uploads";
-import type { DataQuality, DataQualityRow, LastUpload, Upload } from "@/services/types";
+import type {
+  DataQuality,
+  DataQualityRow,
+  LastUpload,
+  RateReconciliation,
+  Upload,
+} from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data Quality seam. Answers the one question nothing else in ArcBase answers:
@@ -33,7 +39,126 @@ import type { DataQuality, DataQualityRow, LastUpload, Upload } from "@/services
  */
 export const STALE_AFTER_DAYS = 14;
 
+/**
+ * How far two engagement rates may differ before they count as disagreeing, in
+ * PERCENTAGE POINTS (both rates are percentages).
+ *
+ * 0.1pp absorbs rounding and float noise while still catching a real difference
+ * in definition. Named and exported so it is changeable in one place and
+ * assertable without a magic number.
+ */
+export const RATE_TOLERANCE_PCT = 0.1;
+
 const DAY_MS = 86_400_000;
+
+/** The middle value, or the mean of the middle two. Sorts a COPY. */
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * How far the median provided/calculated ratio may stray from 1 and still count
+ * as "the same scale". A unit mismatch lands near 100 or 0.01, so anything
+ * inside this band is a genuine difference in the numbers rather than in units.
+ */
+export const RATE_SCALE_BAND = 2;
+
+/** A finite number, or null. Absence is never coerced to 0 here. */
+function finite(v: number | null | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Reconcile the three engagement-rate definitions across every post read.
+ *
+ * ⚠️ ARCBASE'S OWN PER-POST RATE IS COMPUTED HERE AND NOWHERE ELSE, AND IS NEVER
+ * RENDERED. It exists solely to answer "does the view's per-post rate use the
+ * same numerator and denominator our dashboard aggregate does?". Do not lift it
+ * out of this function to display it — that would create the fourth competing
+ * definition this slice exists to prevent.
+ *
+ * ⚠️ AND IT REPORTS, IT DOES NOT RESOLVE. No averaging, no picking a winner.
+ */
+export function reconcileRates(rows: BiPostRow[]): RateReconciliation {
+  let postsMissingRate = 0;
+  let rateDisagreements = 0;
+  let rateComparablePosts = 0;
+  let formulaCheckedPosts = 0;
+  let formulaMismatches = 0;
+  const ratios: number[] = [];
+
+  for (const row of rows) {
+    const calculated = finite(row.calculated_engagement_rate);
+    const provided = finite(row.provided_engagement_rate);
+
+    // A missing rate is NOT a rate of zero, and not a disagreement either.
+    if (calculated === null) postsMissingRate += 1;
+
+    if (calculated !== null && provided !== null) {
+      rateComparablePosts += 1;
+      if (Math.abs(provided - calculated) > RATE_TOLERANCE_PCT) rateDisagreements += 1;
+      // Guard the divisor: a calculated rate of exactly 0 makes the ratio
+      // meaningless (or infinite), and one such post would drag the median into
+      // nonsense. Excluded from the ratio only — it still counts as comparable.
+      if (calculated !== 0) ratios.push(provided / calculated);
+    }
+
+    // THE FORMULA CHECK. A post is checkable only with all three of a rate, a
+    // numerator, and positive impressions — a post with no reach has no
+    // defensible rate under any formula, and a post with no interactions has no
+    // rate at all.
+    //
+    // ⚠️ ALL THREE ARE THREE-STATED, `interactions` INCLUDED. Defaulting an
+    // absent numerator to 0 computes a 0% rate, disagrees with any real rate,
+    // and scores a MISSING measurement as a definitional difference — in the one
+    // figure here staff would act on. Nothing in this function may default an
+    // absent measurement to zero.
+    //
+    // ⚠️ A MEASURED 0 IS STILL CHECKED. `finite(0)` is 0, not null: the post
+    // genuinely earned nothing, its rate genuinely is 0%, and a non-zero column
+    // genuinely disagrees. Excluding it would be the same collapse reversed.
+    const impressions = finite(row.impressions);
+    const interactions = finite(row.interactions);
+    if (calculated !== null && interactions !== null && impressions !== null && impressions > 0) {
+      formulaCheckedPosts += 1;
+      // The SAME formula the dashboard aggregates, applied to one post. If this
+      // matches the view's column, the aggregate and the per-post figure share a
+      // numerator and a denominator — which is the thing being established.
+      const arcbaseRate = (interactions / impressions) * 100;
+      if (Math.abs(arcbaseRate - calculated) > RATE_TOLERANCE_PCT) formulaMismatches += 1;
+    }
+  }
+
+  const rateMedianRatio = median(ratios);
+
+  return {
+    postsMissingRate,
+    rateDisagreements,
+    rateComparablePosts,
+    rateMedianRatio,
+    // Decided HERE, once, so no reader has to divide 6.23 by 0.0623 in their head
+    // to work out whether a wall of "disagreements" is a real finding or a unit
+    // difference. The band is symmetric in ratio space: 1/2 and 2 are equally
+    // "aligned", 0.01 and 100 equally "rescaled".
+    rateScale:
+      rateMedianRatio === null
+        ? null
+        : rateMedianRatio >= 1 / RATE_SCALE_BAND && rateMedianRatio <= RATE_SCALE_BAND
+          ? "aligned"
+          : "rescaled",
+    // ⚠️ STRICT ON PURPOSE, AND REPORTED WITH ITS DENOMINATOR. One disagreeing
+    // post is a real disagreement, so no tolerance or threshold softens this
+    // into "mostly matches". `formulaMismatches` beside `formulaCheckedPosts` is
+    // what lets a reader size the finding — 1 of 5,000 and 5,000 of 5,000 both
+    // read `false`, and a bare "No" cannot tell them apart.
+    aggregateFormulaMatches: formulaCheckedPosts === 0 ? null : formulaMismatches === 0,
+    formulaCheckedPosts,
+    formulaMismatches,
+  };
+}
 
 /**
  * Worst first. Lower rank sorts higher.
@@ -202,6 +327,9 @@ export async function getDataQuality({
     // Needs BOTH sources: without the roster there is nothing to call an orphan,
     // and without the posts there is nothing to count.
     unattributedPosts: registry === null || posts.unavailable ? null : nullIdPosts + orphanPosts,
+    // Over EVERY post read, not per client — the rate definitions are a property
+    // of the pipeline, not of any one client.
+    rates: reconcileRates(posts.rows),
     sources,
   };
 }

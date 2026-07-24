@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { DataQualitySummary } from "@/components/dashboard/data-quality/data-quality-summary";
 import { DataQualityTable } from "@/components/dashboard/data-quality/data-quality-table";
+import { RateReconciliationPanel } from "@/components/dashboard/data-quality/rate-reconciliation";
 import { getDataQuality } from "@/services/data-quality";
 
 export const metadata: Metadata = { title: "Data quality" };
@@ -36,6 +37,8 @@ export default async function DataQualityPage() {
       </div>
 
       <DataQualitySummary data={data} />
+
+      <RateReconciliationPanel rates={data.rates} />
 
       <section className="space-y-4">
         <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">

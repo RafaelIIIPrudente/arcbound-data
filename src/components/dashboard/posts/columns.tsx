@@ -152,4 +152,29 @@ export const columns: ColumnDef<ClientPostRow>[] = [
     ),
   },
   metric("interactions", "Interactions"),
+  {
+    id: "engagementRate",
+    // Same `undefined` treatment as the date and saves columns: a rate the view
+    // does not carry parks at the bottom in BOTH sort directions rather than
+    // sorting as a 0%, which would rank it as the worst-performing post.
+    accessorFn: (post) => post.engagementRate ?? undefined,
+    sortUndefined: "last",
+    header: () => <span className={`${HEAD} block text-right`}>Engagement rate</span>,
+    meta: {
+      className: "text-right whitespace-nowrap",
+      sortLabel: "engagement rate",
+    } satisfies PostColumnMeta,
+    cell: ({ row }) => (
+      <span className={NUM}>
+        {row.original.engagementRate === null ? (
+          // ⚠️ NEVER a computed stand-in. ArcBase could derive a rate from
+          // interactions and impressions, and deliberately does not — a figure
+          // the view did not publish is not a figure this table may invent.
+          <Unknown what="Engagement rate" />
+        ) : (
+          `${row.original.engagementRate.toFixed(1)}%`
+        )}
+      </span>
+    ),
+  },
 ];

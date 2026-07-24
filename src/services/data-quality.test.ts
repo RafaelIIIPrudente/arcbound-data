@@ -64,7 +64,13 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
 
-import { getDataQuality, severityRank, STALE_AFTER_DAYS } from "./data-quality";
+import {
+  getDataQuality,
+  RATE_TOLERANCE_PCT,
+  reconcileRates,
+  severityRank,
+  STALE_AFTER_DAYS,
+} from "./data-quality";
 
 const NOW = new Date("2026-07-24T12:00:00.000Z");
 
@@ -431,5 +437,355 @@ describe("severity ordering — worst first", () => {
       "never", // rank 2
       "healthy", // rank 5
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE ENGAGEMENT-RATE RECONCILIATION.
+//
+// ArcBase holds THREE rate definitions: the scraper's `provided_engagement_rate`,
+// the view's `calculated_engagement_rate` (the one it ships), and its own
+// aggregate `weightedRate` on the dashboard. These tests pin what the
+// reconciliation REPORTS — never that it resolves anything. Nothing here averages
+// two rates or picks a winner.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("reconcileRates", () => {
+  const rated = (over: Partial<BiPostRow>) =>
+    post({ impressions: 1000, interactions: 62, ...over });
+
+  it("counts posts the view carries NO rate for — distinct from a rate of 0", () => {
+    const result = reconcileRates([
+      rated({ linkedin_post_id: "a", calculated_engagement_rate: 6.2 }),
+      rated({ linkedin_post_id: "b", calculated_engagement_rate: null }),
+      // A real, measured zero. NOT missing.
+      rated({ linkedin_post_id: "c", calculated_engagement_rate: 0, interactions: 0 }),
+    ]);
+
+    expect(result.postsMissingRate).toBe(1);
+  });
+
+  it("counts a disagreement only where BOTH rates are present", () => {
+    const result = reconcileRates([
+      // Agree.
+      rated({
+        linkedin_post_id: "a",
+        provided_engagement_rate: 6.2,
+        calculated_engagement_rate: 6.2,
+      }),
+      // Disagree, well past tolerance.
+      rated({
+        linkedin_post_id: "b",
+        provided_engagement_rate: 9.9,
+        calculated_engagement_rate: 6.2,
+      }),
+      // Only one side present — an absence is not a disagreement.
+      rated({
+        linkedin_post_id: "c",
+        provided_engagement_rate: null,
+        calculated_engagement_rate: 6.2,
+      }),
+      rated({
+        linkedin_post_id: "d",
+        provided_engagement_rate: 6.2,
+        calculated_engagement_rate: null,
+      }),
+    ]);
+
+    expect(result.rateDisagreements).toBe(1);
+    expect(result.rateComparablePosts).toBe(2);
+  });
+
+  it("treats a difference within tolerance as agreement", () => {
+    const withinTolerance = RATE_TOLERANCE_PCT / 2;
+    const result = reconcileRates([
+      rated({
+        linkedin_post_id: "a",
+        provided_engagement_rate: 6.2,
+        calculated_engagement_rate: 6.2 + withinTolerance,
+      }),
+    ]);
+
+    // Rounding and float noise must not read as a definitional difference.
+    expect(result.rateDisagreements).toBe(0);
+  });
+
+  // ⚠️ THE FIGURE THAT STOPS A UNIT DIFFERENCE READING AS A CATASTROPHE.
+  it("reports a median ratio near 100 when the two columns are on different SCALES", () => {
+    // The classic mismatch: one column a percentage (6.2), the other a fraction
+    // (0.062). EVERY row "disagrees", but nothing is actually wrong — the
+    // columns are simply in different units.
+    const result = reconcileRates(
+      [6.2, 3.1, 12.4].map((pct, i) =>
+        rated({
+          linkedin_post_id: `p${i}`,
+          provided_engagement_rate: pct,
+          calculated_engagement_rate: pct / 100,
+        }),
+      ),
+    );
+
+    expect(result.rateDisagreements).toBe(3); // every row
+    // ...but the ratio says "unit mismatch", not "the numbers are wrong".
+    expect(result.rateMedianRatio).toBeCloseTo(100, 0);
+  });
+
+  it("reports a median ratio near 1 when the disagreement is GENUINE", () => {
+    // Same scale, different numbers — the case that actually warrants a question
+    // to the BI owner. The ratio is what tells these two situations apart.
+    const result = reconcileRates([
+      rated({
+        linkedin_post_id: "a",
+        provided_engagement_rate: 6.4,
+        calculated_engagement_rate: 6.2,
+      }),
+      rated({
+        linkedin_post_id: "b",
+        provided_engagement_rate: 3.0,
+        calculated_engagement_rate: 3.1,
+      }),
+      rated({
+        linkedin_post_id: "c",
+        provided_engagement_rate: 12.9,
+        calculated_engagement_rate: 12.4,
+      }),
+    ]);
+
+    expect(result.rateDisagreements).toBe(3);
+    expect(result.rateMedianRatio).toBeCloseTo(1, 1);
+  });
+
+  it("excludes a zero calculated rate from the ratio rather than dividing by it", () => {
+    const result = reconcileRates([
+      rated({
+        linkedin_post_id: "a",
+        provided_engagement_rate: 6.2,
+        calculated_engagement_rate: 6.2,
+      }),
+      // Would be Infinity and would poison the median.
+      rated({ linkedin_post_id: "b", provided_engagement_rate: 5, calculated_engagement_rate: 0 }),
+    ]);
+
+    expect(result.rateMedianRatio).toBeCloseTo(1, 5);
+    expect(Number.isFinite(result.rateMedianRatio!)).toBe(true);
+    // Still COMPARABLE — it just cannot contribute a ratio.
+    expect(result.rateComparablePosts).toBe(2);
+  });
+
+  it("reports a null median ratio when nothing is comparable", () => {
+    const result = reconcileRates([
+      rated({ linkedin_post_id: "a", provided_engagement_rate: null }),
+    ]);
+
+    // Not 0 and not 1 — there is genuinely no ratio to report.
+    expect(result.rateMedianRatio).toBeNull();
+  });
+
+  // ⚠️ THE ANSWER TO "IS THE DASHBOARD'S ENGAGEMENT FIGURE TRUSTWORTHY?"
+  describe("aggregateFormulaMatches", () => {
+    it("is TRUE when the view's per-post rate is interactions / impressions", () => {
+      const result = reconcileRates([
+        // 62 / 1000 = 6.2%
+        rated({
+          linkedin_post_id: "a",
+          impressions: 1000,
+          interactions: 62,
+          calculated_engagement_rate: 6.2,
+        }),
+        // 15 / 500 = 3%
+        rated({
+          linkedin_post_id: "b",
+          impressions: 500,
+          interactions: 15,
+          calculated_engagement_rate: 3,
+        }),
+      ]);
+
+      expect(result.aggregateFormulaMatches).toBe(true);
+      expect(result.formulaCheckedPosts).toBe(2);
+    });
+
+    it("is FALSE when the view computes its rate over some other basis", () => {
+      // E.g. a view dividing by followers, or excluding saves from the numerator.
+      // Whatever the cause, the dashboard aggregate and this column would then be
+      // measuring different things under one word — which is the finding.
+      const result = reconcileRates([
+        rated({
+          linkedin_post_id: "a",
+          impressions: 1000,
+          interactions: 62,
+          calculated_engagement_rate: 6.2,
+        }),
+        rated({
+          linkedin_post_id: "b",
+          impressions: 1000,
+          interactions: 62,
+          calculated_engagement_rate: 2.9,
+        }),
+      ]);
+
+      expect(result.aggregateFormulaMatches).toBe(false);
+    });
+
+    it("is NULL — not true — when no post can be checked", () => {
+      // Zero impressions everywhere: no post has a defensible rate under any
+      // formula, so the check did not pass, it did not RUN.
+      const result = reconcileRates([
+        rated({
+          linkedin_post_id: "a",
+          impressions: 0,
+          interactions: 0,
+          calculated_engagement_rate: 0,
+        }),
+      ]);
+
+      expect(result.aggregateFormulaMatches).toBeNull();
+      expect(result.formulaCheckedPosts).toBe(0);
+    });
+
+    it("skips posts with no rate rather than counting them as a mismatch", () => {
+      const result = reconcileRates([
+        rated({
+          linkedin_post_id: "a",
+          impressions: 1000,
+          interactions: 62,
+          calculated_engagement_rate: 6.2,
+        }),
+        rated({
+          linkedin_post_id: "b",
+          impressions: 1000,
+          interactions: 999,
+          calculated_engagement_rate: null,
+        }),
+      ]);
+
+      expect(result.formulaCheckedPosts).toBe(1);
+      expect(result.aggregateFormulaMatches).toBe(true);
+    });
+
+    // ⚠️ `interactions` IS NULLABLE, AND AN ABSENT ONE IS NOT A ZERO. Coercing it
+    // computes a 0% rate that disagrees with any real rate — reporting a MISSING
+    // measurement as a definitional difference, in the one figure on this screen
+    // staff would actually act on.
+    it("skips a post with NO interactions rather than scoring it as a mismatch", () => {
+      const result = reconcileRates([
+        rated({
+          linkedin_post_id: "a",
+          impressions: 1000,
+          interactions: null,
+          calculated_engagement_rate: 6.2,
+        }),
+      ]);
+
+      // Not checkable: with no numerator there is no rate to compare against.
+      expect(result.formulaCheckedPosts).toBe(0);
+      expect(result.formulaMismatches).toBe(0);
+      // So the verdict is "could not be checked", NOT "does not match".
+      expect(result.aggregateFormulaMatches).toBeNull();
+    });
+
+    it("does not let one unmeasured post overturn a book of matching ones", () => {
+      // How the defect compounded: the verdict is strict, so a single post
+      // scored as a mismatch for want of a numerator flipped the whole panel.
+      const result = reconcileRates([
+        ...[1, 2, 3].map((i) =>
+          rated({
+            linkedin_post_id: `ok${i}`,
+            impressions: 1000,
+            interactions: 62,
+            calculated_engagement_rate: 6.2,
+          }),
+        ),
+        rated({
+          linkedin_post_id: "unmeasured",
+          impressions: 1000,
+          interactions: null,
+          calculated_engagement_rate: 6.2,
+        }),
+      ]);
+
+      expect(result.aggregateFormulaMatches).toBe(true);
+      expect(result.formulaCheckedPosts).toBe(3);
+    });
+
+    // ⚠️ AND THE FIX MUST NOT OVERSHOOT. A measured zero IS a measurement: the
+    // post genuinely earned nothing, so its rate genuinely is 0% and a non-zero
+    // column genuinely disagrees. Excluding it would be the same collapse
+    // pointed the other way.
+    it("still checks a post whose interactions are a genuine 0", () => {
+      const result = reconcileRates([
+        rated({
+          linkedin_post_id: "a",
+          impressions: 1000,
+          interactions: 0,
+          calculated_engagement_rate: 6.2,
+        }),
+      ]);
+
+      expect(result.formulaCheckedPosts).toBe(1);
+      expect(result.formulaMismatches).toBe(1);
+      expect(result.aggregateFormulaMatches).toBe(false);
+    });
+
+    it("counts a genuine 0 as a MATCH when the view also reports 0", () => {
+      const result = reconcileRates([
+        rated({
+          linkedin_post_id: "a",
+          impressions: 1000,
+          interactions: 0,
+          calculated_engagement_rate: 0,
+        }),
+      ]);
+
+      expect(result.formulaCheckedPosts).toBe(1);
+      expect(result.formulaMismatches).toBe(0);
+      expect(result.aggregateFormulaMatches).toBe(true);
+    });
+
+    // ⚠️ A VERDICT WITHOUT ITS DENOMINATOR IS AN ALARM, NOT A FINDING. One post
+    // in a thousand and a thousand in a thousand both read `false`; only the
+    // count tells a reader which of the two they are looking at.
+    it("reports HOW MANY posts mismatched, not merely that one did", () => {
+      const result = reconcileRates([
+        ...[1, 2, 3].map((i) =>
+          rated({
+            linkedin_post_id: `ok${i}`,
+            impressions: 1000,
+            interactions: 62,
+            calculated_engagement_rate: 6.2,
+          }),
+        ),
+        rated({
+          linkedin_post_id: "odd",
+          impressions: 1000,
+          interactions: 62,
+          calculated_engagement_rate: 2.9,
+        }),
+      ]);
+
+      expect(result.formulaMismatches).toBe(1);
+      expect(result.formulaCheckedPosts).toBe(4);
+      // The flag stays STRICT — one disagreement is still a disagreement. The
+      // count SIZES the finding; it does not soften it.
+      expect(result.aggregateFormulaMatches).toBe(false);
+    });
+  });
+
+  it("is reachable from getDataQuality over every post read", async () => {
+    state.biRows = [
+      post({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        impressions: 1000,
+        interactions: 62,
+        provided_engagement_rate: 6.2,
+        calculated_engagement_rate: 6.2,
+      }),
+    ];
+
+    const { rates } = await getDataQuality({ now: NOW });
+
+    expect(rates.aggregateFormulaMatches).toBe(true);
+    expect(rates.rateDisagreements).toBe(0);
+    expect(rates.postsMissingRate).toBe(0);
   });
 });

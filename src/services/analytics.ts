@@ -124,6 +124,25 @@ function toKpi(label: string, current: number, prior: number): Kpi {
   return { label, value: current, delta, direction };
 }
 
+/**
+ * The IMPRESSION-WEIGHTED engagement rate over a SET of posts:
+ * `Σinteractions / Σimpressions × 100`. This is the figure on the dashboard.
+ *
+ * ⚠️ IT CANNOT BE THE MEAN OF THE POSTS' INDIVIDUAL RATES, and must never be
+ * rewritten as one. Averaging per-post rates gives a 12-impression post the same
+ * say as a 100,000-impression post, which is not what "engagement rate for this
+ * period" means to anyone reading it. A set-level rate is a ratio of totals.
+ *
+ * ⚠️ THIS IS NOT A RIVAL TO THE VIEW'S `calculated_engagement_rate`. That column
+ * is the PER-POST rate and is what the posts table shows; this is its AGGREGATE
+ * counterpart. They answer different questions and both are correct.
+ *
+ * What they must SHARE is a numerator and a denominator. The Data Quality panel
+ * now checks exactly that — see `aggregateFormulaMatches` in
+ * `@/services/data-quality` — because if the view defines its per-post rate over
+ * some other basis, this aggregate and that column would be quietly measuring
+ * two different things under one word.
+ */
 function weightedRate(rows: BiPostRow[]): number {
   const impressions = sumOf(rows, (r) => r.impressions);
   return impressions > 0 ? (sumOf(rows, (r) => r.interactions) / impressions) * 100 : 0;
@@ -183,7 +202,11 @@ export function buildDashboardAnalytics(
       sumOf(prior, (r) => r.comments),
     ),
     toKpi(
-      "Reposts",
+      // `reposts` in the view; ALWAYS "Shares" to staff. This KPI was the lone
+      // violator of that rule — the report and the posts table already said
+      // "Shares", so a user moving between screens met the same column under two
+      // names and had no way to know it was one metric.
+      "Shares",
       sumOf(current, (r) => r.reposts),
       sumOf(prior, (r) => r.reposts),
     ),

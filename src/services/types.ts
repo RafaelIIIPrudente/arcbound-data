@@ -255,6 +255,20 @@ export interface InteractionsRow {
   comments: number;
   /** `reposts` in the BI view — always labelled "Shares" in the UI. */
   shares: number;
+  /**
+   * ⚠️ THREE STATES, AND THEY MUST NOT COLLAPSE. `saves` is genuinely nullable —
+   * the scrape may omit it — so summing nulls as zero would report an absent
+   * measurement as a measured zero.
+   *
+   * `null` when NO post in this scope carried a saves value at all.
+   */
+  saves: number | null;
+  /**
+   * Some posts in this scope carried saves and some did not, so the sum is a
+   * LOWER BOUND and the UI must say so. A partial sum presented as a total is
+   * the same lie as a null presented as a zero, just harder to spot.
+   */
+  savesPartial: boolean;
 }
 
 /**
@@ -382,6 +396,19 @@ export interface ClientPostRow {
    */
   saves: number | null;
   interactions: number;
+  /**
+   * The VIEW's `calculated_engagement_rate`, as a percentage.
+   *
+   * ⚠️ READ, NEVER DERIVED. Per ADR 0009 the BI views own the analytics
+   * contract, so this is their per-post figure — ArcBase does not compute a
+   * rival one and does not back-fill this from `interactions / impressions`
+   * when the view carries nothing. `null` means the view had no value; it
+   * renders as an em dash, never as 0.
+   *
+   * Its AGGREGATE counterpart is `weightedRate` in `@/services/analytics` —
+   * a ratio of totals, not the mean of this column. Never average these.
+   */
+  engagementRate: number | null;
 }
 
 // ── Data Quality ─────────────────────────────────────────────────────────────
@@ -445,9 +472,81 @@ export interface DataQualitySources {
   uploadsUnavailable: boolean;
 }
 
+/**
+ * The engagement-rate reconciliation.
+ *
+ * ⚠️ THIS REPORTS A DISAGREEMENT; IT DOES NOT RESOLVE ONE. ArcBase holds three
+ * rate definitions — the scraper's `provided_engagement_rate`, the view's
+ * `calculated_engagement_rate` (the one it ships), and its own aggregate
+ * `weightedRate`. Nothing here averages them or picks a winner; it states where
+ * they differ so a human can ask the BI owner why.
+ */
+export interface RateReconciliation {
+  /** Posts the view carries no rate for. Distinct from a rate of 0. */
+  postsMissingRate: number;
+  /**
+   * Posts where the scraper's and the view's rates differ by more than the
+   * tolerance. Counts only posts carrying BOTH — a missing value is not a
+   * disagreement.
+   */
+  rateDisagreements: number;
+  /** Posts where both rates are present, i.e. the population above was drawn from. */
+  rateComparablePosts: number;
+  /**
+   * MEDIAN of `provided / calculated`, across posts where both are present and
+   * calculated is non-zero. `null` when there are none.
+   *
+   * ⚠️ THIS EXISTS TO MAKE A SCALE MISMATCH OBVIOUS. If one column is a
+   * percentage (6.23) and the other a fraction (0.0623), EVERY row "disagrees"
+   * and a bare disagreement count reads as a catastrophe rather than as a unit
+   * difference. Near 1 → genuine disagreement. Near 100 or 0.01 → the two
+   * columns are simply on different scales. The UI must let a reader tell those
+   * apart without doing arithmetic.
+   */
+  rateMedianRatio: number | null;
+  /**
+   * What that ratio MEANS, decided once here so no reader — and no component —
+   * has to do the arithmetic:
+   *   • "aligned"  — same scale; any disagreements are genuine and worth asking about
+   *   • "rescaled" — the columns are in different units (e.g. 6.23 vs 0.0623),
+   *                  which alone explains every "disagreement"
+   *   • null       — nothing comparable to judge
+   */
+  rateScale: "aligned" | "rescaled" | null;
+  /**
+   * Does the view's per-post rate agree with `interactions / impressions × 100`,
+   * within tolerance, across the posts where it can be checked?
+   *
+   * The single most important output here: the dashboard's aggregate engagement
+   * figure is `Σinteractions / Σimpressions`, so if this is false the aggregate
+   * and the per-post column are measuring different things under one word.
+   * `null` when no post could be checked (none with impressions AND a rate).
+   */
+  aggregateFormulaMatches: boolean | null;
+  /**
+   * Posts the formula check could actually be run against — those carrying a
+   * rate, a numerator, AND positive impressions. The denominator for
+   * `formulaMismatches`.
+   */
+  formulaCheckedPosts: number;
+  /**
+   * How many of `formulaCheckedPosts` disagreed.
+   *
+   * ⚠️ A VERDICT MUST CARRY ITS OWN DENOMINATOR. `aggregateFormulaMatches` is
+   * strict, so one outlier out of 5,000 and 5,000 out of 5,000 are both `false`
+   * — and a bare "No" presents them identically. This count is what lets a
+   * reader size the finding for themselves. It exists to inform the flag's
+   * reader, NOT to soften the flag: there is deliberately no threshold above
+   * which a mismatch stops counting.
+   */
+  formulaMismatches: number;
+}
+
 export interface DataQuality {
   /** Worst first — see the severity ranking in the service. */
   rows: DataQualityRow[];
+  /** Where the three engagement-rate definitions agree, and where they do not. */
+  rates: RateReconciliation;
   /**
    * BI rows attributed to NO registered Client — a null `client_id`, or one
    * matching nobody in the roster. The direct counterpart to "submitted but

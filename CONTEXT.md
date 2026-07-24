@@ -56,6 +56,9 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Follower Count** — a Client's follower total captured with a Scrape. Stored
   per-Upload, which gives a follower history over time.
 
+- **Shares** — a repost of a Client's Post. The Scrape and the BI views call this
+  `reposts`; staff always see "Shares". The raw field name is never shown.
+
 - **Format Type** (a.k.a. **Asset Type**) — how a Post was published, as reported
   by the Scrape: `IMAGE`, `DOCUMENT`, `VIDEO`, `TEXT`, `POLL`, `ARTICLE`,
   `SLIDE_SHOW`, `SHARE`, `INSTANT_SHARE`, or `UNKNOWN`. ArcBase stores the value
