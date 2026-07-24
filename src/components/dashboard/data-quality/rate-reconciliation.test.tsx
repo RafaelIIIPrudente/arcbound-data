@@ -165,6 +165,39 @@ describe("the aggregate-formula check keeps its three answers apart", () => {
     const card = screen.getByText("Matches our overall formula").parentElement!;
     expect(within(card).getByText("—")).toBeInTheDocument();
     expect(within(card).queryByText("No")).not.toBeInTheDocument();
-    expect(screen.getByText(/no post had both a rate and any impressions/i)).toBeInTheDocument();
+    // ⚠️ ALL THREE CONDITIONS, because the check now requires all three. Naming
+    // only two told the reader that a combination which genuinely occurs — a
+    // post with a rate and views but no recorded interactions — was impossible.
+    expect(
+      screen.getByText(
+        /no post had all three of a rate, a recorded interaction count, and at least one view/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("explains the same three conditions in the prose, not just to screen readers", () => {
+    render(
+      <RateReconciliationPanel
+        rates={rates({ aggregateFormulaMatches: null, formulaCheckedPosts: 0 })}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        /all three of a rate, a recorded interaction count, and at least one view, so this check couldn’t run/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("names no raw column in either explanation of why the check could not run", () => {
+    render(
+      <RateReconciliationPanel
+        rates={rates({ aggregateFormulaMatches: null, formulaCheckedPosts: 0 })}
+      />,
+    );
+
+    for (const token of ["impressions", "interactions", "calculated_engagement_rate"]) {
+      expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
+    }
   });
 });

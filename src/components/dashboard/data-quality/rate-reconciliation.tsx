@@ -79,7 +79,8 @@ export function RateReconciliationPanel({ rates }: { rates: RateReconciliation }
                 {/* Not "no" — the check could not be run at all. */}
                 <span aria-hidden>—</span>
                 <span className="sr-only">
-                  Could not be checked: no post had both a rate and any impressions
+                  Could not be checked: no post had all three of a rate, a recorded interaction
+                  count, and at least one view
                 </span>
               </>
             ) : rates.aggregateFormulaMatches ? (
@@ -125,8 +126,8 @@ export function RateReconciliationPanel({ rates }: { rates: RateReconciliation }
 
         {rates.aggregateFormulaMatches === null ? (
           <p>
-            There weren&rsquo;t any posts with both a rate and a view count, so this check
-            couldn&rsquo;t run.
+            There weren&rsquo;t any posts with all three of a rate, a recorded interaction count,
+            and at least one view, so this check couldn&rsquo;t run.
           </p>
         ) : null}
       </div>

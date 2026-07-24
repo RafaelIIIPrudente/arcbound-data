@@ -4,7 +4,9 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
+import { FollowerTrendPanel } from "@/components/dashboard/client/follower-trend";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
+import { followerTrend } from "@/lib/follower-trend";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
 import { followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
 import { paths } from "@/paths";
@@ -154,6 +156,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       </div>
 
       <ClientTabs clientId={client.id} />
+
+      {/* Derived from the SAME `uploads` array the Followers card above reads,
+          with no second query — so the series cannot end on a different figure
+          than the card shows. */}
+      <FollowerTrendPanel trend={followerTrend(uploads)} />
 
       <UploadHistory uploads={uploads} />
     </div>
