@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
+import {
+  AnalyticsTruncated,
+  AnalyticsUnavailable,
+} from "@/components/dashboard/analytics/analytics-unavailable";
+import { ClientComparisonTable } from "@/components/dashboard/analytics/client-comparison";
 import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-filters";
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
@@ -54,6 +58,10 @@ export default async function DashboardPage({
         <AnalyticsUnavailable />
       ) : hasData ? (
         <>
+          {/* ⚠️ ABOVE the figures, not instead of them. A truncated read still
+              produced real numbers — they are simply lower bounds, and the
+              banner is what stops them being read as totals. */}
+          {analytics.truncated ? <AnalyticsTruncated /> : null}
           <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={RANGE_LABEL[range]} />
           <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">
             <ImpressionsChart data={analytics.impressionsSeries} rangeLabel={RANGE_LABEL[range]} />
@@ -64,6 +72,11 @@ export default async function DashboardPage({
             />
           </div>
           <RecentPostsTable posts={analytics.recentPosts} postCount={analytics.totalPosts} />
+          {/* All-clients state only: the service returns `null` when one client
+              is selected, and does not issue the comparison's two extra reads. */}
+          {analytics.comparison ? (
+            <ClientComparisonTable comparison={analytics.comparison} />
+          ) : null}
         </>
       ) : (
         <div className="flex flex-col items-center justify-center gap-4 rounded-lg border py-20 text-center">

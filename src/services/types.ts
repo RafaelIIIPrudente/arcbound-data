@@ -103,6 +103,103 @@ export interface DashboardAnalytics {
   recentPosts: RecentPost[];
   /** True when the analytics source couldn't be read (distinct from "no data"). */
   unavailable?: boolean;
+  /**
+   * True when the read SUCCEEDED but hit the pager's page cap.
+   *
+   * ⚠️ NOT A WEAKER `unavailable`, AND NEVER INFERRED FROM IT. Unavailable means
+   * the figures are meaningless; truncated means they are real but INCOMPLETE —
+   * every number on the screen is then a lower bound, and the screen has to say
+   * so rather than presenting short figures as totals.
+   */
+  truncated?: boolean;
+  /**
+   * Every Client side by side over the selected range.
+   *
+   * `null` when a single Client is selected — the screen is then about that one
+   * Client and a comparison is meaningless, so it is not built and its two extra
+   * reads are not issued.
+   */
+  comparison?: ClientComparison | null;
+}
+
+// ── Cross-client comparison ──────────────────────────────────────────────────
+// ⚠️ A COMPARISON'S INTEGRITY LIVES IN ITS DENOMINATORS. Every figure below is a
+// normalised one, so each carries `null` for "not applicable" rather than a 0
+// that a reader would take as a measured failure to perform. A Client who did
+// not post scored 0 posts; a Client whose followers were never recorded scored
+// nothing at all, and those are different rows.
+
+export interface ClientComparisonRow {
+  clientId: string;
+  clientName: string;
+  /**
+   * Posts in the window attributed to this Client. A GENUINE 0 — this Client is
+   * in the registry and published nothing, which is a finding, not missing data.
+   */
+  posts: number;
+  /** Mean impressions per post. `null` when `posts` is 0 — no posts, no mean. */
+  avgImpressions: number | null;
+  /**
+   * The impression-weighted rate, via the ONE `weightedRate` definition.
+   *
+   * ⚠️ `null` — NEVER 0 — when the Client had no impressions in the window. A 0
+   * would assert that people saw the posts and did not engage.
+   */
+  engagementRate: number | null;
+  /**
+   * The most recent recorded follower count from the upload audit, skipping
+   * uploads that recorded none. `null` when none was ever recorded.
+   */
+  followers: number | null;
+  /**
+   * Interactions per 1,000 followers over the window — the figure that makes a
+   * 40,000-follower Client and a 2,000-follower Client comparable at all.
+   *
+   * ⚠️ `null` when `followers` is unknown OR 0. A rate per nothing is undefined:
+   * not infinite, and not zero.
+   */
+  interactionsPer1K: number | null;
+}
+
+/**
+ * A book median and the population it was drawn from.
+ *
+ * ⚠️ THE COUNT IS NOT DECORATION. A median over three Clients and a median over
+ * thirty are different claims, and the UI has to be able to say which it shows.
+ */
+export interface ComparisonMedian {
+  value: number | null;
+  /** Clients that had this figure at all — the median's actual denominator. */
+  clients: number;
+}
+
+export interface ClientComparisonMedians {
+  avgImpressions: ComparisonMedian;
+  engagementRate: ComparisonMedian;
+  followers: ComparisonMedian;
+  interactionsPer1K: ComparisonMedian;
+}
+
+export interface ClientComparison {
+  /** One row per registry Client, INCLUDING Clients with no posts in range. */
+  rows: ClientComparisonRow[];
+  medians: ClientComparisonMedians;
+  /**
+   * Posts in the window whose `client_id` matches no registry Client.
+   *
+   * ⚠️ COUNTED AND SURFACED, NEVER SILENTLY DROPPED. Attribution happens
+   * downstream of ArcBase as a name match (ADR 0009), so this is a real and
+   * expected population — and without it the rows cannot be reconciled against
+   * `totalPosts`.
+   */
+  unattributedPosts: number;
+  /**
+   * The registry or the upload audit could not be read.
+   *
+   * Distinct from an empty registry: `rows: []` with `unavailable: false` means
+   * no Clients are registered, which is a fact rather than an outage.
+   */
+  unavailable: boolean;
 }
 
 // ── Ingestion ────────────────────────────────────────────────────────────────
