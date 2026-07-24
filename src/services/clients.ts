@@ -2,6 +2,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { readAllPages } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Client, ClientListRow, LastUpload, Paginated } from "@/services/types";
 import { latestUploadByClient } from "@/services/uploads";
@@ -43,24 +44,71 @@ function toClient(row: ClientRow, postsCount: number | null): Client {
  * real answer ("the view attributes no posts to anyone"); returning it for a
  * failed read made a `0` in the Client List mean either "no posts yet" or "the
  * bi read broke", with no way for staff to tell which.
+ *
+ * ⚠️ AND `null` WHEN THE READ IS TRUNCATED, for the same reason. This read was
+ * once unpaged, so above PostgREST's 1000-row cap it returned a short response
+ * and a 200 — every count on the Client List quietly understated, while the
+ * client DETAIL page stayed right because it uses `count: "exact", head: true`.
+ * Two screens disagreeing, neither saying so.
+ *
+ * Paging fixes that up to MAX_PAGES. Past it the rows are a PREFIX, so a count
+ * built from them is wrong while looking entirely plausible — and a plausible
+ * wrong number is worse than an em dash. Never return partial counts.
  */
 async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, number> | null> {
+  const { rows, unavailable, truncated } = await readAllPages<{ client_id: string | null }>(
+    (from, to, opts) =>
+      supabase
+        .schema("bi")
+        .from("linkedin_post_latest")
+        .select("client_id", opts)
+        // Stable ordering — CONCURRENT ranges can otherwise overlap or skip
+        // rows. Ordering by a column that is not selected is fine.
+        .order("linkedin_post_id", { ascending: true })
+        .range(from, to) as unknown as PromiseLike<{
+        data: { client_id: string | null }[] | null;
+        error: { message: string } | null;
+        count?: number | null;
+      }>,
+    "bi.linkedin_post_latest",
+  );
+  if (unavailable || truncated) return null;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.client_id) counts.set(row.client_id, (counts.get(row.client_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * The client roster — id and name only.
+ *
+ * ⚠️ DELIBERATELY NOT `listClients`. That function joins a post count from a
+ * SECOND, independent bi read; a caller that also reads the posts itself would
+ * end up with two counts of the same thing, which is precisely how one screen
+ * comes to contradict another. This returns the roster and nothing else, so the
+ * caller derives every figure from the single read it already owns.
+ *
+ * Unpaged on purpose: ArcBase tracks dozens of individual LinkedIn profiles, not
+ * thousands, and `clients` is nowhere near the 1000-row response cap.
+ */
+export async function listClientRegistry(): Promise<{ id: string; name: string }[] | null> {
   try {
+    const supabase = createServerClient(cookies());
     const { data, error } = await supabase
-      .schema("bi")
-      .from("linkedin_post_latest")
-      .select("client_id");
-    if (error || !data) {
-      console.warn(`Failed to load post counts: ${error?.message ?? "no rows returned"}`);
+      .from("clients")
+      .select("id, name")
+      .order("name", { ascending: true });
+    if (error) {
+      console.warn(`Failed to load the client registry: ${error.message}`);
       return null;
     }
-    const counts = new Map<string, number>();
-    for (const row of data as { client_id: string | null }[]) {
-      if (row.client_id) counts.set(row.client_id, (counts.get(row.client_id) ?? 0) + 1);
-    }
-    return counts;
+    return (data ?? []) as { id: string; name: string }[];
   } catch (err) {
-    console.warn(`Failed to load post counts: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(
+      `Failed to load the client registry: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }

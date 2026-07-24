@@ -1,8 +1,13 @@
-import { cookies } from "next/headers";
-
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
-import { createClient } from "@/lib/supabase/server";
-import { effectiveMs, type BiPostRow } from "@/services/analytics";
+import { type BiPostRow } from "@/services/analytics";
+import {
+  periodRange,
+  readClientPostRows,
+  selectPeriodPlaceable,
+  selectPeriodRows,
+  withDates,
+  type PlacedRow,
+} from "@/services/bi-posts";
 import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
 import { listUploads } from "@/services/uploads";
 import type {
@@ -78,16 +83,6 @@ function monthKey(year: number, month: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-/** A row paired with its resolved timestamp; `ms` is null when undatable. */
-interface DatedRow {
-  row: BiPostRow;
-  ms: number | null;
-}
-
-function withDates(rows: BiPostRow[]): DatedRow[] {
-  return rows.map((row) => ({ row, ms: effectiveMs(row) }));
-}
-
 // ── periods ──────────────────────────────────────────────────────────────────
 
 /**
@@ -161,28 +156,6 @@ export function parseReportPeriod(
   return newestMonth ?? { kind: "all", key: "all", label: "All time" };
 }
 
-/** Half-open [start, end) bounds in ms. All-time is unbounded. */
-function periodRange(period: ReportPeriod): { start: number; end: number } {
-  switch (period.kind) {
-    case "month":
-      return {
-        start: Date.UTC(period.year, period.month, 1),
-        end: Date.UTC(period.year, period.month + 1, 1),
-      };
-    case "quarter": {
-      const firstMonth = (period.quarter - 1) * 3;
-      return {
-        start: Date.UTC(period.year, firstMonth, 1),
-        end: Date.UTC(period.year, firstMonth + 3, 1),
-      };
-    }
-    case "year":
-      return { start: Date.UTC(period.year, 0, 1), end: Date.UTC(period.year + 1, 0, 1) };
-    case "all":
-      return { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY };
-  }
-}
-
 // ── asset-type grouping ──────────────────────────────────────────────────────
 
 /**
@@ -207,12 +180,6 @@ function groupByFormat(
 }
 
 // ── impressions series (period-scoped) ───────────────────────────────────────
-
-/** A row paired with its RESOLVED timestamp — the placeable subset. */
-interface PlacedRow {
-  row: BiPostRow;
-  ms: number;
-}
 
 /**
  * Average impressions per CALENDAR MONTH, from the first month with a post to
@@ -315,25 +282,22 @@ export function buildClientReport(
   formatMap: Map<string, string>,
   { period, now, followers, availablePeriods }: BuildOptions,
 ): ClientReport {
-  const dated = withDates(rows);
-  const placeable = dated.filter((d): d is { row: BiPostRow; ms: number } => d.ms !== null);
+  const placeable = withDates(rows).filter((d): d is PlacedRow => d.ms !== null);
 
-  const { start, end } = periodRange(period);
-  const selected =
-    period.kind === "all"
-      ? rows
-      : placeable.filter((d) => d.ms >= start && d.ms < end).map((d) => d.row);
+  // Both selections come from `bi-posts`, which is also what the per-post
+  // drill-down reads. That shared implementation is the ONLY reason the count
+  // this report prints and the rows that screen lists cannot disagree.
+  const selected = selectPeriodRows(rows, period);
 
   // The period's DATABLE rows, kept with their timestamps. The charts need a
   // date to bucket by, so they read this rather than `selected` — which for
   // all-time is every row, including any that could not be dated at all.
-  const selectedPlaceable =
-    period.kind === "all" ? placeable : placeable.filter((d) => d.ms >= start && d.ms < end);
+  const selectedPlaceable = selectPeriodPlaceable(rows, period);
 
   // Prior 3 calendar months, counted back from the month the period starts in.
   // All-time has nothing before it, so it anchors on `now` instead — giving the
   // useful "last 3 months vs all time" contrast rather than a row of zeros.
-  const anchor = period.kind === "all" ? now : new Date(start);
+  const anchor = period.kind === "all" ? now : new Date(periodRange(period).start);
   const p3End = Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1);
   const p3Start = Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - 3, 1);
   const prior3 = placeable.filter((d) => d.ms >= p3Start && d.ms < p3End).map((d) => d.row);
@@ -543,23 +507,9 @@ export function buildClientReport(
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
-
-const REPORT_COLUMNS =
-  "client_id, linkedin_post_id, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, scraped_at";
-
-/**
- * PostgREST caps a request at 1000 rows. The report needs a client's FULL
- * history (all-time averages, monthly maxima, a multi-year chart), so the read
- * MUST page — a silent truncation would look like working software while
- * reporting wrong numbers.
- */
-export const PAGE_SIZE = 1000;
-
-/**
- * Hard ceiling on pages per read — 50,000 rows. Exported so the tests assert
- * the cap the module actually enforces rather than restating the number.
- */
-export const MAX_PAGES = 50;
+//
+// The paged `bi` read lives in `@/services/bi-posts`, which the per-post
+// drill-down reads too. Do not re-implement it here.
 
 export interface ClientReportOptions {
   clientId: string;
@@ -581,89 +531,10 @@ export async function getClientReport({
     });
   };
 
-  let rows: BiPostRow[] = [];
-  try {
-    const supabase = createClient(cookies());
-
-    const pageQuery = (page: number, opts?: { count: "exact" }) => {
-      const from = page * PAGE_SIZE;
-      return (
-        supabase
-          .schema("bi")
-          .from("linkedin_post_latest")
-          .select(REPORT_COLUMNS, opts)
-          .eq("client_id", clientId)
-          // Stable ordering — without it, CONCURRENT ranges can overlap or skip
-          // rows. Required on every page, not just the first.
-          .order("linkedin_post_id", { ascending: true })
-          .range(from, from + PAGE_SIZE - 1)
-      );
-    };
-
-    // Page 0 carries the count that sizes the rest, so it is the one read that
-    // genuinely has to go first. The serial walk it replaces cost one round-trip
-    // PER PAGE because it only learned it was done by seeing a short page.
-    //
-    // The count must be "exact". "planned" and "estimated" are PostgREST's cheap
-    // approximations, and an under-estimate would compute too few pages and drop
-    // rows silently — the failure this paging exists to prevent.
-    const firstPage = await pageQuery(0, { count: "exact" });
-    if (firstPage.error) {
-      console.warn(
-        `Client report unavailable — bi.linkedin_post_latest read failed: ${firstPage.error.message}`,
-      );
-      return { ...fallback(), unavailable: true };
-    }
-
-    rows = (firstPage.data ?? []) as BiPostRow[];
-    // A null count would mean the server ignored the option; fall back to what
-    // page 0 actually returned rather than guessing at a total.
-    const total = firstPage.count ?? rows.length;
-
-    let pageCount = Math.ceil(total / PAGE_SIZE);
-    if (pageCount > MAX_PAGES) {
-      // The old loop hit this cap and truncated in SILENCE. The count makes the
-      // truncation observable, which is the point of asking for it.
-      console.warn(
-        `Client report truncated — client ${clientId} has ${total} posts, above the ` +
-          `${MAX_PAGES * PAGE_SIZE}-row read cap (${MAX_PAGES} pages × ${PAGE_SIZE}). ` +
-          `Reporting on the first ${MAX_PAGES * PAGE_SIZE}.`,
-      );
-      pageCount = MAX_PAGES;
-    }
-
-    if (pageCount > 1) {
-      // `Promise.all` preserves INPUT order, so the pages concatenate 1..n after
-      // page 0 regardless of which returns first. Do not swap it for a construct
-      // that resolves out of order.
-      const rest = await Promise.all(
-        Array.from({ length: pageCount - 1 }, (_, i) => pageQuery(i + 1)),
-      );
-
-      // ⚠️ SCAN EVERY PAGE BEFORE USING ANY OF THEM.
-      //
-      // Supabase RESOLVES with `{ error }` rather than rejecting, so a failed
-      // page arrives looking like a normal result while its siblings hold real
-      // rows. Concatenating what succeeded would report a partial history as a
-      // complete one — a silent wrong number, which is worse than the
-      // unavailable banner because it looks like data.
-      for (const { error } of rest) {
-        if (error) {
-          console.warn(
-            `Client report unavailable — bi.linkedin_post_latest read failed: ${error.message}`,
-          );
-          return { ...fallback(), unavailable: true };
-        }
-      }
-
-      for (const { data } of rest) rows = rows.concat((data ?? []) as BiPostRow[]);
-    }
-  } catch (err) {
-    console.warn(
-      `Client report unavailable — bi.linkedin_post_latest read failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return { ...fallback(), unavailable: true };
-  }
+  // A failed read is NOT an empty history: it returns the empty report under an
+  // `unavailable` flag so the page shows a banner rather than "no posts yet".
+  const { rows, unavailable } = await readClientPostRows(clientId);
+  if (unavailable) return { ...fallback(), unavailable: true };
 
   // The asset type lives in the app-owned table; both reads degrade to empty
   // rather than throwing, so a missing attribute shows as Unknown, not an error.

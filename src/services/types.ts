@@ -343,3 +343,128 @@ export interface ClientReport {
   /** True when the report source couldn't be read (distinct from "no data"). */
   unavailable?: boolean;
 }
+
+// ── Client posts (the per-post drill-down) ───────────────────────────────────
+// Read-model for `/clients/[id]/posts`: the individual posts behind the report's
+// figures, for the same selected ReportPeriod. No new data source — every field
+// comes from `bi.linkedin_post_latest`, plus the app-owned asset type.
+//
+// ⚠️ `ClientPosts.totalInPeriod` and `ClientReport.assetPostCount` are THE SAME
+// NUMBER, and both are computed by `selectPeriodRows` in `@/services/bi-posts`.
+// A table that contradicts the count printed above it discredits both screens,
+// so neither may grow its own period predicate.
+
+/** One post, as the drill-down table shows it. */
+export interface ClientPostRow {
+  /** `linkedin_post_id` — the post's identity and the React key. */
+  id: string;
+  /** Renders as a link when present; as plain text when null. Never a dead link. */
+  url: string | null;
+  /** Whitespace-collapsed, truncated `post_content`; empty string when absent. */
+  snippet: string;
+  /** RESOLVED publish date (ISO), or null for hour-age posts. Display only. */
+  date: string | null;
+  /** Raw relative age as scraped, e.g. "23h" — shown when `date` is null. */
+  age: string | null;
+  /** Ordering key for the date column: the same value the report windows on. */
+  sortMs: number | null;
+  format: PostFormat;
+  /** `FORMAT_LABELS[format]` — the only format string ever shown to staff. */
+  formatLabel: string;
+  impressions: number;
+  likes: number;
+  comments: number;
+  /** `reposts` in the view — always labelled "Shares" in the UI. */
+  shares: number;
+  /**
+   * Nullable BY DESIGN: the scrape may omit saves. `null` renders as an em
+   * dash, NOT as 0 — an omitted metric is not a measured zero.
+   */
+  saves: number | null;
+  interactions: number;
+}
+
+// ── Data Quality ─────────────────────────────────────────────────────────────
+// Read-model for `/data-quality`: across the whole client book, is the pipeline
+// actually delivering?
+//
+// ⚠️ THE FRAME THIS SCREEN REPORTS IN. Attribution happens DOWNSTREAM of ArcBase,
+// as a name match (ADR 0009). ArcBase submits Posts to staging and can only
+// observe, afterwards, whether they came back attributed in `bi.*`. So this
+// model states TWO NUMBERS — submitted and attributed — and never a verdict. A
+// name mismatch, a client who genuinely stopped posting, and a downstream outage
+// are indistinguishable from here, and the read-model must not pretend otherwise.
+
+/** One registered Client's delivery picture. */
+export interface DataQualityRow {
+  clientId: string;
+  clientName: string;
+  /**
+   * Σ `rowsInserted` across this Client's uploads — the DISTINCT Posts ArcBase
+   * ever wrote to staging. Updates and unchanged rows are re-ingests of Posts
+   * already counted, so they are deliberately excluded.
+   *
+   * `null` when the uploads read could not be trusted — never a 0, which would
+   * assert that nothing was ever submitted.
+   */
+  submitted: number | null;
+  /** BI rows carrying this `client_id` — what actually came back. */
+  attributed: number;
+  /**
+   * Of `attributed`, rows with no resolved publish date (hour-age posts). Worth
+   * counting because they are invisible to every BOUNDED reporting period.
+   */
+  undated: number;
+  /**
+   * Of `attributed`, rows whose canonical asset type is `UNKNOWN` — no
+   * `post_attributes` record, or a value the vocabulary does not recognise.
+   * `UNKNOWN` is a real member of that vocabulary, not an error.
+   */
+  unknownFormat: number;
+  /** Uploads recorded for this Client; `null` when the uploads read failed. */
+  uploadCount: number | null;
+  lastIngest: LastUpload;
+}
+
+/** Which sources answered, and how completely. All three states are distinct. */
+export interface DataQualitySources {
+  /** The Client roster could not be read — there is nothing to list. */
+  clientsUnavailable: boolean;
+  /** The BI read failed — every post-derived figure is meaningless. */
+  postsUnavailable: boolean;
+  /**
+   * The BI read SUCCEEDED but hit the page cap, so every post figure is a LOWER
+   * BOUND. Distinct from `postsUnavailable`: the rows are real, just incomplete.
+   */
+  postsTruncated: boolean;
+  /**
+   * The uploads read failed OR was truncated. Collapsed on purpose — a truncated
+   * audit trail understates what was submitted, which is not a smaller answer
+   * but no answer, and both render as "could not be read".
+   */
+  uploadsUnavailable: boolean;
+}
+
+export interface DataQuality {
+  /** Worst first — see the severity ranking in the service. */
+  rows: DataQualityRow[];
+  /**
+   * BI rows attributed to NO registered Client — a null `client_id`, or one
+   * matching nobody in the roster. The direct counterpart to "submitted but
+   * never came back". `null` when either source could not be read.
+   */
+  unattributedPosts: number | null;
+  sources: DataQualitySources;
+}
+
+export interface ClientPosts {
+  period: ReportPeriod;
+  availablePeriods: ReportPeriod[];
+  rows: ClientPostRow[];
+  /** Rows in the period BEFORE the display cap. Equals `rows.length` when uncapped. */
+  totalInPeriod: number;
+  /** The cap actually applied, or null when every row is shown. */
+  cappedTo: number | null;
+  /** True when the source couldn't be read — distinct from "no posts". */
+  unavailable?: boolean;
+}

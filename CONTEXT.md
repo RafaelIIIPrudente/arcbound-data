@@ -48,6 +48,11 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Ingestion** — turning a Scrape into Posts plus one Upload record, atomically,
   and reporting how many Posts were **inserted**, **updated**, or **unchanged**.
 
+- **Attribution** — the linking of a scraped Post to a Client, performed
+  DOWNSTREAM of ArcBase by a name match on the Client's name. ArcBase submits
+  Posts and can only observe, afterwards, whether they came back attributed; it
+  cannot perform or correct the match itself.
+
 - **Follower Count** — a Client's follower total captured with a Scrape. Stored
   per-Upload, which gives a follower history over time.
 

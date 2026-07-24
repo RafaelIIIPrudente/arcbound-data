@@ -12,27 +12,51 @@ const { state } = vi.hoisted(() => ({
 }));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => {
-    const chain: Record<string, unknown> = {};
-    chain.select = () => chain;
-    chain.eq = (...a: unknown[]) => {
-      state.eqCalls.push(a);
-      return chain;
-    };
-    chain.order = (...a: unknown[]) => {
-      state.orderCalls.push(a);
-      return chain;
-    };
-    chain.then = (resolve: (v: unknown) => unknown) =>
-      Promise.resolve({ data: state.data, error: state.error }).then(resolve);
-    return {
-      from: (t: string) => {
-        state.fromCalls.push(t);
+  createClient: () => ({
+    // A FRESH chainable per query: paged reads build every page before any
+    // resolves, so a shared cursor would serve them all the same range and the
+    // merge would look correct while being wrong.
+    from: (t: string) => {
+      state.fromCalls.push(t);
+      const chain: Record<string, unknown> = {};
+      let from = 0;
+      // ⚠️ The implicit window PostgREST applies when no range is asked for.
+      // Modelling this cap is what lets the regression guard below fail against
+      // an unpaged read — the real database returns 1000 rows and a 200, with
+      // no error and no signal that anything was left behind.
+      let to = PAGE_SIZE - 1;
+      let wantsCount = false;
+      chain.select = (_columns?: unknown, opts?: { count?: string }) => {
+        if (opts?.count === "exact") wantsCount = true;
         return chain;
-      },
-    };
-  },
+      };
+      chain.range = (f: number, t2: number) => {
+        from = f;
+        to = t2;
+        return chain;
+      };
+      chain.eq = (...a: unknown[]) => {
+        state.eqCalls.push(a);
+        return chain;
+      };
+      chain.order = (...a: unknown[]) => {
+        state.orderCalls.push(a);
+        return chain;
+      };
+      chain.then = (resolve: (v: unknown) => unknown) => {
+        const all = Array.isArray(state.data) ? state.data : [];
+        return Promise.resolve({
+          data: state.error ? null : all.slice(from, to + 1),
+          error: state.error,
+          count: wantsCount ? all.length : null,
+        }).then(resolve);
+      };
+      return chain;
+    },
+  }),
 }));
+
+import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
 import { latestUploadByClient, listUploads } from "./uploads";
 
@@ -144,6 +168,49 @@ describe("latestUploadByClient", () => {
     // 250 clients, still one read. This is the assertion that would fail if
     // anyone "simplified" this back into a per-client call.
     expect(state.fromCalls).toHaveLength(1);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE REGRESSION GUARD.
+  //
+  // This read is NEWEST-FIRST and was unpaged, so PostgREST's 1000-row cap
+  // silently dropped the OLDEST rows — and with them, entire dormant clients.
+  // A client whose only upload sat past the cap came back absent from the map,
+  // which the Client List renders as "Never" ingested.
+  //
+  // That is the exact "we don't know" / "confirmed zero" collapse the ⚠️ comment
+  // on this function warns against, reintroduced by the paging it lacked.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("finds a dormant client whose only upload sits BEYOND the first page", async () => {
+    state.data = [
+      // 1200 recent uploads from a busy client fill page 0 and spill into page 1.
+      ...Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+        dbRow(`busy${i}`, "2026-07-16T09:00:00.000Z", { client_id: "busy" }),
+      ),
+      // The dormant client's single, oldest upload — last in newest-first order.
+      dbRow("old1", "2025-01-05T09:00:00.000Z", { client_id: "dormant" }),
+    ];
+
+    const latest = await latestUploadByClient();
+
+    // Against the unpaged read this was `undefined`, and the Client List said
+    // "Never" — asserting a fact it did not have.
+    expect(latest?.get("dormant")).toBe("2025-01-05T09:00:00.000Z");
+    expect(latest?.get("busy")).toBe("2026-07-16T09:00:00.000Z");
+    expect(latest?.size).toBe(2);
+  });
+
+  // ⚠️ Same rule as postsCount: a truncated read is NO answer, not a smaller
+  // one. A partial map would tell the table that every client beyond the cap has
+  // never been ingested.
+  it("returns NULL when the read is TRUNCATED, never a partial map", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.data = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:00:00.000Z", { client_id: `c${i}` }),
+    );
+
+    expect(await latestUploadByClient()).toBeNull();
+    warn.mockRestore();
   });
 
   it("returns an EMPTY MAP when no client has ever been ingested", async () => {

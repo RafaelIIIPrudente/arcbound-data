@@ -107,12 +107,15 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+// PAGE_SIZE / MAX_PAGES now live in the shared `bi-posts` seam — the paging they
+// govern is read by the report AND the per-post drill-down. Import paths only:
+// every assertion below is unchanged, which is what makes this file the guard
+// proving that extraction was behaviour-preserving.
+import { MAX_PAGES, PAGE_SIZE } from "./bi-posts";
 import {
   availablePeriods,
   buildClientReport,
   getClientReport,
-  MAX_PAGES,
-  PAGE_SIZE,
   parseReportPeriod,
 } from "./client-report";
 

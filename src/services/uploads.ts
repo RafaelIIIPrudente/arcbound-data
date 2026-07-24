@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Upload } from "@/services/types";
 
@@ -40,6 +41,31 @@ function toUpload(row: UploadRow): Upload {
 }
 
 /**
+ * A `PageReader` over `public.uploads`, newest first.
+ *
+ * ⚠️ THE `id` TIEBREAK IS LOAD-BEARING. `created_at` alone is not a total order —
+ * two uploads can share a timestamp — and pages 1..n are issued CONCURRENTLY, so
+ * an ambiguous sort lets the database return a row twice across two ranges, or
+ * not at all. The tiebreak makes the order total.
+ */
+function uploadPageReader<T>(columns: string): PageReader<T> {
+  let supabase: ReturnType<typeof createServerClient> | undefined;
+  return (from, to, opts) => {
+    supabase ??= createServerClient(cookies());
+    return supabase
+      .from("uploads")
+      .select(columns, opts)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to) as unknown as PromiseLike<{
+      data: T[] | null;
+      error: { message: string } | null;
+      count?: number | null;
+    }>;
+  };
+}
+
+/**
  * Newest upload timestamp PER CLIENT, in ONE query.
  *
  * ⚠️ EXISTS TO PREVENT AN N+1. The Client List needs each row's last ingest;
@@ -53,29 +79,42 @@ function toUpload(row: UploadRow): Upload {
  * unreadable post count look like a zero.
  */
 export async function latestUploadByClient(): Promise<Map<string, string> | null> {
-  try {
-    const supabase = createServerClient(cookies());
-    const { data, error } = await supabase
-      .from("uploads")
-      .select("client_id, created_at")
-      .order("created_at", { ascending: false });
-    if (error) {
-      console.warn(`Failed to load latest uploads: ${error.message}`);
-      return null;
-    }
+  const { rows, unavailable, truncated } = await readAllPages(
+    uploadPageReader<{ client_id: string; created_at: string }>("client_id, created_at"),
+    "public.uploads",
+  );
 
-    const latest = new Map<string, string>();
-    for (const row of (data ?? []) as { client_id: string; created_at: string }[]) {
-      // Newest-first, so the FIRST sighting of a client is its latest upload.
-      if (!latest.has(row.client_id)) latest.set(row.client_id, row.created_at);
-    }
-    return latest;
-  } catch (err) {
-    console.warn(
-      `Failed to load latest uploads: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
+  // ⚠️ TRUNCATION RETURNS `null`, EXACTLY AS FAILURE DOES.
+  //
+  // This read is NEWEST-FIRST, so a cap drops the OLDEST rows — and with them,
+  // whole dormant clients. A partial map would report those clients as absent,
+  // which the Client List renders as "Never" ingested: a broken read wearing the
+  // costume of a confident fact, which is the very collapse the doc above warns
+  // against. "We don't know" is the only honest answer here.
+  if (unavailable || truncated) return null;
+
+  const latest = new Map<string, string>();
+  for (const row of rows) {
+    // Newest-first, so the FIRST sighting of a client is its latest upload.
+    if (!latest.has(row.client_id)) latest.set(row.client_id, row.created_at);
   }
+  return latest;
+}
+
+/**
+ * EVERY upload for every client, newest first.
+ *
+ * `null` on failure OR truncation — a partial audit trail would understate what
+ * each client submitted, and "submitted" is the figure the Data Quality screen
+ * compares against what came back attributed.
+ */
+export async function listAllUploads(): Promise<Upload[] | null> {
+  const { rows, unavailable, truncated } = await readAllPages(
+    uploadPageReader<UploadRow>(UPLOAD_COLUMNS),
+    "public.uploads",
+  );
+  if (unavailable || truncated) return null;
+  return rows.map(toUpload);
 }
 
 /**

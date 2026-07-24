@@ -1,8 +1,13 @@
 import { paths } from "@/paths";
 
 // The ArcBase sidebar navigation. Single-tenant, so no per-role visibility — the
-// four items are the whole product surface (SRS §5). Design: Geist-Mono labels
-// with a left accent bar for the active item (docs/arcbase-dashboard-design-brief).
+// five items are the whole product surface. Design: Geist-Mono labels with a
+// left accent bar for the active item (docs/arcbase-dashboard-design-brief).
+//
+// ⚠️ SRS §5 STILL DESCRIBES FOUR. Data Quality was added after it was written and
+// the SRS has not caught up — the delta is deliberate and flagged, not an
+// oversight. Reconcile the SRS separately; do not quietly drop the item to make
+// this comment true again.
 
 export interface NavItem {
   title: string;
@@ -14,6 +19,7 @@ export const navItems: NavItem[] = [
   { title: "Client List", href: paths.clients.list },
   { title: "Add LI Post Metrics", href: paths.upload },
   { title: "Resources", href: paths.resources },
+  { title: "Data Quality", href: paths.dataQuality },
 ];
 
 /**
@@ -49,6 +55,7 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname.startsWith(`${paths.clients.list}/`)) return { lead: "Client", accent: "detail" };
   if (pathname === paths.upload) return { lead: "Add post", accent: "metrics" };
   if (pathname === paths.resources) return { lead: "", accent: "Resources" };
+  if (pathname === paths.dataQuality) return { lead: "Data", accent: "quality" };
   if (pathname.startsWith(paths.customers.list)) return { lead: "", accent: "Customers" };
   if (pathname.startsWith(paths.settings.profile)) return { lead: "", accent: "Settings" };
   return { lead: "", accent: "ArcBase" };

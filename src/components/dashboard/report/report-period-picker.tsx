@@ -14,11 +14,13 @@ import {
 import type { ReportPeriod } from "@/services/types";
 
 // The pure helpers live in report-period.ts, NOT here: this is a client module,
-// and the report page (an RSC) calls `scopeCaption` from the same pair.
+// and two RSC screens — the client report and the client posts pages — call
+// `scopeCaption` from the same pair.
 import { reportPeriodHref } from "./report-period";
 
 /**
- * Scopes the Key Performance section only. Reads = RSC: this component just
+ * Scopes the WHOLE screen that renders it, not one section of it. Shared by the
+ * client report and the client posts screens. Reads = RSC: this component just
  * rewrites the `period` search param and the server component re-fetches.
  * `period` is the only param on this route and its current value arrives as a
  * prop, so the next URL is built from props alone — no useSearchParams, hence
@@ -43,7 +45,7 @@ export function ReportPeriodPicker({ periods, value }: { periods: ReportPeriod[]
     >
       <SelectTrigger
         className="w-auto max-w-55 gap-2 font-mono text-[11.5px] tracking-wide uppercase sm:max-w-70"
-        aria-label="Period for key performance"
+        aria-label="Reporting period"
       >
         <SelectValue />
       </SelectTrigger>

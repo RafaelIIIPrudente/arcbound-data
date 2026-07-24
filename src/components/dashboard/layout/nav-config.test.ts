@@ -5,18 +5,20 @@ import { paths } from "@/paths";
 import { isNavItemActive, navItems, resolvePageTitle } from "./nav-config";
 
 describe("navItems", () => {
-  it("is exactly the four ArcBase nav items, in order", () => {
+  it("is exactly the five ArcBase nav items, in order", () => {
     expect(navItems.map((i) => i.title)).toEqual([
       "Dashboard",
       "Client List",
       "Add LI Post Metrics",
       "Resources",
+      "Data Quality",
     ]);
     expect(navItems.map((i) => i.href)).toEqual([
       paths.home,
       paths.clients.list,
       paths.upload,
       paths.resources,
+      paths.dataQuality,
     ]);
   });
 });
@@ -61,5 +63,6 @@ describe("resolvePageTitle", () => {
     });
     expect(resolvePageTitle("/upload")).toEqual({ lead: "Add post", accent: "metrics" });
     expect(resolvePageTitle("/resources")).toEqual({ lead: "", accent: "Resources" });
+    expect(resolvePageTitle(paths.dataQuality)).toEqual({ lead: "Data", accent: "quality" });
   });
 });
