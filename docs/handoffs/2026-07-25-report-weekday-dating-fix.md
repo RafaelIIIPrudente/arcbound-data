@@ -3,12 +3,15 @@
 - **Type:** Executer handoff (bugfix)
 - **Date:** 2026-07-25
 - **Branch:** `feat-additonal-features-for-linkedin-report`
-- **Status:** Emitted — not yet run. ⚠️ **Blocked by a collision:** the uncommitted
-  Content composition (B) work occupies the SAME 5 wiring files this fix edits
+- **Status:** RUN — uncommitted, and ⚠️ **ENTANGLED with Content composition (B).**
+  Both changes are now in the working tree at once, editing the SAME 5 wiring files
   (`types.ts`, `client-report.ts`, `client-report.test.ts`, `page.tsx`,
-  `print-report.tsx`). Commit or set B aside FIRST, then re-baseline this fix's
-  git-state guardrail (it currently claims "HEAD `19dbe14`, working tree clean",
-  which is stale). See `docs/handoffs/2026-07-25-content-composition.md`.
+  `print-report.tsx`), so they can no longer be committed separately in those files.
+  The fix's own new files (`impressions-by-weekday-chart.tsx` change +
+  `impressions-by-weekday-chart.test.tsx`) and `analytics.ts` are also dirty. The
+  predicted collision materialized. Resolution (Bryan's call): commit B and this fix
+  TOGETHER as one combined change, or untangle by hand. See
+  `docs/handoffs/2026-07-25-content-composition.md`.
 - **Reference implementation:** the dashboard weekday chart, committed `19dbe14`
   (`src/services/analytics.ts` `buildDashboardAnalytics`;
   `src/components/dashboard/analytics/weekday-impressions-chart.tsx` + its test)
