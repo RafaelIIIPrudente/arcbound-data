@@ -934,10 +934,10 @@ describe("buildClientReport (pure)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POSTING CADENCE rides the report. The pure arithmetic is proven exhaustively in
 // cadence.test.ts; these pin the WIRING — that buildClientReport computes it over
-// the same rows, keeps it all-time, and preserves the counted-but-not-placed rule
-// for undated posts end to end.
+// the SELECTED period's rows and preserves the counted-but-not-placed rule for
+// undated posts end to end.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("posting cadence is carried on the report (all-time)", () => {
+describe("posting cadence is carried on the report (period-scoped)", () => {
   const build = (period: ReportPeriod, rows = HISTORY) =>
     buildClientReport(rows, new Map(), {
       period,
@@ -946,9 +946,10 @@ describe("posting cadence is carried on the report (all-time)", () => {
       availablePeriods: availablePeriods(rows),
     });
 
-  it("computes the cadence figures from the full history", () => {
-    // HISTORY sorted: Jan 15, May 5, Jun 10, Jun 20, Jul 10 → gaps 110, 36, 10, 20.
-    const { cadence } = build(JULY);
+  it("computes the cadence figures over the selected window", () => {
+    // All-time here: HISTORY sorted Jan 15, May 5, Jun 10, Jun 20, Jul 10 → gaps
+    // 110, 36, 10, 20.
+    const { cadence } = build(ALL_TIME);
 
     expect(cadence.totalPosts).toBe(5);
     expect(cadence.datedPosts).toBe(5);
@@ -958,11 +959,19 @@ describe("posting cadence is carried on the report (all-time)", () => {
     expect(cadence.timeline).toHaveLength(5);
   });
 
-  it("does NOT follow the period picker — cadence is identical for every period", () => {
-    // Like totalPostsAllTime and the Key Performance matrix, cadence answers a
-    // whole-history question and must not move when the period changes.
-    expect(build(JULY).cadence).toEqual(build(ALL_TIME).cadence);
-    expect(build(Q3).cadence).toEqual(build(ALL_TIME).cadence);
+  it("FOLLOWS the selected period — recomputes for the window", () => {
+    // ⚠️ REVERSES THE ORIGINAL 'cadence is all-time' DESIGN, at the user's
+    // request. This test replaces the one that pinned invariance to the period;
+    // the section now adjusts to the picker like its temporal siblings.
+    const july = build(JULY).cadence; // July 2026 holds exactly one post (jul1)
+    const all = build(ALL_TIME).cadence; // the whole Jan→Jul history
+
+    expect(july.totalPosts).toBe(1);
+    expect(july.medianGapDays).toBeNull(); // one dated post → no gap to measure
+    expect(all.totalPosts).toBe(5);
+    expect(all.medianGapDays).toBe(28);
+    // ...and they genuinely differ — the section is not accidentally frozen.
+    expect(july).not.toEqual(all);
   });
 
   it("counts an undated post in the total but keeps it off the timeline", () => {

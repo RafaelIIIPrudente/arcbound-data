@@ -125,6 +125,50 @@ describe("buildCadence — dated by estimated_post_date ALONE", () => {
   });
 });
 
+describe("buildCadence — week and month buckets for the switchable chart", () => {
+  it("buckets posts by calendar week (Monday start), 0-filling empty weeks", () => {
+    // DATED is Jan 1 (Thu), 3 (Sat), 5 (Mon), 25 (Sun). Weeks from Mon Dec 29:
+    //   Dec 29 → Jan 1 & Jan 3 (2)   ·   Jan 5 → Jan 5 (1)
+    //   Jan 12 → nothing (0, a real gap)   ·   Jan 19 → Jan 25 (1)
+    expect(buildCadence(DATED, NOW).weekly).toEqual([
+      { label: "29 Dec", count: 2 },
+      { label: "5 Jan", count: 1 },
+      { label: "12 Jan", count: 0 }, // a week with no posts is a genuine 0 here
+      { label: "19 Jan", count: 1 },
+    ]);
+  });
+
+  it("buckets posts by calendar month, 0-filling empty months", () => {
+    const spread = [
+      row({ linkedin_post_id: "m1", estimated_post_date: "2026-05-01" }),
+      row({ linkedin_post_id: "m2", estimated_post_date: "2026-07-05" }),
+      row({ linkedin_post_id: "m3", estimated_post_date: "2026-07-25" }),
+    ];
+    // May → 1, June → 0 (a silent month, shown), July → 2.
+    expect(buildCadence(spread, NOW).monthly).toEqual([
+      { label: "May 26", count: 1 },
+      { label: "Jun 26", count: 0 },
+      { label: "Jul 26", count: 2 },
+    ]);
+  });
+
+  it("every bucket sums back to the dated-post count — nothing is lost or invented", () => {
+    const c = buildCadence(DATED, NOW);
+    const sum = (b: { count: number }[]) => b.reduce((s, x) => s + x.count, 0);
+    expect(sum(c.weekly)).toBe(c.datedPosts);
+    expect(sum(c.monthly)).toBe(c.datedPosts);
+  });
+
+  it("has no buckets at all when nothing is dated", () => {
+    const undated = buildCadence(
+      [row({ linkedin_post_id: "u", estimated_post_date: null, scraped_at: "2026-03-01" })],
+      NOW,
+    );
+    expect(undated.weekly).toEqual([]);
+    expect(undated.monthly).toEqual([]);
+  });
+});
+
 describe("buildCadence — the low-N four states", () => {
   it("0 posts at all: nothing to measure, everything null, empty timeline", () => {
     const cadence = buildCadence([], NOW);

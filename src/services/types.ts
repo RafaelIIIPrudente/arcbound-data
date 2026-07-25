@@ -485,6 +485,26 @@ export interface PostingCadence {
    * on the timeline. Empty when nothing is dated. An undated post is never here.
    */
   timeline: number[];
+  /**
+   * Dated posts counted per calendar WEEK (Monday start), first→last dated post,
+   * with empty weeks kept as a genuine `0` (a week with no posts really had none —
+   * not missing data). The "Week" view of the switchable chart. Empty when nothing
+   * is dated. `Σ count === datedPosts`.
+   */
+  weekly: CadenceBucket[];
+  /** As `weekly`, but per calendar MONTH — the "Month" view. `Σ count === datedPosts`. */
+  monthly: CadenceBucket[];
+}
+
+/**
+ * One bar of the week/month cadence chart: a time bucket and how many posts fell
+ * in it. `count` is a real measured value — `0` means "no posts that week", which
+ * is a finding, not an absence of data.
+ */
+export interface CadenceBucket {
+  /** Human axis label, e.g. "5 Jan" (week) or "Jul 26" (month). */
+  label: string;
+  count: number;
 }
 
 export interface ClientReport {

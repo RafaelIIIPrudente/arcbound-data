@@ -508,11 +508,13 @@ export function buildClientReport(
     impressionsByWeekday,
     interactionsByAsset,
     postTypeDistribution,
-    // ALL-TIME by design, like `totalPostsAllTime` — cadence answers a
-    // whole-history question and does not follow the period picker. Computed over
-    // the SAME `rows` already read; no new query. Dated by `estimated_post_date`
-    // alone (see cadence.ts), so an hour-age post is counted but never placed.
-    cadence: buildCadence(rows, now),
+    // FOLLOWS THE SELECTED PERIOD — computed over `selected` (the same period rows
+    // the rest of the report uses), so "adjust to the time selected" holds and the
+    // cadence total cannot disagree with the other period-scoped counts. Still
+    // dated by `estimated_post_date` alone (see cadence.ts): an hour-age post that
+    // the report windows in by scrape date is counted but never placed on the
+    // timeline. No new query.
+    cadence: buildCadence(selected, now),
     // ── small-N honesty ──────────────────────────────────────────────────────
     // All-time framing guaranteed these charts drew on the full history. Scoped
     // to a month they may draw on a handful of posts, where "Image 40%" is noise

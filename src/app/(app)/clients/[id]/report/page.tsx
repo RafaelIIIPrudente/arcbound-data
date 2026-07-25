@@ -148,14 +148,14 @@ export default async function ClientReportPage({
             </div>
           </section>
 
-          {/* Posting cadence — a sibling of the temporal sections, but ALL-TIME
-              by design: it answers "how regularly does this Client post?" over the
-              whole history, so its scope caption reads "All time" and it does not
-              move with the picker. Hidden entirely for a client with no posts, so
-              no empty header is left stranded (the component also self-guards). */}
-          {report.totalPostsAllTime > 0 ? (
+          {/* Posting cadence — a sibling of the temporal sections, and like them it
+              FOLLOWS the period picker (the service scopes it). Hidden when the
+              SELECTED period has no posts, so no empty header is stranded — keyed on
+              the period-scoped count, not the all-time one (the component also
+              self-guards on a zero total). */}
+          {report.cadence.totalPosts > 0 ? (
             <section className="space-y-4">
-              <SectionHeader title="Posting cadence" scope="All time" />
+              <SectionHeader title="Posting cadence" scope={scopeCaption(report.period)} />
               <PostingCadence cadence={report.cadence} />
             </section>
           ) : null}

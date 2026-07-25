@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { PostingCadence } from "@/services/types";
 
@@ -18,6 +18,20 @@ const FULL: PostingCadence = {
   longestGapDays: 21,
   daysSinceLastPost: 5,
   timeline: Array.from({ length: 12 }, (_, i) => JAN1 + i * 3 * DAY),
+  // Six weekly buckets, two monthly — enough to prove the bar count follows the
+  // data. Counts sum to the twelve dated posts.
+  weekly: [
+    { label: "25 May", count: 1 },
+    { label: "1 Jun", count: 3 },
+    { label: "8 Jun", count: 4 },
+    { label: "15 Jun", count: 2 },
+    { label: "22 Jun", count: 1 },
+    { label: "29 Jun", count: 1 },
+  ],
+  monthly: [
+    { label: "May 26", count: 1 },
+    { label: "Jun 26", count: 11 },
+  ],
 };
 
 describe("PostingCadence — the healthy 2+ dated case", () => {
@@ -48,6 +62,13 @@ describe("PostingCadence — the healthy 2+ dated case", () => {
 
     const timeline = screen.getByRole("list", { name: /posting timeline/i });
     expect(within(timeline).getAllByRole("listitem")).toHaveLength(12);
+  });
+
+  it("explains what a timeline mark means, so the strip is not a mystery", () => {
+    // Without this caption the axis of ticks reads as a broken chart — the whole
+    // reason the section was hard to understand.
+    render(<PostingCadenceSection cadence={FULL} />);
+    expect(screen.getByText(/each mark is one post/i)).toBeInTheDocument();
   });
 
   it("discloses that posts/week is measured over the active span, not to today", () => {
@@ -99,6 +120,8 @@ describe("PostingCadence — the low-N four states", () => {
       longestGapDays: null,
       daysSinceLastPost: null,
       timeline: [],
+      weekly: [],
+      monthly: [],
     };
     const { container } = render(<PostingCadenceSection cadence={zero} />);
     expect(container.firstChild).toBeNull();
@@ -114,6 +137,8 @@ describe("PostingCadence — the low-N four states", () => {
       longestGapDays: null,
       daysSinceLastPost: null,
       timeline: [],
+      weekly: [],
+      monthly: [],
     };
     render(<PostingCadenceSection cadence={allUndated} />);
 
@@ -138,6 +163,8 @@ describe("PostingCadence — the low-N four states", () => {
       longestGapDays: null,
       daysSinceLastPost: 20,
       timeline: [JAN1],
+      weekly: [{ label: "29 Dec", count: 1 }],
+      monthly: [{ label: "Jan 26", count: 1 }],
     };
     render(<PostingCadenceSection cadence={one} />);
 
@@ -148,6 +175,48 @@ describe("PostingCadence — the low-N four states", () => {
     // The single mark still appears.
     const timeline = screen.getByRole("list", { name: /posting timeline/i });
     expect(within(timeline).getAllByRole("listitem")).toHaveLength(1);
+  });
+});
+
+describe("PostingCadence — the switchable chart (Marks / Week / Month)", () => {
+  it("offers all three views and starts on Marks", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+
+    expect(screen.getByRole("button", { name: "Marks" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Week" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Month" })).toBeInTheDocument();
+    // Marks is showing to begin with.
+    expect(screen.getByRole("list", { name: /posting timeline/i })).toBeInTheDocument();
+  });
+
+  it("switches to weekly bars — one bar per week bucket", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+
+    const bars = screen.getByRole("list", { name: /posts per week/i });
+    expect(within(bars).getAllByRole("listitem")).toHaveLength(FULL.weekly.length);
+    // The marks axis is replaced, not stacked alongside.
+    expect(screen.queryByRole("list", { name: /posting timeline/i })).not.toBeInTheDocument();
+  });
+
+  it("switches to monthly bars — one bar per month bucket", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Month" }));
+
+    const bars = screen.getByRole("list", { name: /posts per month/i });
+    expect(within(bars).getAllByRole("listitem")).toHaveLength(FULL.monthly.length);
+  });
+
+  it("renders a FIXED view with no toggle for print (staticView)", () => {
+    // The printed report is a static document — a dead toggle would be worse than
+    // no toggle, so print pins one view and drops the control.
+    render(<PostingCadenceSection cadence={FULL} staticView="month" />);
+
+    expect(screen.getByRole("list", { name: /posts per month/i })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /timeline view/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Marks" })).not.toBeInTheDocument();
   });
 });
 

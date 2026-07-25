@@ -382,13 +382,14 @@ export function PrintReport({ report }: { report: ClientReport }) {
         />
       </Section>
 
-      {/* Posting cadence — ALL-TIME, so its scope reads "All time" rather than the
-          selected period. The component is print-safe by construction (percentage
-          layout, no recharts) and already carries `print-block`. Omitted for a
-          client with no posts, matching the screen. */}
-      {report.totalPostsAllTime > 0 ? (
-        <Section title="Posting cadence" scope="All time">
-          <PostingCadence cadence={report.cadence} />
+      {/* Posting cadence — follows the selected period, like the screen. Print is a
+          static document, so it pins the MARKS view (`staticView`) and drops the
+          Marks/Week/Month toggle rather than exporting a dead control. Print-safe
+          by construction (percentage/flex layout, no recharts) and `print-block`.
+          Omitted when the selected period has no posts, matching the screen. */}
+      {report.cadence.totalPosts > 0 ? (
+        <Section title="Posting cadence" scope={scopeCaption(report.period)}>
+          <PostingCadence cadence={report.cadence} staticView="marks" />
         </Section>
       ) : null}
 

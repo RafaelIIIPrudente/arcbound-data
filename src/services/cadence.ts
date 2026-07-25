@@ -1,6 +1,6 @@
 import { median } from "@/lib/median";
 import { estMs, type BiPostRow } from "@/services/analytics";
-import type { PostingCadence } from "@/services/types";
+import type { CadenceBucket, PostingCadence } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Posting cadence: how regularly a Client posts, over their ALL-TIME history.
@@ -24,10 +24,91 @@ import type { PostingCadence } from "@/services/types";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 /** One decimal, matching the rest of the report's figures. */
 function round1(v: number): number {
   return Math.round(v * 10) / 10;
+}
+
+/** Midnight UTC of the MONDAY of the week `ms` falls in. */
+function weekStartMs(ms: number): number {
+  const d = new Date(ms);
+  const mondayOffset = (d.getUTCDay() + 6) % 7; // Sun=0 → 6, Mon=1 → 0, …
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - mondayOffset * DAY_MS;
+}
+
+/**
+ * Dated posts per calendar WEEK, first→last, empty weeks kept as a real `0`.
+ *
+ * ⚠️ A `0` HERE IS A MEASUREMENT, not missing data — unlike the impressions
+ * charts, where an empty month is a gap (`null`) because "posted and got no
+ * reach" is a different claim. A week with no posts genuinely had none, so it is
+ * a bar of height zero, and the reader can see the quiet stretch directly.
+ */
+function postsByWeek(timeline: number[]): CadenceBucket[] {
+  if (timeline.length === 0) return [];
+  const counts = new Map<number, number>();
+  for (const ms of timeline) {
+    const ws = weekStartMs(ms);
+    counts.set(ws, (counts.get(ws) ?? 0) + 1);
+  }
+  // Week starts are Mondays at UTC midnight, so stepping by exactly 7 days lands
+  // on each following Monday with no drift.
+  const out: CadenceBucket[] = [];
+  const last = weekStartMs(timeline[timeline.length - 1]!);
+  for (let ws = weekStartMs(timeline[0]!); ws <= last; ws += WEEK_MS) {
+    const d = new Date(ws);
+    out.push({
+      label: `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`,
+      count: counts.get(ws) ?? 0,
+    });
+  }
+  return out;
+}
+
+/** Dated posts per calendar MONTH, first→last, empty months kept as a real `0`. */
+function postsByMonth(timeline: number[]): CadenceBucket[] {
+  if (timeline.length === 0) return [];
+  const counts = new Map<string, number>();
+  for (const ms of timeline) {
+    const d = new Date(ms);
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const start = new Date(timeline[0]!);
+  const end = new Date(timeline[timeline.length - 1]!);
+  const endY = end.getUTCFullYear();
+  const endM = end.getUTCMonth();
+  let y = start.getUTCFullYear();
+  let m = start.getUTCMonth();
+  const out: CadenceBucket[] = [];
+  while (y < endY || (y === endY && m <= endM)) {
+    out.push({
+      label: `${SHORT_MONTHS[m]} ${String(y).slice(2)}`,
+      count: counts.get(`${y}-${m}`) ?? 0,
+    });
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+  return out;
 }
 
 export function buildCadence(rows: BiPostRow[], now: Date): PostingCadence {
@@ -51,6 +132,10 @@ export function buildCadence(rows: BiPostRow[], now: Date): PostingCadence {
     longestGapDays: null,
     daysSinceLastPost: null,
     timeline,
+    // Independent of the gap logic below — derived purely from the dated posts —
+    // so they belong here and hold for every state (empty for a bare timeline).
+    weekly: postsByWeek(timeline),
+    monthly: postsByMonth(timeline),
   };
 
   // No dated post → no last post to measure from, and nothing temporal exists.
