@@ -10,7 +10,6 @@ import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-fil
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
 import { KpiCards } from "@/components/dashboard/analytics/kpi-cards";
-import { RecentPostsTable } from "@/components/dashboard/analytics/recent-posts-table";
 import { Button } from "@/components/ui/button";
 import { paths } from "@/paths";
 import { getDashboardAnalytics, RANGE_LABEL } from "@/services/analytics";
@@ -83,7 +82,6 @@ export default async function DashboardPage({
               delta={analytics.engagement.delta}
             />
           </div>
-          <RecentPostsTable posts={analytics.recentPosts} postCount={analytics.totalPosts} />
           {/* All-clients state only: the service returns `null` when one client
               is selected, and does not issue the comparison's two extra reads. */}
           {analytics.comparison ? (
