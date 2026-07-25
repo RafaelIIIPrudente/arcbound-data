@@ -328,6 +328,20 @@ export function ClientComparisonTable({ comparison }: { comparison: ClientCompar
           name.
         </p>
       ) : null}
+
+      {/* ⚠️ "COULD NOT BE READ", NOT "HAS NONE". When the follower upload read
+          fails, the Followers and Per 1K followers columns em-dash for every row
+          — identical to a book where nobody recorded a count. This line keeps the
+          two facts apart so a reader retries the read rather than concluding the
+          clients simply have no followers. The other four columns are unaffected
+          and still shown. */}
+      {comparison.followersUnavailable ? (
+        <p className="text-sm text-muted-foreground">
+          Follower figures could not be read for this range, so the Followers and Per 1K followers
+          columns are blank for every client. This is a read that failed, not an absence of
+          followers &mdash; the other columns are unaffected.
+        </p>
+      ) : null}
     </Shell>
   );
 }

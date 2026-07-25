@@ -31,6 +31,7 @@ function comparison(over: Partial<ClientComparison> = {}): ClientComparison {
     },
     unattributedPosts: 0,
     unavailable: false,
+    followersUnavailable: false,
     ...over,
   };
 }
@@ -197,6 +198,42 @@ describe("ClientComparisonTable — unattributed posts are surfaced", () => {
     render(<ClientComparisonTable comparison={comparison({ unattributedPosts: 0 })} />);
 
     expect(screen.queryByText(/came back without matching/i)).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ A FAILED FOLLOWER READ IS NOT AN ABSENCE OF FOLLOWERS.
+//
+// When the upload read fails the two follower columns em-dash for every row —
+// identical to a book where nobody recorded a follower count. Those are two
+// different facts ("could not be read" vs "not reported"), and the table must
+// keep them apart rather than let a reader guess.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("ClientComparisonTable — a failed follower read is stated, not silent", () => {
+  it("notes that follower figures could not be read when the upload read failed", () => {
+    render(<ClientComparisonTable comparison={comparison({ followersUnavailable: true })} />);
+
+    expect(screen.getByText(/follower figures could not be read/i)).toBeInTheDocument();
+    // The three post-derived columns are still shown — the table is built, not
+    // blanked, so the note qualifies two columns rather than replacing the table.
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("stays silent about follower reads when they SUCCEEDED", () => {
+    // followersUnavailable defaults false: an all-em-dash followers column is
+    // then "no client has a follower figure", not an outage, and mislabelling it
+    // would be the very collapse this note exists to prevent.
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument();
+  });
+
+  it("names no raw database column in the follower-unavailable note", () => {
+    render(<ClientComparisonTable comparison={comparison({ followersUnavailable: true })} />);
+
+    for (const token of ["uploads", "follower_count", "followersUnavailable"]) {
+      expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
+    }
   });
 });
 

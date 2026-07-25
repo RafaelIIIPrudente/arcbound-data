@@ -8,6 +8,9 @@ import { RateReconciliationPanel } from "./rate-reconciliation";
 function rates(over: Partial<RateReconciliation> = {}): RateReconciliation {
   return {
     postsMissingRate: 0,
+    // Distinct from `rateComparablePosts` below so "of 40" and "of 10" never
+    // collide in an assertion — the two figures carry different denominators.
+    postsConsidered: 40,
     rateDisagreements: 0,
     rateComparablePosts: 10,
     rateMedianRatio: 1,
@@ -29,6 +32,28 @@ describe("RateReconciliationPanel", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
     // The disagreement count is meaningless without its population.
     expect(screen.getByText(/of 10/)).toBeInTheDocument();
+  });
+
+  it("carries a denominator on 'Posts with no rate', like its two siblings", () => {
+    render(<RateReconciliationPanel rates={rates({ postsMissingRate: 4, postsConsidered: 40 })} />);
+
+    // A bare "4" cannot say whether that is 4 of 40 or 4 of 40,000. Scoped to the
+    // card so the count is unambiguously this figure's.
+    const card = screen.getByText("Posts with no rate").parentElement!;
+    expect(within(card).getByText("4")).toBeInTheDocument();
+    expect(within(card).getByText(/of 40/)).toBeInTheDocument();
+  });
+
+  it("renders the not-applicable em dash — not '0 of 0' — when no posts were considered", () => {
+    // ⚠️ FOUR STATES. "0 of 0" asserts a measurement that was never taken. When
+    // nothing was considered, the figure is not-applicable, shown as the same
+    // em dash + sr-only the rest of this panel uses for "could not be checked".
+    render(<RateReconciliationPanel rates={rates({ postsMissingRate: 0, postsConsidered: 0 })} />);
+
+    const card = screen.getByText("Posts with no rate").parentElement!;
+    expect(within(card).getByText("—")).toBeInTheDocument();
+    expect(within(card).queryByText(/of 0/)).not.toBeInTheDocument();
+    expect(within(card).getByText(/no posts were considered/i)).toBeInTheDocument();
   });
 
   it("names no raw database column anywhere a user reads", () => {

@@ -212,12 +212,25 @@ export interface ClientComparison {
    */
   unattributedPosts: number;
   /**
-   * The registry or the upload audit could not be read.
+   * The ROSTER could not be read — without Client names there are no rows to
+   * show. A failed UPLOAD read no longer lands here: it degrades the two
+   * follower columns only (see `followersUnavailable`) and the comparison is
+   * still built.
    *
    * Distinct from an empty registry: `rows: []` with `unavailable: false` means
    * no Clients are registered, which is a fact rather than an outage.
    */
   unavailable: boolean;
+  /**
+   * The follower/upload read FAILED, so `followers` and `interactionsPer1K` are
+   * `null` for EVERY row.
+   *
+   * ⚠️ NOT INFERABLE FROM THE ROWS, WHICH IS WHY IT EXISTS. An all-em-dash
+   * followers column looks identical whether the read failed or simply no Client
+   * has a follower figure — two different facts ("could not be read" vs "not
+   * reported"). This flag lets the table say which, instead of collapsing them.
+   */
+  followersUnavailable: boolean;
 }
 
 // ── Ingestion ────────────────────────────────────────────────────────────────
@@ -607,6 +620,13 @@ export interface DataQualitySources {
 export interface RateReconciliation {
   /** Posts the view carries no rate for. Distinct from a rate of 0. */
   postsMissingRate: number;
+  /**
+   * Total posts the reconciliation examined — the denominator for
+   * `postsMissingRate`, so a reader can tell "1 missing of 3" from "1 of 30,000".
+   * `0` when no posts were considered at all, which the panel renders as the
+   * not-applicable em dash rather than "0 of 0".
+   */
+  postsConsidered: number;
   /**
    * Posts where the scraper's and the view's rates differ by more than the
    * tolerance. Counts only posts carrying BOTH — a missing value is not a

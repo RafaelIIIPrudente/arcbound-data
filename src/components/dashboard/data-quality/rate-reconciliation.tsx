@@ -59,7 +59,32 @@ export function RateReconciliationPanel({ rates }: { rates: RateReconciliation }
       </div>
 
       <div className="flex flex-wrap gap-3.5">
-        <Figure label="Posts with no rate" value={rates.postsMissingRate.toLocaleString()} />
+        <Figure
+          label="Posts with no rate"
+          value={
+            // ⚠️ FOUR STATES. A bare count is half a sentence — its two siblings
+            // carry "of N", so this must too. But "0 of 0" would assert a
+            // measurement never taken: when NOTHING was considered the figure is
+            // not-applicable, shown as the same em dash + sr-only the "could not
+            // be checked" figure uses. Denominator in plain staff language ("of
+            // 40"), never a raw column or "rows".
+            rates.postsConsidered === 0 ? (
+              <>
+                <span aria-hidden>—</span>
+                <span className="sr-only">
+                  Not applicable: no posts were considered in this reconciliation
+                </span>
+              </>
+            ) : (
+              <>
+                {rates.postsMissingRate.toLocaleString()}
+                <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
+                  of {rates.postsConsidered.toLocaleString()}
+                </span>
+              </>
+            )
+          }
+        />
         <Figure
           label="Rates that differ"
           value={

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { median } from "@/lib/median";
 import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
 import { listClientRegistry } from "@/services/clients";
@@ -325,20 +326,6 @@ export function buildDashboardAnalytics(
 // ── the cross-client comparison (pure) ───────────────────────────────────────
 
 /**
- * The middle value, or the mean of the middle two. Sorts a COPY.
- *
- * ⚠️ A SECOND COPY OF THE ONE IN `data-quality.ts`, AND KNOWINGLY SO. That one is
- * module-private and this slice may not edit that file; if a third appears, lift
- * all three into `@/lib` rather than adding another.
- */
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
-
-/**
  * A median over the Clients that HAVE the figure, plus how many those were.
  *
  * ⚠️ NULLS ARE EXCLUDED, NOT COERCED. Folding a Client with no followers in as a
@@ -360,9 +347,13 @@ function medianOf(
  * rule `follower-trend.ts` establishes, so the dashboard and the Client detail
  * page cannot disagree about a Client's follower count.
  */
-function latestFollowersByClient(uploads: Upload[]): Map<string, number> {
+function latestFollowersByClient(uploads: Upload[] | null): Map<string, number> {
   const newest = new Map<string, { at: number; followers: number }>();
-  for (const u of uploads) {
+  // A failed upload read (`null`) is an EMPTY follower history, not an error:
+  // every Client's follower figure is then unknown and the per-row gate below
+  // em-dashes it. Distinct from "read ok, nobody recorded a count" only via the
+  // `followersUnavailable` flag the caller sets — the numbers are identical.
+  for (const u of uploads ?? []) {
     if (u.followerCount == null) continue;
     const at = Date.parse(u.createdAt);
     if (Number.isNaN(at)) continue;
@@ -388,7 +379,7 @@ function latestFollowersByClient(uploads: Upload[]): Map<string, number> {
 export function buildClientComparison(
   current: BiPostRow[],
   registry: { id: string; name: string }[],
-  uploads: Upload[],
+  uploads: Upload[] | null,
 ): ClientComparison {
   const registered = new Set(registry.map((c) => c.id));
   const byClient = new Map<string, BiPostRow[]>();
@@ -449,10 +440,14 @@ export function buildClientComparison(
     },
     unattributedPosts,
     unavailable: false,
+    // The follower columns are real only if the upload read returned something to
+    // read. `null` there means the read failed — the rows already em-dash both
+    // follower columns, and this tells the table WHY.
+    followersUnavailable: uploads === null,
   };
 }
 
-/** The comparison when a source could not be read — distinct from an empty book. */
+/** The comparison when the ROSTER could not be read — distinct from an empty book. */
 const COMPARISON_UNAVAILABLE: ClientComparison = {
   rows: [],
   medians: {
@@ -463,6 +458,9 @@ const COMPARISON_UNAVAILABLE: ClientComparison = {
   },
   unattributedPosts: 0,
   unavailable: true,
+  // Moot here — the whole comparison is unavailable, so there is no follower
+  // column to qualify. Kept explicit so the type is satisfied without a cast.
+  followersUnavailable: false,
 };
 
 const SELECT_COLUMNS =
@@ -550,8 +548,14 @@ export async function getDashboardAnalytics({
       registry ?? listClientRegistry(),
       listAllUploads(),
     ]);
+    // ⚠️ BAIL ONLY ON A NULL ROSTER. Without Client names there are no rows to
+    // show. A failed UPLOAD read is NOT fatal to the comparison — it feeds only
+    // `followers` and `interactionsPer1K`, so it is passed through as `null` and
+    // those two columns em-dash for every row while the three post-derived
+    // columns stay real. Folding `uploads === null` back in here throws away
+    // three readable columns to hide two.
     comparison =
-      roster === null || uploads === null
+      roster === null
         ? COMPARISON_UNAVAILABLE
         : // THE SAME `currentWindow` CALL `buildDashboardAnalytics` makes, on the
           // same rows — so the table partitions exactly what `totalPosts` counts.

@@ -464,6 +464,29 @@ describe("reconcileRates", () => {
     expect(result.postsMissingRate).toBe(1);
   });
 
+  it("reports the total posts it considered — the denominator 'Posts with no rate' needs", () => {
+    const result = reconcileRates([
+      rated({ linkedin_post_id: "a", calculated_engagement_rate: 6.2 }),
+      rated({ linkedin_post_id: "b", calculated_engagement_rate: null }),
+      rated({ linkedin_post_id: "c", calculated_engagement_rate: 0, interactions: 0 }),
+    ]);
+
+    // A bare "1 missing" cannot tell a reader whether that is 1 of 3 or 1 of
+    // 30,000. The total is every post the reconciliation ran over — the same
+    // denominator its two sibling figures already carry.
+    expect(result.postsConsidered).toBe(3);
+    expect(result.postsMissingRate).toBe(1);
+  });
+
+  it("considers ZERO posts when handed none — the not-applicable case", () => {
+    const result = reconcileRates([]);
+
+    // 0 of 0 asserts a measurement never taken; the total being 0 is what lets
+    // the panel render the not-applicable em dash instead.
+    expect(result.postsConsidered).toBe(0);
+    expect(result.postsMissingRate).toBe(0);
+  });
+
   it("counts a disagreement only where BOTH rates are present", () => {
     const result = reconcileRates([
       // Agree.

@@ -923,12 +923,53 @@ describe("the comparison is only built where it is meaningful", () => {
     expect(c.rows).toEqual([]);
   });
 
-  it("marks the comparison unavailable when the uploads read failed", async () => {
-    biState.uploads = null;
+  // ⚠️ REPLACES an earlier test that asserted `c.unavailable === true` when the
+  // uploads read failed — that WAS the defect. Uploads feed only two of the six
+  // columns; blanking the whole table to hide them threw away three readable
+  // ones. The comparison is now BUILT, and only the follower columns degrade.
+  it("BUILDS the comparison when the roster reads but uploads fail — only follower columns degrade", async () => {
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 1000,
+        interactions: 50,
+      }),
+    ];
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = null; // the upload read FAILED
 
     const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
 
-    expect(c.unavailable).toBe(true);
+    // Built, not blanked — the whole point of the fix.
+    expect(c.unavailable).toBe(false);
+    expect(c.rows).toHaveLength(1);
+
+    const clientRow = c.rows[0]!;
+    // The three post-derived columns are real, from the post read and the roster.
+    expect(clientRow.posts).toBe(1);
+    expect(clientRow.avgImpressions).toBe(1000);
+    expect(clientRow.engagementRate).not.toBeNull();
+    // The two follower-derived columns em-dash themselves for EVERY row — the
+    // existing per-row gate makes `interactionsPer1K` null once `followers` is.
+    expect(clientRow.followers).toBeNull();
+    expect(clientRow.interactionsPer1K).toBeNull();
+    // ...and the comparison SAYS the followers could not be read, so the reader
+    // can tell a failed upload read from a client that simply has no follower
+    // figure — the two would otherwise render identically.
+    expect(c.followersUnavailable).toBe(true);
+  });
+
+  it("does not claim followers are unavailable when the uploads read SUCCEEDED", async () => {
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = []; // read ok, just no follower rows
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    // Every row still em-dashes followers, but that is "no follower figure", NOT
+    // an outage — the flag must stay false so the panel does not cry wolf.
+    expect(c.followersUnavailable).toBe(false);
   });
 
   it("is available and empty — not unavailable — when the registry is genuinely empty", async () => {

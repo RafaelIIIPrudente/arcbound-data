@@ -143,10 +143,58 @@ describe("InteractionsComparison", () => {
   });
 
   it("renders an empty state when every scope is zero", () => {
-    const empty = ROWS.map((r) => ({ ...r, likes: 0, comments: 0, shares: 0 }));
+    // ⚠️ SAVES ZEROED TOO. `ROWS` carry real saves (4/9/31); zeroing only
+    // likes/comments/shares left this "empty" fixture with a full Saves column,
+    // so the check passed only because it ignored saves. A GENUINELY empty period
+    // is zero across all four — and `savesPartial: false`, so this is a confirmed
+    // zero, not the lower-bound case the next test covers.
+    const empty = ROWS.map((r) => ({
+      ...r,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      saves: 0,
+      savesPartial: false,
+    }));
     render(<InteractionsComparison rows={empty} />);
 
     expect(screen.getByText("No posts in this period.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("renders the TABLE for a saves-only period, not the empty state", () => {
+    // Every post earned ONLY saves — no likes, comments or shares. The Saves
+    // column holds real numbers, so the period is not empty; the old check
+    // ignored saves and collapsed a whole readable column to "No posts".
+    const savesOnly: InteractionsRow[] = [
+      row({ scope: "selected", label: "July 2026", saves: 12 }),
+      row({ scope: "prior3", label: "Prior 3 months", saves: 30 }),
+      row({ scope: "allTime", label: "All time", saves: 42 }),
+    ];
+    render(<InteractionsComparison rows={savesOnly} />);
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("No posts in this period.")).not.toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "12" })).toBeInTheDocument();
+  });
+
+  it("renders the table when the only signal is a PARTIAL saves lower bound, even at zero", () => {
+    // ⚠️ THE `savesPartial` DECISION. likes/comments/shares are all 0 and the
+    // saves SUM is 0 — but `savesPartial` means some posts did not report saves,
+    // so the true total may be higher and the cell renders "≥ 0", a LOWER BOUND.
+    // That is not a confirmed-empty period (posts demonstrably exist), so the
+    // table renders. Collapsing it to "No posts" would fold "≥ 0 (partial)" into
+    // "genuinely empty" — exactly the four-state collapse this repo forbids.
+    const partialOnly: InteractionsRow[] = [
+      row({ scope: "selected", label: "July 2026", saves: 0, savesPartial: true }),
+      row({ scope: "prior3", label: "Prior 3 months", saves: 0, savesPartial: true }),
+      row({ scope: "allTime", label: "All time", saves: 0, savesPartial: true }),
+    ];
+    render(<InteractionsComparison rows={partialOnly} />);
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("No posts in this period.")).not.toBeInTheDocument();
+    // One "≥ 0" lower bound per row — the marker every partial saves cell carries.
+    expect(screen.getAllByText("At least", { exact: false })).toHaveLength(3);
   });
 });

@@ -14,6 +14,7 @@ const HEALTHY: DataQualitySources = {
 
 const NO_RATE_FINDINGS: DataQuality["rates"] = {
   postsMissingRate: 0,
+  postsConsidered: 0,
   rateDisagreements: 0,
   rateComparablePosts: 0,
   rateMedianRatio: null,

@@ -1,3 +1,4 @@
+import { median } from "@/lib/median";
 import { toCanonicalFormat } from "@/lib/post-format";
 import type { BiPostRow } from "@/services/analytics";
 import { readAllPostRows } from "@/services/bi-posts";
@@ -50,14 +51,6 @@ export const STALE_AFTER_DAYS = 14;
 export const RATE_TOLERANCE_PCT = 0.1;
 
 const DAY_MS = 86_400_000;
-
-/** The middle value, or the mean of the middle two. Sorts a COPY. */
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
 
 /**
  * How far the median provided/calculated ratio may stray from 1 and still count
@@ -136,6 +129,8 @@ export function reconcileRates(rows: BiPostRow[]): RateReconciliation {
 
   return {
     postsMissingRate,
+    // Every row this function ran over — the denominator `postsMissingRate` needs.
+    postsConsidered: rows.length,
     rateDisagreements,
     rateComparablePosts,
     rateMedianRatio,

@@ -85,7 +85,18 @@ function SavesCell({ row }: { row: InteractionsRow }) {
  */
 export function InteractionsComparison({ rows }: { rows: InteractionsRow[] }) {
   const visible = visibleInteractionRows(rows);
-  const isEmpty = visible.every((r) => r.likes === 0 && r.comments === 0 && r.shares === 0);
+  // ⚠️ SAVES COUNTS TOWARDS NON-EMPTINESS. A period whose posts earned ONLY saves
+  // has a full Saves column, so calling it empty hid real data. A real saves
+  // figure (`> 0`) or a partial LOWER BOUND (`savesPartial`, which renders as
+  // "≥ 0" and implies unreported saves) is content the table must show; a
+  // confirmed `saves: 0` and a `null` (not reported) contribute nothing, exactly
+  // as they should. `null` is never read as a value here.
+  const hasInteractions = (r: InteractionsRow) =>
+    r.likes > 0 ||
+    r.comments > 0 ||
+    r.shares > 0 ||
+    (r.saves !== null && (r.saves > 0 || r.savesPartial));
+  const isEmpty = !visible.some(hasInteractions);
 
   return (
     <div className="rounded-lg border bg-card p-5">
