@@ -2,7 +2,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { asPage, readAllPages } from "@/lib/supabase/paged";
+import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Client, ClientListRow, LastUpload, Paginated } from "@/services/types";
 import { latestUploadByClient } from "@/services/uploads";
@@ -140,6 +140,41 @@ export interface ListClientsOptions {
   pageSize?: number;
 }
 
+/**
+ * A `PageReader` over `public.clients`, newest first.
+ *
+ * ⚠️ THIS READ WAS UNPAGED, AND THAT WAS WORSE THAN A SHORT ANSWER: `listClients`
+ * paginates IN MEMORY with `.slice()`, so above PostgREST's 1000-row cap page 2
+ * of the Clients screen was built from a set that never contained page 2's rows.
+ * The screen reported a total it could not show the rows for.
+ *
+ * ⚠️ THE `id` TIEBREAK IS LOAD-BEARING. `created_at` alone is not a total order —
+ * clients created in one transaction share a timestamp — and pages 1..n are
+ * issued CONCURRENTLY, so an ambiguous sort lets the database return a row twice
+ * across two ranges, or not at all. `id` is the primary key, so it is unique by
+ * definition and makes the order total.
+ *
+ * `failure` captures the database's own message, which `readAllPages` otherwise
+ * only writes to a console warning — this seam throws with it.
+ */
+function clientPageReader(
+  supabase: SupabaseClient,
+  failure: { message: string | null },
+): PageReader<ClientRow> {
+  return async (from, to, opts) => {
+    const page = await asPage<ClientRow>(
+      supabase
+        .from("clients")
+        .select(CLIENT_COLUMNS, opts)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+    if (page.error && failure.message === null) failure.message = page.error.message;
+    return page;
+  };
+}
+
 export async function listClients(
   opts: ListClientsOptions = {},
 ): Promise<Paginated<ClientListRow>> {
@@ -156,14 +191,21 @@ export async function listClients(
   // Error precedence is unchanged: the two helpers swallow their own failures
   // (signalling with `null`), so neither can reject, and the select's error is
   // still the only one that can surface here.
-  const [{ data, error }, counts, latestUploads] = await Promise.all([
-    supabase.from("clients").select(CLIENT_COLUMNS).order("created_at", { ascending: false }),
+  // `readAllPages` reports THAT a read failed, not WHY. This seam's contract is
+  // to throw with the database's own message, so the reader keeps the first one
+  // it sees rather than losing it to a console warning.
+  const failure: { message: string | null } = { message: null };
+
+  const [clientsRead, counts, latestUploads] = await Promise.all([
+    readAllPages(clientPageReader(supabase, failure), "public.clients"),
     fetchPostCounts(supabase),
     latestUploadByClient(),
   ]);
-  if (error) throw new Error(`Failed to load clients: ${error.message}`);
+  if (clientsRead.unavailable) {
+    throw new Error(`Failed to load clients: ${failure.message ?? "read failed"}`);
+  }
 
-  let clients = ((data ?? []) as ClientRow[]).map((row): ClientListRow => {
+  let clients = clientsRead.rows.map((row): ClientListRow => {
     // A failed read means we don't know ANY client's value — `null`/"unavailable",
     // never a fabricated 0 or "never ingested".
     const lastUpload: LastUpload =

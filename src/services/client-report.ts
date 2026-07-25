@@ -547,7 +547,7 @@ export async function getClientReport({
 
   // A failed read is NOT an empty history: it returns the empty report under an
   // `unavailable` flag so the page shows a banner rather than "no posts yet".
-  const { rows, unavailable } = await readClientPostRows(clientId);
+  const { rows, unavailable, truncated, total } = await readClientPostRows(clientId);
   if (unavailable) return { ...fallback(), unavailable: true };
 
   // The asset type lives in the app-owned table; both reads degrade to empty
@@ -565,10 +565,17 @@ export async function getClientReport({
   const latestWithFollowers = uploads?.find((u) => u.followerCount != null);
   const periods = availablePeriods(rows);
 
-  return buildClientReport(rows, toFormatMap(attributes), {
-    period: parseReportPeriod(period, periods),
-    now,
-    availablePeriods: periods,
-    followers: latestWithFollowers?.followerCount ?? null,
-  });
+  return {
+    ...buildClientReport(rows, toFormatMap(attributes), {
+      period: parseReportPeriod(period, periods),
+      now,
+      availablePeriods: periods,
+      followers: latestWithFollowers?.followerCount ?? null,
+    }),
+    // ⚠️ A READ CAP, NOT AN EMPTY HISTORY. `unavailable` above means nothing was
+    // read; this means the pager stopped at its page cap, so every figure below —
+    // and the printed PDF that carries them out of the building — is a lower
+    // bound. `truncated` false leaves this null; the report then states nothing.
+    truncation: truncated ? { read: rows.length, total } : null,
+  };
 }

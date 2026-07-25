@@ -3,7 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Printer } from "lucide-react";
 
-import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
+import {
+  AnalyticsTruncated,
+  AnalyticsUnavailable,
+} from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
 import { ImpressionsByMonthChart } from "@/components/dashboard/report/impressions-by-month-chart";
 import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impressions-by-weekday-chart";
@@ -108,6 +111,14 @@ export default async function ClientReportPage({
         <AnalyticsUnavailable />
       ) : (
         <div className="space-y-10">
+          {/* A truncated read means the pager stopped at its cap, so every figure
+              in all three sections below counts only the posts it reached — a
+              lower bound, not a total. The same banner the print export carries,
+              so screen and paper say it in the same words. Absent when the read
+              was complete, rather than reassuring with "showing all". */}
+          {report.truncation ? (
+            <AnalyticsTruncated read={report.truncation.read} total={report.truncation.total} />
+          ) : null}
           {/* ALL THREE sections follow the period chosen in the page header. */}
           <section className="space-y-4">
             <SectionHeader title="Key performance" scope={scopeCaption(report.period)} />

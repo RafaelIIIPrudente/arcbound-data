@@ -85,6 +85,20 @@ export interface PagedRead<T> {
   unavailable: boolean;
   /** The read SUCCEEDED but hit MAX_PAGES — `rows` is incomplete. */
   truncated: boolean;
+  /**
+   * How many rows MATCH the query — which is not `rows.length` when the read was
+   * truncated. That gap is the whole point: it turns "this is incomplete" into
+   * "showing 50,000 of 137,412".
+   *
+   * ⚠️ `null` MEANS "NOT KNOWN", AND NEVER 0. Two different situations produce
+   * it, and neither is an empty table:
+   *   • the read FAILED — it learned nothing about how many rows exist
+   *   • the server IGNORED the count option — page 0's own length was enough to
+   *     size the read, but it is not an authoritative total and must not be
+   *     printed as one
+   * A genuinely empty table reports `0`, which is a real measurement.
+   */
+  total: number | null;
 }
 
 /**
@@ -101,6 +115,8 @@ export interface PagedRead<T> {
 export async function readAllPages<T>(read: PageReader<T>, label: string): Promise<PagedRead<T>> {
   let rows: T[] = [];
   let truncated = false;
+  // Stays null unless the server reports an authoritative count. See `total`.
+  let reportedTotal: number | null = null;
 
   try {
     // Page 0 carries the count that sizes the rest, so it is the one read that
@@ -112,12 +128,18 @@ export async function readAllPages<T>(read: PageReader<T>, label: string): Promi
     const firstPage = await read(0, PAGE_SIZE - 1, { count: "exact" });
     if (firstPage.error) {
       console.warn(`${label} read failed: ${firstPage.error.message}`);
-      return { rows: [], unavailable: true, truncated: false };
+      return { rows: [], unavailable: true, truncated: false, total: null };
     }
 
     rows = firstPage.data ?? [];
-    // A null count would mean the server ignored the option; fall back to what
-    // page 0 actually returned rather than guessing at a total.
+    // ⚠️ TWO DIFFERENT USES OF THE COUNT, KEPT APART ON PURPOSE.
+    //
+    // `total` below SIZES THE READ, and for that a null count must fall back to
+    // page 0's own length rather than guessing. `reportedTotal` is what callers
+    // PRINT, and for that the fallback is not good enough — page 0's length is
+    // what we happened to receive, not how many rows exist. Collapsing the two
+    // would let "we don't know" render as a confident "of 1,000".
+    reportedTotal = firstPage.count ?? null;
     const total = firstPage.count ?? rows.length;
 
     let pageCount = Math.ceil(total / PAGE_SIZE);
@@ -154,7 +176,7 @@ export async function readAllPages<T>(read: PageReader<T>, label: string): Promi
       for (const { error } of rest) {
         if (error) {
           console.warn(`${label} read failed: ${error.message}`);
-          return { rows: [], unavailable: true, truncated: false };
+          return { rows: [], unavailable: true, truncated: false, total: null };
         }
       }
 
@@ -162,8 +184,8 @@ export async function readAllPages<T>(read: PageReader<T>, label: string): Promi
     }
   } catch (err) {
     console.warn(`${label} read failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { rows: [], unavailable: true, truncated: false };
+    return { rows: [], unavailable: true, truncated: false, total: null };
   }
 
-  return { rows, unavailable: false, truncated };
+  return { rows, unavailable: false, truncated, total: reportedTotal };
 }

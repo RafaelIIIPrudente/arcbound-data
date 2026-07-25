@@ -28,7 +28,22 @@ import { createClient, getClient, listClients } from "./clients";
  * Array `data` is served as pages; anything else (a `maybeSingle` row, a
  * head-count result, an error shape) passes straight through.
  */
-function chainable(result: unknown): unknown {
+/**
+ * Every `.order(...)` applied, TAGGED WITH ITS TABLE.
+ *
+ * ⚠️ THE TAG IS LOAD-BEARING. `latestUploadByClient` already orders
+ * `public.uploads` by `id`, so an untagged list let an assertion about the
+ * CLIENTS read pass on the uploads read's call — a test green for the wrong
+ * reason, which is worse than a red one.
+ */
+let orderCalls: { table: string; args: unknown[] }[] = [];
+
+/** The `.order(...)` calls issued against one table. */
+function ordersOn(table: string): unknown[][] {
+  return orderCalls.filter((c) => c.table === table).map((c) => c.args);
+}
+
+function chainable(result: unknown, table = "?"): unknown {
   const q: Record<string, unknown> = {};
   let from = 0;
   // The implicit window PostgREST applies when the caller asks for no range.
@@ -44,7 +59,13 @@ function chainable(result: unknown): unknown {
     to = t;
     return q;
   };
-  for (const method of ["eq", "or", "in", "order", "maybeSingle", "single", "insert", "limit"]) {
+  // Recorded, not just swallowed: a paged read's order key must be UNIQUE, and
+  // the only way to assert that is to see what was asked for.
+  q.order = (...a: unknown[]) => {
+    orderCalls.push({ table, args: a });
+    return q;
+  };
+  for (const method of ["eq", "or", "in", "maybeSingle", "single", "insert", "limit"]) {
     q[method] = () => q;
   }
   q.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
@@ -80,8 +101,8 @@ function mockSupabase(
   uploadsResult: unknown = { data: [], error: null },
 ) {
   supabase.current = {
-    from: (table: string) => chainable(table === "uploads" ? uploadsResult : clientsResult),
-    schema: () => ({ from: () => chainable(biResult) }),
+    from: (table: string) => chainable(table === "uploads" ? uploadsResult : clientsResult, table),
+    schema: () => ({ from: (t: string) => chainable(biResult, t) }),
   };
 }
 
@@ -107,6 +128,7 @@ beforeEach(() => {
   supabase.current = null;
   probe.inFlight = 0;
   probe.peak = 0;
+  orderCalls = [];
 });
 
 describe("clients service (real seam)", () => {
@@ -307,6 +329,57 @@ describe("clients service (real seam)", () => {
     // Not a plausible-looking 50000 either — a capped total is still a claim.
     expect(items[0]!.postsCount).not.toBe(MAX_PAGES * PAGE_SIZE);
     warn.mockRestore();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // ⚠️ THIS ONE WAS WORSE THAN A SHORT READ: IT PAGINATED IN MEMORY.
+  //
+  // `listClients` read the whole `clients` table with no `.range()`, then sliced
+  // the result for the requested page. Above the cap, page 2 of the Clients
+  // screen was built from a set that never contained page 2's rows — so the
+  // screen showed a total it could not show the rows for.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("reads EVERY client past the 1000-row response cap, not just the first page", async () => {
+    const rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) => ROW(`c${i}`, `Client ${i}`));
+    mockSupabase({ data: rows, error: null }, { data: [], error: null });
+
+    const { total } = await listClients({ pageSize: 10 });
+
+    expect(total).toBe(PAGE_SIZE + 200);
+    expect(total).not.toBe(PAGE_SIZE);
+  });
+
+  it("can reach a page that lies beyond the response cap", async () => {
+    // The in-memory `.slice()` is the sharp edge: this page's rows only exist
+    // if the read went past 1000 in the first place.
+    const rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) => ROW(`c${i}`, `Client ${i}`));
+    mockSupabase({ data: rows, error: null }, { data: [], error: null });
+
+    const { items } = await listClients({ page: 111, pageSize: 10 });
+
+    expect(items).toHaveLength(10);
+    expect(items[0]!.id).toBe("c1100");
+  });
+
+  // ⚠️ PRESENCE OF AN ORDER IS NOT ENOUGH — IT MUST BE UNIQUE. `created_at`
+  // alone ties across clients created in the same transaction, and concurrent
+  // ranges are free to reorder ties between requests.
+  it("orders by a UNIQUE key so concurrent pages cannot overlap or skip", async () => {
+    const rows = Array.from({ length: PAGE_SIZE + 5 }, (_, i) => ROW(`c${i}`, `Client ${i}`));
+    mockSupabase({ data: rows, error: null }, { data: [], error: null });
+
+    await listClients();
+
+    // Scoped to the CLIENTS read: `latestUploadByClient` orders `uploads` by
+    // `id` already, and an unscoped assertion would pass on that instead.
+    expect(ordersOn("clients")).toContainEqual(["created_at", { ascending: false }]);
+    expect(ordersOn("clients")).toContainEqual(["id", { ascending: true }]);
+  });
+
+  it("still THROWS on a failed clients read — the contract callers rely on", async () => {
+    mockSupabase({ data: null, error: { message: "denied" } }, { data: [], error: null });
+
+    await expect(listClients()).rejects.toThrow(/Failed to load clients: denied/);
   });
 
   it("creates a client (name + linkedin_profile_url) with no dedup", async () => {

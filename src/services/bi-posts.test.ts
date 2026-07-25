@@ -347,7 +347,14 @@ describe("readClientPostRows (paged bi read)", () => {
     state.rejectWith = "socket hang up";
 
     // A transport failure is still "could not be read", not "no posts".
-    await expect(readClientPostRows("c1")).resolves.toEqual({ rows: [], unavailable: true });
+    // `total: null`, not 0 — a failed read learned nothing about how many posts
+    // this client has, and 0 would assert an empty history.
+    await expect(readClientPostRows("c1")).resolves.toEqual({
+      rows: [],
+      unavailable: true,
+      truncated: false,
+      total: null,
+    });
     expect(console.warn).toHaveBeenCalled();
   });
 
@@ -366,6 +373,36 @@ describe("readClientPostRows (paged bi read)", () => {
     const message = warn.mock.calls.map((c) => String(c[0])).join("\n");
     expect(message).toContain("60000");
     expect(message).toContain(String(MAX_PAGES * PAGE_SIZE));
+  });
+
+  // ⚠️ THE FLAG USED TO STOP HERE. `readClientPostRows` discarded `truncated`
+  // behind a comment saying its screens had no way to say "this is incomplete" —
+  // so the Client report, the posts table and, worst of all, the PRINTED report
+  // rendered a partial history as a complete one, with nothing on the page
+  // saying so. A console warning is for operators; this is for the reader.
+  it("SURFACES truncation to its callers, with the numbers behind it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.pages = [Array.from({ length: PAGE_SIZE }, (_, i) => row({ linkedin_post_id: `p${i}` }))];
+    state.count = 60_000;
+
+    const result = await readClientPostRows("c1");
+
+    expect(result.truncated).toBe(true);
+    // Real rows, not an outage — the two must never collapse.
+    expect(result.unavailable).toBe(false);
+    // The exact total, which is NOT what it managed to read.
+    expect(result.total).toBe(60_000);
+    expect(result.total).not.toBe(result.rows.length);
+    warn.mockRestore();
+  });
+
+  it("reports truncated as false, with a real total, on a complete read", async () => {
+    state.pages = [[row({ linkedin_post_id: "a" })]];
+
+    const result = await readClientPostRows("c1");
+
+    expect(result.truncated).toBe(false);
+    expect(result.total).toBe(1);
   });
 
   it("issues exactly ONE request when the count fits in a single page", async () => {

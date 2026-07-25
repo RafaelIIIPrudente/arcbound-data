@@ -10,6 +10,8 @@ const { state } = vi.hoisted(() => ({
     /** One entry per bi page, served BY PAGE INDEX (not by call order). */
     biPages: [] as unknown[][],
     biError: null as { message: string } | null,
+    /** What `count: "exact"` reports. Defaults to the total rows in `biPages`. */
+    biCount: null as number | null,
     attributes: [] as unknown[],
     uploads: [] as unknown[],
   },
@@ -39,7 +41,10 @@ vi.mock("@/lib/supabase/server", () => ({
           Promise.resolve({
             data: state.biError ? null : (state.biPages[page] ?? []),
             error: state.biError,
-            count: countOption === "exact" ? state.biPages.reduce((n, p) => n + p.length, 0) : null,
+            count:
+              countOption === "exact"
+                ? (state.biCount ?? state.biPages.reduce((n, p) => n + p.length, 0))
+                : null,
           }).then(resolve);
         return q;
       },
@@ -60,6 +65,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+import { PAGE_SIZE } from "./bi-posts";
 import { getClientPosts, MAX_TABLE_ROWS } from "./client-posts";
 import { getClientReport } from "./client-report";
 
@@ -154,6 +160,7 @@ const FIXTURE: BiPostRow[] = [
 beforeEach(() => {
   state.biPages = [FIXTURE];
   state.biError = null;
+  state.biCount = null;
   state.attributes = [];
   state.uploads = [];
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -473,6 +480,34 @@ describe("getClientPosts — the display cap", () => {
 
     expect(rows).toHaveLength(MAX_TABLE_ROWS);
     expect(cappedTo).toBeNull();
+  });
+});
+
+describe("getClientPosts — the READ cap (a different fact from the display cap)", () => {
+  // ⚠️ `cappedTo` means every matching row was READ and the table shows the top
+  // slice. `truncation` means rows that exist were NEVER fetched, so even
+  // `totalInPeriod` is a lower bound. Collapsing the two would let a partial read
+  // pass as a complete-but-trimmed one — the reader would trust a short number.
+  it("surfaces a truncated read as read + total", async () => {
+    state.biPages = [
+      Array.from({ length: PAGE_SIZE }, (_, i) =>
+        row({ linkedin_post_id: `p${i}`, estimated_post_date: "2026-07-01", impressions: i }),
+      ),
+    ]; // page 0 full; pages 1..49 serve []
+    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
+
+    const { truncation } = await getClientPosts({ clientId: "c1", period: "all" });
+
+    expect(truncation).toEqual({ read: PAGE_SIZE, total: 60_000 });
+    // total is the TRUE matching count, never rows.length — read === total would
+    // hide the gap the notice exists to disclose.
+    expect(truncation?.total).not.toBe(truncation?.read);
+  });
+
+  it("leaves truncation null when every matching row was read", async () => {
+    const { truncation } = await getClientPosts({ clientId: "c1", period: "all" });
+
+    expect(truncation ?? null).toBeNull();
   });
 });
 

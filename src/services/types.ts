@@ -92,6 +92,24 @@ export interface RecentPost {
   comments: number;
 }
 
+/**
+ * How short a truncated read came, in the reader's own numbers.
+ *
+ * Shared by every seam that can come back short — the dashboard, the Client
+ * report and the posts table — so the three screens describe the same situation
+ * in the same terms.
+ *
+ * ⚠️ ONE FIELD, NOT A BOOLEAN PLUS TWO NUMBERS. A separate `truncated` flag
+ * alongside these could disagree with them; here the presence of the object IS
+ * the flag, so there is nothing to keep in step.
+ */
+export interface ReadTruncation {
+  /** Rows actually read. */
+  read: number;
+  /** Rows matching the query, or `null` when the server reported no count. */
+  total: number | null;
+}
+
 export interface DashboardAnalytics {
   totalPosts: number;
   lastSync: string;
@@ -111,7 +129,7 @@ export interface DashboardAnalytics {
    * every number on the screen is then a lower bound, and the screen has to say
    * so rather than presenting short figures as totals.
    */
-  truncated?: boolean;
+  truncation?: ReadTruncation | null;
   /**
    * Every Client side by side over the selected range.
    *
@@ -453,6 +471,14 @@ export interface ClientReport {
   assetPostCount: number;
   /** True when the report source couldn't be read (distinct from "no data"). */
   unavailable?: boolean;
+  /**
+   * Set when the post history came back SHORT of the pager's cap.
+   *
+   * ⚠️ THIS ONE REACHES PAPER. The printed report is the artefact that leaves the
+   * building, so a partial history must be stated ON THE PAGE — every other
+   * surface has a reader who can be told later; a PDF does not.
+   */
+  truncation?: ReadTruncation | null;
 }
 
 // ── Client posts (the per-post drill-down) ───────────────────────────────────
@@ -663,4 +689,12 @@ export interface ClientPosts {
   cappedTo: number | null;
   /** True when the source couldn't be read — distinct from "no posts". */
   unavailable?: boolean;
+  /**
+   * Set when the post history came back SHORT of the pager's cap.
+   *
+   * ⚠️ DISTINCT FROM `cappedTo`. That is a DISPLAY cap ArcBase chose — every row
+   * was read and the table is showing the top slice. This is a READ cap: rows
+   * that exist were never fetched, so `totalInPeriod` itself is a lower bound.
+   */
+  truncation?: ReadTruncation | null;
 }

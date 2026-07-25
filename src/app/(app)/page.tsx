@@ -14,7 +14,7 @@ import { RecentPostsTable } from "@/components/dashboard/analytics/recent-posts-
 import { Button } from "@/components/ui/button";
 import { paths } from "@/paths";
 import { getDashboardAnalytics, RANGE_LABEL } from "@/services/analytics";
-import { listClients } from "@/services/clients";
+import { listClientRegistry } from "@/services/clients";
 import type { DashboardRange } from "@/services/types";
 
 export const metadata: Metadata = { title: "Post analytics" };
@@ -32,11 +32,18 @@ export default async function DashboardPage({
   const range = normalizeRange(rawRange);
   const clientId = client && client !== "all" ? client : undefined;
 
+  // The client book is read ONCE per request. The filter needs only id + name,
+  // so it reads the cheap `listClientRegistry` — NOT `listClients`, which also
+  // joins post counts and latest-upload timestamps the dropdown never shows — and
+  // hands the SAME in-flight read to `getDashboardAnalytics`, whose all-clients
+  // comparison reuses it instead of reading `public.clients` a second time. The
+  // shared promise still overlaps the analytics bi read under `Promise.all`.
+  const registry = listClientRegistry();
   const [analytics, clientList] = await Promise.all([
-    getDashboardAnalytics({ clientId, range }),
-    listClients({ pageSize: 1000 }),
+    getDashboardAnalytics({ clientId, range, registry }),
+    registry,
   ]);
-  const clients = clientList.items.map((c) => ({ id: c.id, name: c.name }));
+  const clients = clientList ?? [];
   const hasData = analytics.recentPosts.length > 0;
 
   return (
@@ -61,7 +68,12 @@ export default async function DashboardPage({
           {/* ⚠️ ABOVE the figures, not instead of them. A truncated read still
               produced real numbers — they are simply lower bounds, and the
               banner is what stops them being read as totals. */}
-          {analytics.truncated ? <AnalyticsTruncated /> : null}
+          {analytics.truncation ? (
+            <AnalyticsTruncated
+              read={analytics.truncation.read}
+              total={analytics.truncation.total}
+            />
+          ) : null}
           <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={RANGE_LABEL[range]} />
           <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">
             <ImpressionsChart data={analytics.impressionsSeries} rangeLabel={RANGE_LABEL[range]} />

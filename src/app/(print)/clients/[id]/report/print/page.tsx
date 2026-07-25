@@ -48,6 +48,10 @@ export default async function ClientReportPrintPage({
         period={report.period}
         // Straight from the seam — the cover does no arithmetic of its own.
         figures={report.keyPerformance.selected}
+        // The cover figures rest on the same read as the panels, so it carries
+        // the same truncation caveat when that read was partial (PrintReport
+        // renders it again above the body).
+        truncation={report.truncation}
         // Passed in rather than read inside the component, so the rendered
         // document is a pure function of its inputs and stays testable.
         now={new Date()}

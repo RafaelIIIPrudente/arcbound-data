@@ -159,17 +159,16 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
  * history — never collapse the two. Degrades rather than throwing so a page
  * shows a banner instead of an error boundary.
  *
- * ⚠️ DISCARDS `truncated` ON PURPOSE, FOR NOW. The report and posts screens have
- * no way to say "this is incomplete" yet, so a truncated read still reaches them
- * as if whole — pre-existing behaviour, preserved here so this extraction stays
- * a refactor. `readAllPages` now surfaces the flag, so wiring it into those two
- * screens is a small, separate change.
+ * ⚠️ IT SURFACES `truncated` AND `total`, AND THAT IS NOT OPTIONAL. This read
+ * feeds the Client report, the posts table and — the one that leaves the
+ * building — the PRINTED report. A client-facing PDF built from a partial
+ * history with nothing on the page saying so is the worst instance of this
+ * defect in the repo: every other surface at least has a reader who can be told
+ * later. Callers must keep the three outcomes apart, exactly as `PagedRead`
+ * defines them.
  */
-export async function readClientPostRows(
-  clientId: string,
-): Promise<{ rows: BiPostRow[]; unavailable: boolean }> {
-  const { rows, unavailable } = await readAllPages(postPageReader(clientId), BI_LABEL);
-  return { rows, unavailable };
+export async function readClientPostRows(clientId: string): Promise<PagedRead<BiPostRow>> {
+  return readAllPages(postPageReader(clientId), BI_LABEL);
 }
 
 /**

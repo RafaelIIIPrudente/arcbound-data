@@ -519,7 +519,10 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
 
     const a = await getDashboardAnalytics({ range: "30d" });
 
-    expect(a.truncated).toBe(true);
+    // ⚠️ THE TWO NUMBERS MUST DIFFER. "Incomplete" is a warning; "50,000 of
+    // 50,001" is actionable, and only the pager knows the second one.
+    expect(a.truncation).toEqual({ read: MAX_PAGES * PAGE_SIZE, total: MAX_PAGES * PAGE_SIZE + 1 });
+    expect(a.truncation!.total).not.toBe(a.truncation!.read);
     // The rows are REAL — just incomplete. Not an outage.
     expect(a.unavailable).toBeFalsy();
     expect(a.totalPosts).toBe(MAX_PAGES * PAGE_SIZE);
@@ -534,7 +537,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
     const a = await getDashboardAnalytics({ range: "30d" });
 
     expect(a.unavailable).toBe(true);
-    expect(a.truncated).toBeFalsy();
+    expect(a.truncation).toBeFalsy();
 
     warn.mockRestore();
   });
@@ -545,7 +548,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
     const a = await getDashboardAnalytics({ range: "30d" });
 
     expect(a.unavailable).toBeFalsy();
-    expect(a.truncated).toBeFalsy();
+    expect(a.truncation).toBeFalsy();
   });
 });
 
@@ -875,6 +878,40 @@ describe("the comparison is only built where it is meaningful", () => {
     expect(a.comparison).not.toBeNull();
     expect(biState.registryCalls).toBe(1);
     expect(biState.uploadsCalls).toBe(1);
+  });
+
+  // ⚠️ THE DASHBOARD READS THE CLIENT BOOK ONCE PER REQUEST. The page reads the
+  // registry for its filter and hands the SAME read in; the comparison must reuse
+  // it rather than issuing a second read of the same table. Without this the app's
+  // most-hit route reads `public.clients` twice on every all-clients render.
+  it("reuses a caller-supplied registry instead of reading it a second time", async () => {
+    const a = await getDashboardAnalytics({
+      range: "30d",
+      registry: Promise.resolve([{ id: "c1", name: "Bryan Wish" }]),
+    });
+
+    // Still built — the passed roster is a real answer, used exactly as its own
+    // read would have been.
+    expect(a.comparison).not.toBeNull();
+    // ...but NOT re-read. The uploads read is still the comparison's own.
+    expect(biState.registryCalls).toBe(0);
+    expect(biState.uploadsCalls).toBe(1);
+  });
+
+  it("still reads its own registry when the caller supplies none", async () => {
+    // The fallback the other callers and every existing test rely on.
+    await getDashboardAnalytics({ range: "30d" });
+    expect(biState.registryCalls).toBe(1);
+  });
+
+  it("honours a caller-supplied registry that FAILED — comparison unavailable, still no re-read", async () => {
+    const c = (await getDashboardAnalytics({ range: "30d", registry: Promise.resolve(null) }))
+      .comparison!;
+
+    // A passed-in null is a failed roster read; the comparison is unavailable and
+    // the service does not fall back to a second read that would likely fail too.
+    expect(c.unavailable).toBe(true);
+    expect(biState.registryCalls).toBe(0);
   });
 
   it("marks the comparison unavailable when the registry read failed — not empty", async () => {

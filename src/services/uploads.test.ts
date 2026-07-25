@@ -58,7 +58,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
-import { latestUploadByClient, listUploads } from "./uploads";
+import { latestUploadByClient, listAllUploads, listUploads } from "./uploads";
 
 const dbRow = (id: string, createdAt: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -132,6 +132,53 @@ describe("listUploads", () => {
     expect(uploads).not.toEqual([]);
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE REGRESSION GUARD.
+  //
+  // `listUploads` read the whole of one client's history with no `.range()`, so
+  // above PostgREST's cap it returned 1000 rows and a 200. `follower-trend.ts`
+  // now sits on this read, and a capped result would SHORTEN a follower series
+  // while the chart presented it as the client's whole history — the oldest
+  // readings dropping off the left of a timeline nobody could tell was cropped.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("reads EVERY upload past the 1000-row response cap, not just the first page", async () => {
+    state.data = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+      dbRow(`u${i}`, `2026-07-16T09:12:00.000Z`),
+    );
+
+    const uploads = await listUploads("c1");
+
+    expect(uploads).toHaveLength(PAGE_SIZE + 200);
+    // 1000 is precisely the number the defect produced.
+    expect(uploads).not.toHaveLength(PAGE_SIZE);
+  });
+
+  // ⚠️ A NON-UNIQUE SORT KEY IS WORSE THAN A SHORT READ. Pages are issued
+  // CONCURRENTLY, so ties are free to reorder between requests and a row can
+  // land in two ranges or in neither — a silently WRONG set, not a short one.
+  it("orders by a UNIQUE key so concurrent pages cannot overlap or skip", async () => {
+    state.data = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:12:00.000Z"),
+    );
+
+    await listUploads("c1");
+
+    expect(state.orderCalls).toContainEqual(["created_at", { ascending: false }]);
+    // `created_at` alone is not a total order — two uploads can share a
+    // timestamp, which this fixture deliberately makes true of every row.
+    expect(state.orderCalls).toContainEqual(["id", { ascending: true }]);
+  });
+
+  it("still filters to the one client when paged", async () => {
+    state.data = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:12:00.000Z"),
+    );
+
+    await listUploads("c1");
+
+    expect(state.eqCalls).toContainEqual(["client_id", "c1"]);
   });
 });
 
@@ -230,6 +277,71 @@ describe("latestUploadByClient", () => {
     // a confident fact.
     expect(await latestUploadByClient()).toBeNull();
     expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+});
+
+describe("listAllUploads — a FAILED read and an OVERSIZED one are different facts", () => {
+  // ⚠️ TWO FACTS THAT USED TO SHARE ONE CHANNEL. Both a read that FAILED and one
+  // too large to read in full return `null` — safe, because neither ever prints a
+  // wrong number — but they license different sentences on screen ("could not be
+  // read" vs "too many uploads to read at once"). The optional outcome lets a
+  // caller tell them apart without disturbing the `Upload[] | null` contract that
+  // the Data Quality audit and the cross-client comparison already read.
+  it("returns the full audit and reports NOT truncated on a complete read", async () => {
+    state.data = [
+      dbRow("u1", "2026-07-16T09:12:00.000Z"),
+      dbRow("u2", "2026-07-10T08:00:00.000Z", { client_id: "c2" }),
+    ];
+    const outcome = { truncated: false };
+
+    const uploads = await listAllUploads(outcome);
+
+    expect(uploads).toHaveLength(2);
+    expect(outcome.truncated).toBe(false);
+  });
+
+  it("returns null AND flags truncated=true when the audit is OVERSIZED", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.data = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:00:00.000Z", { client_id: `c${i}` }),
+    );
+    const outcome = { truncated: false };
+
+    const uploads = await listAllUploads(outcome);
+
+    // Null, EXACTLY as a failure — a partial audit must never render as complete.
+    expect(uploads).toBeNull();
+    // ...but the caller can now SAY it was oversized, not unreadable.
+    expect(outcome.truncated).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("returns null AND leaves truncated=false when the read FAILED", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.error = { message: "permission denied" };
+    const outcome = { truncated: false };
+
+    const uploads = await listAllUploads(outcome);
+
+    expect(uploads).toBeNull();
+    // A FAILED read is not an oversized one — this is the distinction the
+    // invariant requires, and the two null returns above are what made it
+    // invisible before.
+    expect(outcome.truncated).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("keeps the existing Upload[] | null contract when called with NO outcome", async () => {
+    // The Data Quality audit and the cross-client comparison call it with no
+    // argument and must keep getting exactly `Upload[] | null` — a partial audit
+    // stays `null` (unavailable) for them, never a complete-looking result.
+    state.data = [dbRow("u1", "2026-07-16T09:12:00.000Z")];
+    expect(await listAllUploads()).toHaveLength(1);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.error = { message: "permission denied" };
+    expect(await listAllUploads()).toBeNull();
     warn.mockRestore();
   });
 });

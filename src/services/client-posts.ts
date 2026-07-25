@@ -104,7 +104,7 @@ export async function getClientPosts({
   clientId,
   period,
 }: ClientPostsOptions): Promise<ClientPosts> {
-  const { rows, unavailable } = await readClientPostRows(clientId);
+  const { rows, unavailable, truncated, total } = await readClientPostRows(clientId);
 
   // A failed read is NOT an empty history. The flag travels so the page can show
   // the unavailable banner rather than "no posts in this period" — the period
@@ -151,5 +151,9 @@ export async function getClientPosts({
     // number that has to match the report.
     totalInPeriod: mapped.length,
     cappedTo: capped ? MAX_TABLE_ROWS : null,
+    // ⚠️ A READ CAP, NOT THE DISPLAY CAP ABOVE. `cappedTo` means every row was
+    // read and the table shows the top slice; this means rows that exist were
+    // never fetched, so `totalInPeriod` is itself a lower bound.
+    truncation: truncated ? { read: rows.length, total } : null,
   };
 }

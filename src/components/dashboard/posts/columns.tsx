@@ -1,6 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import { ExternalLink } from "lucide-react";
 
 import type { ClientPostRow } from "@/services/types";
 
@@ -98,23 +99,48 @@ export const columns: ColumnDef<ClientPostRow>[] = [
     accessorFn: (post) => post.snippet,
     enableSorting: false,
     header: () => <span className={HEAD}>Post</span>,
-    meta: { className: "max-w-0" } satisfies PostColumnMeta,
+    // ⚠️ `w-full max-w-0` IS LOAD-BEARING, NOT DECORATION. This is the ONLY
+    // flexible column, so `w-full` makes it claim the width the fixed columns
+    // leave, and `max-w-0` stops a long snippet from widening the cell past that
+    // — which is what lets the inner `truncate` clip. With `max-w-0` alone (no
+    // `w-full`) the cell collapsed to a single character and its header ran into
+    // "Asset type".
+    meta: { className: "w-full max-w-0" } satisfies PostColumnMeta,
+    // The snippet is a PREVIEW, not the link — the Link column beside it owns the
+    // pressable link, so the post text is never itself an anchor.
+    cell: ({ row }) => (
+      <span className="block truncate text-sm">
+        {row.original.snippet || <span className="text-muted-foreground/60">No text content</span>}
+      </span>
+    ),
+  },
+  {
+    id: "link",
+    enableSorting: false,
+    header: () => <span className={HEAD}>Link</span>,
+    meta: { className: "w-px whitespace-nowrap text-center" } satisfies PostColumnMeta,
+    // The post's own URL, carried from the upload straight through the seam. An
+    // icon rather than text keeps the column tight; `aria-label` gives the icon a
+    // name for assistive tech.
+    //
+    // ⚠️ NEVER a dead link. A post with no URL renders the same "not reported"
+    // treatment every other missing value gets — not an anchor pointing nowhere.
     cell: ({ row }) => {
-      const { url, snippet } = row.original;
-      const text = snippet || <span className="text-muted-foreground/60">No text content</span>;
-      // A missing url renders as PLAIN TEXT, never as an anchor with nowhere to
-      // go. There is no dead link anywhere in this table.
+      const { url } = row.original;
       return url ? (
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="block truncate text-sm underline-offset-4 hover:underline"
+          aria-label="Open post on LinkedIn"
+          className="inline-flex text-muted-foreground underline-offset-4 transition-colors hover:text-foreground"
         >
-          {text}
+          <ExternalLink className="size-4" aria-hidden />
         </a>
       ) : (
-        <span className="block truncate text-sm">{text}</span>
+        <span className="font-mono text-xs text-muted-foreground">
+          <Unknown what="Post link" />
+        </span>
       );
     },
   },

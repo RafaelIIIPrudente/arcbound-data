@@ -96,6 +96,35 @@ describe("ReportCover", () => {
     expect(screen.getByText("by Arcbound")).toBeInTheDocument();
   });
 
+  it("qualifies the headline figures when the underlying read was truncated", () => {
+    // ⚠️ THE COVER FIGURES ARE COMPUTED FROM A PARTIAL READ TOO. They are the
+    // first — often only — numbers a client sees, so page 1 must carry the same
+    // caveat the body panels do, not leave the headline standing as a total.
+    render(
+      <ReportCover
+        clientName="Dana Whitfield"
+        linkedinUrl="https://www.linkedin.com/in/dana-whitfield"
+        period={JULY}
+        figures={FIGURES}
+        now={NOW}
+        truncation={{ read: 50_000, total: 137_412 }}
+      />,
+    );
+
+    // Both numbers, so the reader sees the SIZE of the gap — and the same wording
+    // the body and screen use, so the surfaces cannot disagree.
+    expect(screen.getByText(/50,000 of 137,412 posts/)).toBeInTheDocument();
+    expect(screen.getByText(/lower bounds, not totals/)).toBeInTheDocument();
+  });
+
+  it("carries NO truncation note when the read was complete", () => {
+    // The default render passes no truncation — a complete read makes no claim of
+    // incompleteness, and a note that fires anyway cries wolf.
+    renderCover();
+
+    expect(screen.queryByText(/lower bounds, not totals/)).not.toBeInTheDocument();
+  });
+
   it("renders an em dash rather than a gap for a figure with no value", () => {
     render(
       <ReportCover

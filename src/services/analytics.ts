@@ -65,6 +65,19 @@ const DAY_MS = 86_400_000;
 export interface DashboardOptions {
   clientId?: string;
   range: DashboardRange;
+  /**
+   * The client roster, already being read by the caller for something else (the
+   * Dashboard reads it for its filter dropdown). Passed in so the all-clients
+   * comparison REUSES that one read instead of issuing a second read of the same
+   * table — the Dashboard's most-hit route otherwise reads `public.clients` twice.
+   *
+   * ⚠️ A PROMISE, NOT A VALUE, so the caller can hand in the read still in flight
+   * and it overlaps the bi read here rather than serialising ahead of it. Omit it
+   * and this falls back to its own `listClientRegistry()`, so every other caller
+   * and test is unaffected. `null` (a resolved failed read) is honoured as failed
+   * — the comparison goes unavailable rather than silently re-reading.
+   */
+  registry?: Promise<{ id: string; name: string }[] | null>;
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────────────
@@ -498,6 +511,7 @@ function dashboardPageReader(
 export async function getDashboardAnalytics({
   clientId,
   range,
+  registry,
 }: DashboardOptions): Promise<DashboardAnalytics> {
   const now = new Date();
   // Bound to the largest window needed (current + prior = 2N days), but keep
@@ -506,7 +520,7 @@ export async function getDashboardAnalytics({
     .toISOString()
     .slice(0, 10);
 
-  const { rows, unavailable, truncated } = await readAllPages(
+  const { rows, unavailable, truncated, total } = await readAllPages(
     dashboardPageReader(clientId, boundIso),
     BI_LABEL,
   );
@@ -526,18 +540,36 @@ export async function getDashboardAnalytics({
   // throw away would be paying for nothing.
   let comparison: ClientComparison | null = null;
   if (!clientId) {
-    const [registry, uploads] = await Promise.all([listClientRegistry(), listAllUploads()]);
+    // ⚠️ REUSE THE CALLER'S ROSTER READ WHEN IT GAVE US ONE. `registry ??
+    // listClientRegistry()` uses the read the Dashboard already issued for its
+    // filter, so `public.clients` is read once per request rather than twice; the
+    // fallback keeps every other caller and test issuing its own read. `??` on the
+    // promise itself, so a passed-in resolved `null` (a failed roster) is honoured
+    // as failed below, not swapped for a fresh read.
+    const [roster, uploads] = await Promise.all([
+      registry ?? listClientRegistry(),
+      listAllUploads(),
+    ]);
     comparison =
-      registry === null || uploads === null
+      roster === null || uploads === null
         ? COMPARISON_UNAVAILABLE
         : // THE SAME `currentWindow` CALL `buildDashboardAnalytics` makes, on the
           // same rows — so the table partitions exactly what `totalPosts` counts.
-          buildClientComparison(currentWindow(rows, { range, now }), registry, uploads);
+          buildClientComparison(currentWindow(rows, { range, now }), roster, uploads);
   }
 
-  // ⚠️ `truncated` IS A DIFFERENT FACT FROM `unavailable` AND MUST NOT COLLAPSE
+  // ⚠️ TRUNCATION IS A DIFFERENT FACT FROM `unavailable` AND MUST NOT COLLAPSE
   // INTO IT. Unavailable means the numbers are meaningless; truncated means they
   // are real but incomplete, so every figure on the screen is a LOWER BOUND and
   // the screen has to say so rather than presenting short numbers as totals.
-  return truncated ? { ...analytics, comparison, truncated: true } : { ...analytics, comparison };
+  //
+  // ⚠️ AND THE NUMBERS COME FROM THE PAGER, NOT FROM ANYTHING COUNTED HERE.
+  // `rows.length` is what was read and `total` is what matched — the gap between
+  // them is exactly what the banner exists to state, and re-deriving either from
+  // the aggregated figures would reintroduce the guesswork this removes.
+  return {
+    ...analytics,
+    comparison,
+    truncation: truncated ? { read: rows.length, total } : null,
+  };
 }

@@ -53,7 +53,12 @@ describe("readAllPages", () => {
   it("issues ONE request for a table that fits in a single page", async () => {
     const result = await readAllPages(reader(12), "table");
 
-    expect(result).toEqual({ rows: expect.any(Array), unavailable: false, truncated: false });
+    expect(result).toEqual({
+      rows: expect.any(Array),
+      unavailable: false,
+      truncated: false,
+      total: 12,
+    });
     expect(result.rows).toHaveLength(12);
     expect(calls).toEqual([{ from: 0, to: PAGE_SIZE - 1, count: "exact" }]);
   });
@@ -106,7 +111,9 @@ describe("readAllPages", () => {
   it("flags UNAVAILABLE — with no rows — when page 0 errors", async () => {
     const result = await readAllPages(reader(PAGE_SIZE * 3, { errorOnPage: 0 }), "table");
 
-    expect(result).toEqual({ rows: [], unavailable: true, truncated: false });
+    // `total` is null, NOT 0: a failed read learned nothing about how many
+    // rows exist, and 0 would assert an empty table.
+    expect(result).toEqual({ rows: [], unavailable: true, truncated: false, total: null });
     // Nothing else was attempted: page 0 carries the count that sizes the rest.
     expect(calls).toHaveLength(1);
   });
@@ -129,7 +136,7 @@ describe("readAllPages", () => {
   it("degrades rather than throwing when the reader itself throws", async () => {
     const result = await readAllPages(reader(10, { throwOnPage: 0 }), "table");
 
-    expect(result).toEqual({ rows: [], unavailable: true, truncated: false });
+    expect(result).toEqual({ rows: [], unavailable: true, truncated: false, total: null });
     expect(console.warn).toHaveBeenCalled();
   });
 
@@ -174,6 +181,77 @@ describe("readAllPages", () => {
 
     // Empty and available — distinct from empty and unavailable, which is the
     // distinction every caller of this module is built around.
-    expect(result).toEqual({ rows: [], unavailable: false, truncated: false });
+    // `total: 0` is a REAL measurement here — the table really is empty. Contrast
+    // the failed reads above, which report null because they know nothing.
+    expect(result).toEqual({ rows: [], unavailable: false, truncated: false, total: 0 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE PAGER ALREADY KNEW THE EXACT TOTAL AND THREW IT AWAY.
+//
+// It asks for `count: "exact"` on page 0 specifically because a cheap estimate
+// would size too few pages — then let the number fall out of scope. So every
+// "this is incomplete" message in the app was qualitative when it could have
+// been exact, and a reader could not tell a rounding error from a catastrophe.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("readAllPages reports how much it read, and out of how much", () => {
+  it("reports the EXACT matching count on a truncated read — not what it managed to read", async () => {
+    const matching = MAX_PAGES * PAGE_SIZE + 412;
+    const result = await readAllPages(reader(matching), "bi.linkedin_post_latest");
+
+    // ⚠️ THE TWO NUMBERS MUST DIFFER, or this test proves nothing. The gap
+    // between them IS the fact the banner exists to state.
+    expect(result.rows).toHaveLength(MAX_PAGES * PAGE_SIZE);
+    expect(result.total).toBe(matching);
+    expect(result.total).not.toBe(result.rows.length);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("reports the total on a complete read, where it coincides with the rows read", async () => {
+    const result = await readAllPages(reader(PAGE_SIZE + 7), "table");
+
+    expect(result.total).toBe(PAGE_SIZE + 7);
+    expect(result.total).toBe(result.rows.length);
+  });
+
+  it("reports 0 for a genuinely empty table — a real count, not an absence", async () => {
+    const result = await readAllPages(reader(0), "table");
+
+    expect(result.total).toBe(0);
+  });
+
+  // ⚠️ A FAILED READ KNOWS NOTHING ABOUT HOW MANY ROWS EXIST. `0` would assert an
+  // empty table, which is precisely the collapse this codebase keeps fixing.
+  it("reports a NULL total — never 0 — when page 0 fails", async () => {
+    const result = await readAllPages(reader(PAGE_SIZE * 3, { errorOnPage: 0 }), "table");
+
+    expect(result.total).toBeNull();
+    expect(result.unavailable).toBe(true);
+  });
+
+  it("reports a null total when a LATE page fails, even though page 0 gave a count", async () => {
+    const result = await readAllPages(reader(PAGE_SIZE * 3, { errorOnPage: 2 }), "table");
+
+    // Page 0 really did report 3000. The read still failed, so nothing is known.
+    expect(result.total).toBeNull();
+  });
+
+  it("reports a null total when the reader throws", async () => {
+    const result = await readAllPages(reader(10, { throwOnPage: 0 }), "table");
+
+    expect(result.total).toBeNull();
+  });
+
+  // ⚠️ THE FALLBACK MUST NOT MASQUERADE AS AN AUTHORITATIVE TOTAL. When the
+  // server ignores the count option, page 0's own length is the only thing known
+  // — good enough to size the read, NOT good enough to print as "of N".
+  it("reports a null total when the server returned no count at all", async () => {
+    const result = await readAllPages(reader(PAGE_SIZE, { countOverride: null }), "table");
+
+    expect(result.rows).toHaveLength(PAGE_SIZE);
+    expect(result.unavailable).toBe(false);
+    // The rows are real; the total is simply unknown.
+    expect(result.total).toBeNull();
   });
 });

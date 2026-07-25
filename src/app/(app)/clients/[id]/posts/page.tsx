@@ -3,7 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
+import {
+  AnalyticsTruncated,
+  AnalyticsUnavailable,
+} from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
 import { PostsTable } from "@/components/dashboard/posts/posts-table";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
@@ -67,6 +70,15 @@ export default async function ClientPostsPage({
         <AnalyticsUnavailable />
       ) : (
         <div className="space-y-4">
+          {/* ⚠️ THE READ CAP, NOT THE DISPLAY CAP BELOW. This banner means rows
+              that exist were never FETCHED, so `totalInPeriod` is itself a lower
+              bound; `cappedTo` below means every row was read and the table shows
+              the top slice. Two different facts, and the reader must be able to
+              tell "we only saw part of your history" from "we trimmed a long,
+              complete list". */}
+          {posts.truncation ? (
+            <AnalyticsTruncated read={posts.truncation.read} total={posts.truncation.total} />
+          ) : null}
           <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
             <p className="font-mono text-xs text-muted-foreground">{scopeCaption(posts.period)}</p>
             {/* ⚠️ NO SILENT TRUNCATION. When the cap bites, the page states the

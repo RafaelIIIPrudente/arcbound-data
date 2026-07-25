@@ -1036,6 +1036,32 @@ describe("getClientReport (seam → paged bi read)", () => {
     expect(message).toContain(String(MAX_PAGES * PAGE_SIZE));
   });
 
+  it("surfaces the truncated read to the report as read + total", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.biPages = pagesOf([PAGE_SIZE]); // page 0 full; pages 1..49 serve []
+    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
+
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    // The report — and the PDF it prints to — must SAY it is partial. `read` is
+    // what was fetched; `total` is how many match, so the reader sees the gap.
+    expect(report.truncation).toEqual({ read: PAGE_SIZE, total: 60_000 });
+    // ⚠️ total is the TRUE count, NEVER rows.length: read === total would erase
+    // the very gap the notice exists to disclose.
+    expect(report.truncation?.total).not.toBe(report.truncation?.read);
+    // Truncation is NOT a disguised unavailable — the figures are real, just short.
+    expect(report.unavailable).toBeUndefined();
+  });
+
+  it("leaves truncation null on a complete read", async () => {
+    state.biPages = pagesOf([500]);
+
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    // A read that got everything makes no claim of incompleteness.
+    expect(report.truncation ?? null).toBeNull();
+  });
+
   it("reads the externally-owned bi view", async () => {
     state.biPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
 

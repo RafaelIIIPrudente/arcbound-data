@@ -41,6 +41,7 @@ describe("PostsTable", () => {
     for (const header of [
       "Date",
       "Post",
+      "Link",
       "Asset type",
       "Impressions",
       "Likes",
@@ -78,11 +79,13 @@ describe("PostsTable", () => {
   });
 });
 
-describe("the Post cell never renders a dead link", () => {
+describe("the Link cell opens the post, and is never a dead link", () => {
   it("links out in a new tab when the post has a url", () => {
-    render(<PostsTable data={[post({ id: "a", snippet: "A real post" })]} />);
+    render(<PostsTable data={[post({ id: "a" })]} />);
 
-    const link = screen.getByRole("link", { name: "A real post" });
+    // The dedicated Link column carries the pressable link — labelled for
+    // accessibility because it is an icon, not text.
+    const link = screen.getByRole("link", { name: /open post on linkedin/i });
     expect(link).toHaveAttribute("href", "https://www.linkedin.com/feed/update/a");
     expect(link).toHaveAttribute("target", "_blank");
     // `noopener` matters: without it the opened tab can reach back via
@@ -90,10 +93,8 @@ describe("the Post cell never renders a dead link", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
-  it("renders PLAIN TEXT — no anchor at all — when the url is missing", () => {
-    const { container } = render(
-      <PostsTable data={[post({ id: "a", url: null, snippet: "No link here" })]} />,
-    );
+  it("renders NO anchor at all — not even an empty one — when the url is missing", () => {
+    const { container } = render(<PostsTable data={[post({ id: "a", url: null })]} />);
 
     // ⚠️ ASSERTED ON THE TAG, NOT THE ROLE. An `<a>` with no href has no `link`
     // role, so a role-based query finds nothing and `expect(queryByRole("link"))
@@ -102,7 +103,21 @@ describe("the Post cell never renders a dead link", () => {
     // the element is what makes this test able to fail.
     expect(container.querySelector("a")).toBeNull();
     expect(container.querySelector("[href]")).toBeNull();
-    expect(screen.getByText("No link here")).toBeInTheDocument();
+    // The absence is stated, not left blank — the same "not reported" treatment
+    // every other missing value gets.
+    expect(screen.getByText(/Post link not reported/i)).toBeInTheDocument();
+  });
+});
+
+describe("the Post cell shows the snippet as plain, readable text", () => {
+  it("renders the snippet text", () => {
+    render(<PostsTable data={[post({ id: "a", snippet: "A real post" })]} />);
+
+    // The snippet is a preview, not a link — the Link column owns the link now,
+    // so the post text is never wrapped in an anchor of its own.
+    const cell = screen.getByRole("cell", { name: "A real post" });
+    expect(cell).toBeInTheDocument();
+    expect(cell.querySelector("a")).toBeNull();
   });
 
   it("says so when a post carries no text content", () => {

@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { AnalyticsTruncated } from "@/components/dashboard/analytics/analytics-unavailable";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
 import { AssetLegend } from "@/components/dashboard/report/asset-legend";
@@ -341,6 +342,18 @@ function PostTypeDistribution({
 export function PrintReport({ report }: { report: ClientReport }) {
   return (
     <div className="space-y-10">
+      {/* ⚠️ THE ONE THAT LEAVES THE BUILDING. A truncated read means every panel
+          below counts only the posts the pager could fetch, so the printed
+          figures are floors, not totals. On the page it is a screen banner; on
+          paper it is the difference between an honest document and one that lies
+          by omission — `print-block` keeps it whole rather than split by a page
+          break. The same wording the screen uses, so the two cannot disagree. */}
+      {report.truncation ? (
+        <div className="print-block">
+          <AnalyticsTruncated read={report.truncation.read} total={report.truncation.total} />
+        </div>
+      ) : null}
+
       <Section title="Key performance" scope={scopeCaption(report.period)}>
         <div className="print-block">
           <KeyPerformance
