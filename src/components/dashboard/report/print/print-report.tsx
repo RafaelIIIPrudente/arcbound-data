@@ -13,8 +13,11 @@ import {
   YAxis,
 } from "recharts";
 
+import { AnalyticsTruncated } from "@/components/dashboard/analytics/analytics-unavailable";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
+import { ContentComposition } from "@/components/dashboard/report/content-composition";
+import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { AssetLegend } from "@/components/dashboard/report/asset-legend";
 import { rampColor } from "@/components/dashboard/report/ramp";
 import { ChartScope } from "@/components/dashboard/report/chart-scope";
@@ -192,19 +195,29 @@ function ImpressionsByMonth({
 function ImpressionsByWeekday({
   data,
   period,
-  postCount,
+  datedPosts,
+  undatedPosts,
 }: {
   data: SeriesPoint[];
   period: ReportPeriod;
-  postCount: number;
+  datedPosts: number;
+  undatedPosts: number;
 }) {
-  const isEmpty = data.every((d) => d.value === 0);
+  // Empty when nothing DATABLE fell in the period — not merely when the buckets
+  // are all zero. A datable post that earned no impressions is a measured 0 and
+  // still draws; only the absence of any datable post is empty. Mirrors the
+  // on-screen chart so the document and the app cannot disagree.
+  const hasChart = datedPosts > 0;
+  const exclusion =
+    undatedPosts === 0
+      ? null
+      : `${undatedPosts === 1 ? "1 post" : `${undatedPosts} posts`} without a resolved date ${
+          undatedPosts === 1 ? "is" : "are"
+        } not counted here.`;
 
   return (
-    <Panel title="Average impressions by day of week posted" period={period} postCount={postCount}>
-      {isEmpty ? (
-        <Empty />
-      ) : (
+    <Panel title="Average impressions by day of week posted" period={period} postCount={datedPosts}>
+      {hasChart ? (
         <AreaChart
           width={CHART_WIDTH}
           height={200}
@@ -235,7 +248,17 @@ function ImpressionsByWeekday({
             isAnimationActive={false}
           />
         </AreaChart>
+      ) : (
+        // Distinguish "there were posts, none datable" from "no posts at all".
+        <p className="py-12 text-center text-sm text-muted-foreground">
+          {undatedPosts > 0 ? "No posts with a resolved publish date in this period." : EMPTY}
+        </p>
       )}
+      {exclusion ? (
+        <p className="mt-3 font-mono text-[10.5px] text-muted-foreground" role="note">
+          {exclusion}
+        </p>
+      ) : null}
     </Panel>
   );
 }
@@ -341,6 +364,18 @@ function PostTypeDistribution({
 export function PrintReport({ report }: { report: ClientReport }) {
   return (
     <div className="space-y-10">
+      {/* ⚠️ THE ONE THAT LEAVES THE BUILDING. A truncated read means every panel
+          below counts only the posts the pager could fetch, so the printed
+          figures are floors, not totals. On the page it is a screen banner; on
+          paper it is the difference between an honest document and one that lies
+          by omission — `print-block` keeps it whole rather than split by a page
+          break. The same wording the screen uses, so the two cannot disagree. */}
+      {report.truncation ? (
+        <div className="print-block">
+          <AnalyticsTruncated read={report.truncation.read} total={report.truncation.total} />
+        </div>
+      ) : null}
+
       <Section title="Key performance" scope={scopeCaption(report.period)}>
         <div className="print-block">
           <KeyPerformance
@@ -364,9 +399,23 @@ export function PrintReport({ report }: { report: ClientReport }) {
         <ImpressionsByWeekday
           data={report.impressionsByWeekday}
           period={report.period}
-          postCount={report.impressionsPostCount}
+          // Datable posts only — the weekday chart excludes undated ones. The
+          // sibling month chart above keeps `impressionsPostCount` untouched.
+          datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+          undatedPosts={report.weekdayUndatedPosts}
         />
       </Section>
+
+      {/* Posting cadence — follows the selected period, like the screen. Print is a
+          static document, so it pins the MARKS view (`staticView`) and drops the
+          Marks/Week/Month toggle rather than exporting a dead control. Print-safe
+          by construction (percentage/flex layout, no recharts) and `print-block`.
+          Omitted when the selected period has no posts, matching the screen. */}
+      {report.cadence.totalPosts > 0 ? (
+        <Section title="Posting cadence" scope={scopeCaption(report.period)}>
+          <PostingCadence cadence={report.cadence} staticView="marks" />
+        </Section>
+      ) : null}
 
       <Section title="Content mix" scope={scopeCaption(report.period)}>
         <InteractionsByAsset
@@ -380,6 +429,15 @@ export function PrintReport({ report }: { report: ClientReport }) {
           postCount={report.assetPostCount}
         />
       </Section>
+
+      {/* Content composition — follows the selected period, like the screen. Pure
+          text and flex, `print-block` already on the component, so it exports
+          cleanly. Omitted for a period with no posts, matching the screen. */}
+      {report.composition.totalPosts > 0 ? (
+        <Section title="Content composition" scope={scopeCaption(report.period)}>
+          <ContentComposition composition={report.composition} />
+        </Section>
+      ) : null}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { paths } from "@/paths";
 
 /**
- * Client sub-navigation: Overview ⇄ LinkedIn Report.
+ * Client sub-navigation: Overview ⇄ Posts ⇄ LinkedIn Report.
  *
  * Deliberately NOT the shadcn <Tabs> primitive (see settings-tabs.tsx, where it
  * IS correct). Each tab here is a separate SERVER route with its own data fetch
@@ -18,8 +18,11 @@ import { paths } from "@/paths";
 export function ClientTabs({ clientId }: { clientId: string }) {
   const pathname = usePathname();
 
+  // `isActive` below is an EXACT pathname match, so every href here must be a
+  // distinct path — never a prefix of another, or two tabs would light up.
   const tabs = [
     { href: paths.clients.details(clientId), label: "Overview" },
+    { href: paths.clients.posts(clientId), label: "Posts" },
     { href: paths.clients.report(clientId), label: "LinkedIn Report" },
   ];
 

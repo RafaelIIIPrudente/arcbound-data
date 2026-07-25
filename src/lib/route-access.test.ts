@@ -21,6 +21,22 @@ describe("isPublicRoute", () => {
     expect(isPublicRoute(paths.settings.profile)).toBe(false);
   });
 
+  it("treats the public client Report Link route as public (base and any token)", () => {
+    expect(isPublicRoute(paths.reportLinkBase)).toBe(true);
+    expect(isPublicRoute(paths.reportLink("abc123def456"))).toBe(true);
+    // A token with its own trailing segment still resolves under /r.
+    expect(isPublicRoute("/r/abc123/anything")).toBe(true);
+  });
+
+  it("does NOT leak the /r prefix onto sibling routes that merely start with 'r'", () => {
+    // ⚠️ THE TRAILING-SLASH GUARD IS LOAD-BEARING. `/resources` starts with the
+    // string "/r"; a naive prefix check would make the whole Resources feature —
+    // and any future /r… route — publicly reachable. These must stay GATED.
+    expect(isPublicRoute(paths.resources)).toBe(false);
+    expect(isPublicRoute("/reports")).toBe(false);
+    expect(isPublicRoute("/r-eport")).toBe(false);
+  });
+
   it("treats the printable report as non-public", () => {
     // The print view is a route GROUP, not a route segment — `(print)` never
     // reaches the URL, so nothing about the export path exempts it from the
@@ -73,6 +89,13 @@ describe("routeAccess", () => {
       expect(routeAccess(paths.auth.resetPassword, false)).toEqual({ type: "pass" });
       expect(routeAccess(paths.auth.updatePassword, false)).toEqual({ type: "pass" });
       expect(routeAccess(paths.auth.callback, false)).toEqual({ type: "pass" });
+    });
+
+    it("lets an unauthenticated visitor reach the public Report Link route", () => {
+      // The whole point: a Client with the URL + Access Code has NO session, so
+      // the route must pass the auth gate (the Access Code gate is enforced by
+      // the /r/[token] page, not by route-access).
+      expect(routeAccess(paths.reportLink("abc123def456"), false)).toEqual({ type: "pass" });
     });
   });
 

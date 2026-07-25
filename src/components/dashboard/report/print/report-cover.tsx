@@ -1,5 +1,6 @@
+import { AnalyticsTruncated } from "@/components/dashboard/analytics/analytics-unavailable";
 import { Wordmark } from "@/components/brand/wordmark";
-import type { ReportFigure, ReportPeriod } from "@/services/types";
+import type { ReadTruncation, ReportFigure, ReportPeriod } from "@/services/types";
 
 /**
  * The cover page of the exported report — the only part of the document that is
@@ -89,12 +90,21 @@ export function ReportCover({
   period,
   figures,
   now,
+  truncation,
 }: {
   clientName: string;
   linkedinUrl: string;
   period: ReportPeriod;
   figures: ReportFigure[];
   now: Date;
+  /**
+   * Set when the post read behind this report hit the pager's cap. The cover's
+   * three headline figures are computed from that same partial read, so page 1 —
+   * the first, often only, page a client reads — must carry the caveat too, not
+   * leave a lower-bound standing as a total. Same component the body and screen
+   * use, so the surfaces cannot word it differently.
+   */
+  truncation?: ReadTruncation | null;
 }) {
   return (
     <header className="print-cover flex min-h-[220mm] flex-col justify-between">
@@ -121,10 +131,20 @@ export function ReportCover({
         <p className="mt-6 font-display text-lg font-semibold">{periodInWords(period)}</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-8 border-t pt-8">
-        {figures.map((figure) => (
-          <HeadlineFigure key={figure.label} figure={figure} />
-        ))}
+      {/* Figures and their caveat are ONE flex child, so the truncation note
+          sits directly beneath the numbers it qualifies without unbalancing the
+          cover's full-page `justify-between` layout. */}
+      <div>
+        <div className="grid grid-cols-3 gap-8 border-t pt-8">
+          {figures.map((figure) => (
+            <HeadlineFigure key={figure.label} figure={figure} />
+          ))}
+        </div>
+        {truncation ? (
+          <div className="mt-6">
+            <AnalyticsTruncated read={truncation.read} total={truncation.total} />
+          </div>
+        ) : null}
       </div>
 
       <div className="border-t pt-4 font-mono text-[9px] tracking-[0.14em] text-muted-foreground uppercase">

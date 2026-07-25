@@ -48,8 +48,16 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Ingestion** — turning a Scrape into Posts plus one Upload record, atomically,
   and reporting how many Posts were **inserted**, **updated**, or **unchanged**.
 
+- **Attribution** — the linking of a scraped Post to a Client, performed
+  DOWNSTREAM of ArcBase by a name match on the Client's name. ArcBase submits
+  Posts and can only observe, afterwards, whether they came back attributed; it
+  cannot perform or correct the match itself.
+
 - **Follower Count** — a Client's follower total captured with a Scrape. Stored
   per-Upload, which gives a follower history over time.
+
+- **Shares** — a repost of a Client's Post. The Scrape and the BI views call this
+  `reposts`; staff always see "Shares". The raw field name is never shown.
 
 - **Format Type** (a.k.a. **Asset Type**) — how a Post was published, as reported
   by the Scrape: `IMAGE`, `DOCUMENT`, `VIDEO`, `TEXT`, `POLL`, `ARTICLE`,
@@ -89,4 +97,19 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Guard** — a mechanism that permits or denies access based on whether the
   current visitor is an authenticated user. A _route Guard_ protects a URL; a
   _component Guard_ protects a region of a screen. In ArcBase every route except
-  the login page is guarded.
+  the login page (and the passcode-gated Report Link) is guarded.
+
+- **Report Link** — a revocable, read-only URL that lets a Client's own viewer see
+  that one Client's live report without an ArcBase account. It is a capability
+  bound to a single Client, not a user identity: the viewer is never an
+  authenticated user and can reach only that Client's data. Exactly one Report Link
+  is active per Client at a time.
+
+- **Access Code** — the out-of-band passcode a viewer must supply, together with the
+  Report Link URL, to open the report. It gates a Report Link; possession of the
+  URL alone is not enough.
+
+- **Report Status** — the at-a-glance state shown atop a Report Link view: how
+  current the data is (last Scrape date and tracked-since) and a plain, non-graded
+  activity line (recent posting cadence and trend direction). It describes state,
+  never a score or grade.

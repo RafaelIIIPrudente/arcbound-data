@@ -7,11 +7,12 @@ import type { ReportPeriod } from "@/services/types";
 // ⚠️ THIS MODULE MUST NOT CARRY "use client".
 //
 // It is imported from BOTH sides of the boundary — the picker (a Client
-// Component) calls `reportPeriodHref`, and the report page (an RSC) calls
-// `scopeCaption`. A "use client" directive turns every export into a client
-// reference, and a server component cannot CALL a client reference; it can only
-// render it as a component or pass it as a prop. These helpers therefore live
-// here rather than in report-period-picker.tsx, which is a client module.
+// Component) calls `reportPeriodHref`, and two RSC screens (the client report
+// and the client posts pages) call `scopeCaption`. A "use client" directive
+// turns every export into a client reference, and a server component cannot
+// CALL a client reference; it can only render it as a component or pass it as
+// a prop. These helpers therefore live here rather than in
+// report-period-picker.tsx, which is a client module.
 //
 // That failure does not show up in a build (the report route is dynamic, so it
 // is never executed at build time) or in a unit test (where the directive is
@@ -36,7 +37,8 @@ export function reportPeriodHref(pathname: string, periodKey: string): string {
 }
 
 /**
- * The Key Performance section caption for a period.
+ * The scope caption for a period. Used by the report's three sections, the print
+ * report's three sections, and the posts screen.
  *
  * Labels are NOT lowercased: "July 2026" and "Q3 2026" are proper nouns, and an
  * earlier version rendered them as "july 2026". All-time is the one label that

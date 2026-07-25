@@ -107,12 +107,15 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+// PAGE_SIZE / MAX_PAGES now live in the shared `bi-posts` seam — the paging they
+// govern is read by the report AND the per-post drill-down. Import paths only:
+// every assertion below is unchanged, which is what makes this file the guard
+// proving that extraction was behaviour-preserving.
+import { MAX_PAGES, PAGE_SIZE } from "./bi-posts";
 import {
   availablePeriods,
   buildClientReport,
   getClientReport,
-  MAX_PAGES,
-  PAGE_SIZE,
   parseReportPeriod,
 } from "./client-report";
 
@@ -416,6 +419,10 @@ describe("all-time figures are INVARIANT to the selected period", () => {
         likes: 143,
         comments: 28,
         shares: 14,
+        // Extended, not weakened: every HISTORY post carries a real `saves: 0`,
+        // so the scope is fully reported and the sum is a genuine zero.
+        saves: 0,
+        savesPartial: false,
       });
     }
   });
@@ -610,7 +617,90 @@ describe("the four charts follow the selected period", () => {
     // The weekday axis keeps all seven days at zero rather than vanishing.
     expect(report.impressionsByWeekday).toHaveLength(7);
     expect(report.impressionsByWeekday.every((d) => d.value === 0)).toBe(true);
+    // No datable posts and none undated either — the empty period excludes nothing.
+    expect(report.weekdayUndatedPosts).toBe(0);
     expect(JSON.stringify(report)).not.toContain('null,"value":NaN');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE WEEKDAY IS WHEN THE CLIENT PUBLISHED, NOT WHEN WE SCRAPED.
+//
+// ⚠️ The report's weekday chart used to bucket on `effectiveMs` (the windowing
+// key, which stands `scraped_at` in for an hour-age post's missing publish date).
+// That dropped every hour-age post onto its SCRAPE weekday — fabricating a rhythm
+// in a client-facing chart. It now dates by `estMs` (estimated_post_date) alone,
+// exactly as the dashboard's weekday chart does; undated posts are excluded and
+// counted in `weekdayUndatedPosts` so the chart can disclose the gap.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the report weekday chart dates by publish date, never scrape date", () => {
+  // All placeable into July — the dated ones by estimated_post_date, the hour-age
+  // one by its July scrape. Weekdays (UTC):
+  //   d1 Wed 2026-07-01 · 100    d2 Wed 2026-07-08 · 300    d3 Fri 2026-07-10 · 500
+  //   z1 Mon 2026-07-13 · 0      u1 UNDATED, scraped Thu 2026-07-16 · 999
+  const WEEKDAY_ROWS: BiPostRow[] = [
+    row({ linkedin_post_id: "d1", estimated_post_date: "2026-07-01", impressions: 100 }),
+    row({ linkedin_post_id: "d2", estimated_post_date: "2026-07-08", impressions: 300 }),
+    row({ linkedin_post_id: "d3", estimated_post_date: "2026-07-10", impressions: 500 }),
+    row({ linkedin_post_id: "z1", estimated_post_date: "2026-07-13", impressions: 0 }),
+    row({
+      linkedin_post_id: "u1",
+      estimated_post_date: null,
+      post_age: "5h",
+      impressions: 999,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+    }),
+  ];
+
+  const build = (rows = WEEKDAY_ROWS) =>
+    buildClientReport(rows, new Map<string, string>(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  const byDay = (r: ReturnType<typeof build>): Record<string, number> =>
+    Object.fromEntries(r.impressionsByWeekday.map((d) => [d.label, d.value]));
+
+  it("averages each weekday by the post's estimated_post_date", () => {
+    const day = byDay(build());
+    expect(day["Wed"]).toBe(200); // mean(100, 300)
+    expect(day["Fri"]).toBe(500);
+  });
+
+  it("does NOT place an hour-age post on its scrape weekday, and counts it as undated", () => {
+    // u1 was scraped on a Thursday but has no resolved publish date. Bucketed by
+    // scraped_at it would drop 999 onto Thursday; it must not — Thursday saw no
+    // DATABLE post, a genuine zero. And it is counted, never silently dropped.
+    // This is the assertion that pins the bug.
+    const report = build();
+    expect(byDay(report)["Thu"]).toBe(0);
+    expect(report.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("keeps a datable 0-impression weekday as a genuine 0, distinct from undated", () => {
+    const report = build();
+    expect(report.impressionsByWeekday).toHaveLength(7);
+    // z1 is a real, DATED Monday post that earned 0 impressions — a measured zero,
+    // present in the series. It is NOT undated: only u1 is.
+    expect(byDay(report)["Mon"]).toBe(0);
+    expect(report.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("counts weekdayUndatedPosts as every in-period placeable row with no resolved date", () => {
+    // A second hour-age post scraped into July → two undated placeable rows.
+    const rows = [
+      ...WEEKDAY_ROWS,
+      row({
+        linkedin_post_id: "u2",
+        estimated_post_date: null,
+        post_age: "2h",
+        impressions: 400,
+        scraped_at: "2026-07-15T06:00:00.000Z",
+      }),
+    ];
+    expect(build(rows).weekdayUndatedPosts).toBe(2);
   });
 });
 
@@ -924,6 +1014,123 @@ describe("buildClientReport (pure)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POSTING CADENCE rides the report. The pure arithmetic is proven exhaustively in
+// cadence.test.ts; these pin the WIRING — that buildClientReport computes it over
+// the SELECTED period's rows and preserves the counted-but-not-placed rule for
+// undated posts end to end.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("posting cadence is carried on the report (period-scoped)", () => {
+  const build = (period: ReportPeriod, rows = HISTORY) =>
+    buildClientReport(rows, new Map(), {
+      period,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("computes the cadence figures over the selected window", () => {
+    // All-time here: HISTORY sorted Jan 15, May 5, Jun 10, Jun 20, Jul 10 → gaps
+    // 110, 36, 10, 20.
+    const { cadence } = build(ALL_TIME);
+
+    expect(cadence.totalPosts).toBe(5);
+    expect(cadence.datedPosts).toBe(5);
+    expect(cadence.medianGapDays).toBe(28); // median of 110/36/10/20, not the mean (44)
+    expect(cadence.longestGapDays).toBe(110);
+    expect(cadence.daysSinceLastPost).toBe(6); // Jul 10 → Jul 16 12:00 = 6 whole days
+    expect(cadence.timeline).toHaveLength(5);
+  });
+
+  it("FOLLOWS the selected period — recomputes for the window", () => {
+    // ⚠️ REVERSES THE ORIGINAL 'cadence is all-time' DESIGN, at the user's
+    // request. This test replaces the one that pinned invariance to the period;
+    // the section now adjusts to the picker like its temporal siblings.
+    const july = build(JULY).cadence; // July 2026 holds exactly one post (jul1)
+    const all = build(ALL_TIME).cadence; // the whole Jan→Jul history
+
+    expect(july.totalPosts).toBe(1);
+    expect(july.medianGapDays).toBeNull(); // one dated post → no gap to measure
+    expect(all.totalPosts).toBe(5);
+    expect(all.medianGapDays).toBe(28);
+    // ...and they genuinely differ — the section is not accidentally frozen.
+    expect(july).not.toEqual(all);
+  });
+
+  it("counts an undated post in the total but keeps it off the timeline", () => {
+    const rows = [
+      ...HISTORY,
+      row({ linkedin_post_id: "ghost", estimated_post_date: null, scraped_at: "2026-07-15" }),
+    ];
+    const { cadence } = build(ALL_TIME, rows);
+
+    expect(cadence.totalPosts).toBe(6); // counted
+    expect(cadence.datedPosts).toBe(5); // but not dated
+    expect(cadence.undatedPosts).toBe(1);
+    expect(cadence.timeline).toHaveLength(5); // never placed at its scrape instant
+    expect(cadence.longestGapDays).toBe(110); // gaps unchanged by the undated post
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTENT COMPOSITION rides the report. The parsing is proven exhaustively in
+// content-composition.test.ts; these pin the WIRING — that buildClientReport
+// computes it over the SELECTED period's rows and preserves the counted-but-omitted
+// rule for textless posts end to end.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("content composition is carried on the report (period-scoped)", () => {
+  const build = (rows: BiPostRow[], period: ReportPeriod = JULY) =>
+    buildClientReport(rows, new Map(), {
+      period,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("FOLLOWS the selected period — composition recomputes for the window", () => {
+    const rows = [
+      row({
+        linkedin_post_id: "jul",
+        estimated_post_date: "2026-07-10",
+        post_content: "Big #saas news? Read https://example.com 🚀",
+      }),
+      row({
+        linkedin_post_id: "jan",
+        estimated_post_date: "2026-01-10",
+        post_content: "#SaaS again, thanks @jane",
+      }),
+    ];
+    const july = build(rows).composition; // JULY selects only the July post
+    const all = build(rows, ALL_TIME).composition; // all-time sees both
+
+    expect(july.totalPosts).toBe(1);
+    expect(july.hashtags).toEqual([{ tag: "saas", count: 1 }]); // only July's #saas
+    expect(july.withLink).toBe(1); // the July post's in-text URL
+    expect(july.withMention).toBe(0); // @jane is in the EXCLUDED January post
+
+    expect(all.totalPosts).toBe(2);
+    expect(all.hashtags).toEqual([{ tag: "saas", count: 2 }]); // both posts, case-folded
+    expect(all.withMention).toBe(1);
+  });
+
+  it("counts a textless post but omits it from features", () => {
+    const rows = [
+      row({
+        linkedin_post_id: "a",
+        estimated_post_date: "2026-07-01",
+        post_content: "#growth mindset",
+      }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", post_content: null }),
+    ];
+    const { composition } = build(rows);
+
+    expect(composition.totalPosts).toBe(2);
+    expect(composition.analysedPosts).toBe(1);
+    expect(composition.unanalysablePosts).toBe(1);
+    expect(composition.hashtags).toEqual([{ tag: "growth", count: 1 }]);
+  });
+});
+
 describe("getClientReport (seam → paged bi read)", () => {
   it("pages past the PostgREST 1000-row cap and merges every page", async () => {
     // A FULL first page must trigger a second request — a silent truncation here
@@ -1029,6 +1236,32 @@ describe("getClientReport (seam → paged bi read)", () => {
     expect(message).toContain(String(MAX_PAGES * PAGE_SIZE));
   });
 
+  it("surfaces the truncated read to the report as read + total", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.biPages = pagesOf([PAGE_SIZE]); // page 0 full; pages 1..49 serve []
+    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
+
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    // The report — and the PDF it prints to — must SAY it is partial. `read` is
+    // what was fetched; `total` is how many match, so the reader sees the gap.
+    expect(report.truncation).toEqual({ read: PAGE_SIZE, total: 60_000 });
+    // ⚠️ total is the TRUE count, NEVER rows.length: read === total would erase
+    // the very gap the notice exists to disclose.
+    expect(report.truncation?.total).not.toBe(report.truncation?.read);
+    // Truncation is NOT a disguised unavailable — the figures are real, just short.
+    expect(report.unavailable).toBeUndefined();
+  });
+
+  it("leaves truncation null on a complete read", async () => {
+    state.biPages = pagesOf([500]);
+
+    const report = await getClientReport({ clientId: "c1", period: "all" });
+
+    // A read that got everything makes no claim of incompleteness.
+    expect(report.truncation ?? null).toBeNull();
+  });
+
   it("reads the externally-owned bi view", async () => {
     state.biPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
 
@@ -1058,5 +1291,91 @@ describe("getClientReport (seam → paged bi read)", () => {
 
     expect(report.unavailable).toBe(true);
     expect(report.totalPostsAllTime).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SAVES IN THE INTERACTIONS COMPARISON — THREE STATES.
+//
+// ⚠️ `saves` is genuinely nullable: the scrape may omit it. The other three
+// metrics coerce an absent value to 0 safely; saves cannot, because a 0 would
+// report an absent measurement as a measured one. And a PARTIAL sum printed as
+// a total is the same lie in a subtler form.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("comparisonRow — saves keeps its three states apart", () => {
+  const build = (rows: BiPostRow[]) =>
+    buildClientReport(rows, new Map(), {
+      period: ALL_TIME,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+  const allTimeRow = (rows: BiPostRow[]) =>
+    build(rows).interactionsComparison.find((r) => r.scope === "allTime")!;
+
+  it("sums saves and marks the scope complete when EVERY post reported them", () => {
+    const result = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: 3 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", saves: 4 }),
+    ]);
+
+    expect(result.saves).toBe(7);
+    expect(result.savesPartial).toBe(false);
+  });
+
+  it("reports NULL — never 0 — when no post in the scope reported saves", () => {
+    const result = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: null }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", saves: null }),
+    ]);
+
+    // A 0 here would claim these posts were saved zero times. We do not know.
+    expect(result.saves).toBeNull();
+    expect(result.saves).not.toBe(0);
+    expect(result.savesPartial).toBe(false);
+  });
+
+  it("marks a MIXED scope partial, summing only the posts that reported", () => {
+    const result = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: 3 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", saves: null }),
+      row({ linkedin_post_id: "c", estimated_post_date: "2026-07-03", saves: 4 }),
+    ]);
+
+    // The sum is real but INCOMPLETE — a lower bound, and flagged as one.
+    expect(result.saves).toBe(7);
+    expect(result.savesPartial).toBe(true);
+  });
+
+  it("distinguishes a measured ZERO from an absent measurement", () => {
+    // ⚠️ THE DISCRIMINATING PAIR. Both scopes "have no saves"; only one of them
+    // is a fact. Collapsing them is the defect this repo has fixed three times.
+    const measured = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: 0 }),
+    ]);
+    const absent = allTimeRow([
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", saves: null }),
+    ]);
+
+    expect(measured.saves).toBe(0);
+    expect(measured.savesPartial).toBe(false);
+    expect(absent.saves).toBeNull();
+  });
+
+  it("scopes saves to the period, like every other metric in the table", () => {
+    const rows = [
+      row({ linkedin_post_id: "jul", estimated_post_date: "2026-07-10", saves: 5 }),
+      row({ linkedin_post_id: "jan", estimated_post_date: "2026-01-10", saves: 100 }),
+    ];
+    const report = buildClientReport(rows, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+    const selected = report.interactionsComparison.find((r) => r.scope === "selected")!;
+    expect(selected.saves).toBe(5);
+    expect(report.interactionsComparison.find((r) => r.scope === "allTime")!.saves).toBe(105);
   });
 });

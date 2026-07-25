@@ -131,4 +131,46 @@ describe("the printable document", () => {
     expect(screen.getAllByText("Slide show").length).toBeGreaterThan(0);
     expect(screen.queryByText(/SLIDE_SHOW/)).not.toBeInTheDocument();
   });
+
+  // ── truncation reaches paper ──────────────────────────────────────────────
+  //
+  // This is the surface the brief calls the one that matters most: the PDF that
+  // leaves the building. A partial read whose figures print as totals, with
+  // nothing saying so, is the worst thing this document can do.
+  it("prints a truncation notice — with BOTH numbers — when the read was partial", () => {
+    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const report: ClientReport = {
+      ...buildClientReport(rows, new Map(), {
+        period: ALL_TIME,
+        now: NOW,
+        followers: null,
+        availablePeriods: availablePeriods(rows),
+      }),
+      // The pager stopped at its cap: 50,000 read of 137,412 that match.
+      truncation: { read: 50_000, total: 137_412 },
+    };
+
+    render(<PrintReport report={report} />);
+
+    // Both numbers, so a reader knows the SIZE of the gap, not just that one is
+    // there — and that every figure on the page is a floor, not a total.
+    expect(screen.getByText(/50,000 of 137,412 posts/)).toBeInTheDocument();
+    expect(screen.getByText(/lower bounds, not totals/)).toBeInTheDocument();
+  });
+
+  it("prints NO truncation notice when the read was complete", () => {
+    const rows = [biRow({ linkedin_post_id: "p1" })];
+    // `buildClientReport` leaves truncation undefined — a complete read makes no
+    // claim of incompleteness, and a notice that fires anyway cries wolf.
+    const report = buildClientReport(rows, new Map(), {
+      period: ALL_TIME,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+    render(<PrintReport report={report} />);
+
+    expect(screen.queryByText(/lower bounds, not totals/)).not.toBeInTheDocument();
+  });
 });

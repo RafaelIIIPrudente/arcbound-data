@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 function trigger() {
-  return screen.getByRole("combobox", { name: "Period for key performance" });
+  return screen.getByRole("combobox", { name: "Reporting period" });
 }
 
 describe("ReportPeriodPicker", () => {

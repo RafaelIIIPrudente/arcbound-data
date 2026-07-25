@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
+import {
+  AnalyticsTruncated,
+  AnalyticsUnavailable,
+} from "@/components/dashboard/analytics/analytics-unavailable";
+import { ClientComparisonTable } from "@/components/dashboard/analytics/client-comparison";
 import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-filters";
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
 import { KpiCards } from "@/components/dashboard/analytics/kpi-cards";
-import { RecentPostsTable } from "@/components/dashboard/analytics/recent-posts-table";
+import { WeekdayImpressionsChart } from "@/components/dashboard/analytics/weekday-impressions-chart";
 import { Button } from "@/components/ui/button";
 import { paths } from "@/paths";
 import { getDashboardAnalytics, RANGE_LABEL } from "@/services/analytics";
-import { listClients } from "@/services/clients";
+import { listClientRegistry } from "@/services/clients";
 import type { DashboardRange } from "@/services/types";
 
 export const metadata: Metadata = { title: "Post analytics" };
@@ -28,12 +32,25 @@ export default async function DashboardPage({
   const range = normalizeRange(rawRange);
   const clientId = client && client !== "all" ? client : undefined;
 
+  // The client book is read ONCE per request. The filter needs only id + name,
+  // so it reads the cheap `listClientRegistry` — NOT `listClients`, which also
+  // joins post counts and latest-upload timestamps the dropdown never shows — and
+  // hands the SAME in-flight read to `getDashboardAnalytics`, whose all-clients
+  // comparison reuses it instead of reading `public.clients` a second time. The
+  // shared promise still overlaps the analytics bi read under `Promise.all`.
+  const registry = listClientRegistry();
   const [analytics, clientList] = await Promise.all([
-    getDashboardAnalytics({ clientId, range }),
-    listClients({ pageSize: 1000 }),
+    getDashboardAnalytics({ clientId, range, registry }),
+    registry,
   ]);
-  const clients = clientList.items.map((c) => ({ id: c.id, name: c.name }));
-  const hasData = analytics.recentPosts.length > 0;
+  const clients = clientList ?? [];
+  // `totalPosts > 0` is the honest has-data signal: it is the count of posts in
+  // the current window, which is exactly what every figure below is computed from.
+  // (It previously keyed off `recentPosts.length`, a leftover from the removed
+  // recent-posts table; the two are equivalent — `recentPosts` is `[]` iff the
+  // window is empty — so `recentPosts` is now vestigial on this page. Left in place;
+  // removing it is a separate change with its own blast radius.)
+  const hasData = analytics.totalPosts > 0;
 
   return (
     <div className="space-y-6">
@@ -54,6 +71,15 @@ export default async function DashboardPage({
         <AnalyticsUnavailable />
       ) : hasData ? (
         <>
+          {/* ⚠️ ABOVE the figures, not instead of them. A truncated read still
+              produced real numbers — they are simply lower bounds, and the
+              banner is what stops them being read as totals. */}
+          {analytics.truncation ? (
+            <AnalyticsTruncated
+              read={analytics.truncation.read}
+              total={analytics.truncation.total}
+            />
+          ) : null}
           <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={RANGE_LABEL[range]} />
           <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">
             <ImpressionsChart data={analytics.impressionsSeries} rangeLabel={RANGE_LABEL[range]} />
@@ -63,7 +89,21 @@ export default async function DashboardPage({
               delta={analytics.engagement.delta}
             />
           </div>
-          <RecentPostsTable posts={analytics.recentPosts} postCount={analytics.totalPosts} />
+          {/* Dated by estimated_post_date alone; undated (hour-age) posts have no
+              assertable weekday and are disclosed, not bucketed onto a scrape day.
+              `datedPosts` is the count actually averaged — `totalPosts` minus the
+              excluded undated ones. */}
+          <WeekdayImpressionsChart
+            data={analytics.impressionsByWeekday}
+            rangeLabel={RANGE_LABEL[range]}
+            datedPosts={analytics.totalPosts - analytics.weekdayUndatedPosts}
+            undatedPosts={analytics.weekdayUndatedPosts}
+          />
+          {/* All-clients state only: the service returns `null` when one client
+              is selected, and does not issue the comparison's two extra reads. */}
+          {analytics.comparison ? (
+            <ClientComparisonTable comparison={analytics.comparison} />
+          ) : null}
         </>
       ) : (
         <div className="flex flex-col items-center justify-center gap-4 rounded-lg border py-20 text-center">

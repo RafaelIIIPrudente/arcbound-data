@@ -12,29 +12,53 @@ const { state } = vi.hoisted(() => ({
 }));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => {
-    const chain: Record<string, unknown> = {};
-    chain.select = () => chain;
-    chain.eq = (...a: unknown[]) => {
-      state.eqCalls.push(a);
-      return chain;
-    };
-    chain.order = (...a: unknown[]) => {
-      state.orderCalls.push(a);
-      return chain;
-    };
-    chain.then = (resolve: (v: unknown) => unknown) =>
-      Promise.resolve({ data: state.data, error: state.error }).then(resolve);
-    return {
-      from: (t: string) => {
-        state.fromCalls.push(t);
+  createClient: () => ({
+    // A FRESH chainable per query: paged reads build every page before any
+    // resolves, so a shared cursor would serve them all the same range and the
+    // merge would look correct while being wrong.
+    from: (t: string) => {
+      state.fromCalls.push(t);
+      const chain: Record<string, unknown> = {};
+      let from = 0;
+      // ⚠️ The implicit window PostgREST applies when no range is asked for.
+      // Modelling this cap is what lets the regression guard below fail against
+      // an unpaged read — the real database returns 1000 rows and a 200, with
+      // no error and no signal that anything was left behind.
+      let to = PAGE_SIZE - 1;
+      let wantsCount = false;
+      chain.select = (_columns?: unknown, opts?: { count?: string }) => {
+        if (opts?.count === "exact") wantsCount = true;
         return chain;
-      },
-    };
-  },
+      };
+      chain.range = (f: number, t2: number) => {
+        from = f;
+        to = t2;
+        return chain;
+      };
+      chain.eq = (...a: unknown[]) => {
+        state.eqCalls.push(a);
+        return chain;
+      };
+      chain.order = (...a: unknown[]) => {
+        state.orderCalls.push(a);
+        return chain;
+      };
+      chain.then = (resolve: (v: unknown) => unknown) => {
+        const all = Array.isArray(state.data) ? state.data : [];
+        return Promise.resolve({
+          data: state.error ? null : all.slice(from, to + 1),
+          error: state.error,
+          count: wantsCount ? all.length : null,
+        }).then(resolve);
+      };
+      return chain;
+    },
+  }),
 }));
 
-import { latestUploadByClient, listUploads } from "./uploads";
+import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
+
+import { latestUploadByClient, listAllUploads, listUploads } from "./uploads";
 
 const dbRow = (id: string, createdAt: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -109,6 +133,53 @@ describe("listUploads", () => {
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE REGRESSION GUARD.
+  //
+  // `listUploads` read the whole of one client's history with no `.range()`, so
+  // above PostgREST's cap it returned 1000 rows and a 200. `follower-trend.ts`
+  // now sits on this read, and a capped result would SHORTEN a follower series
+  // while the chart presented it as the client's whole history — the oldest
+  // readings dropping off the left of a timeline nobody could tell was cropped.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("reads EVERY upload past the 1000-row response cap, not just the first page", async () => {
+    state.data = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+      dbRow(`u${i}`, `2026-07-16T09:12:00.000Z`),
+    );
+
+    const uploads = await listUploads("c1");
+
+    expect(uploads).toHaveLength(PAGE_SIZE + 200);
+    // 1000 is precisely the number the defect produced.
+    expect(uploads).not.toHaveLength(PAGE_SIZE);
+  });
+
+  // ⚠️ A NON-UNIQUE SORT KEY IS WORSE THAN A SHORT READ. Pages are issued
+  // CONCURRENTLY, so ties are free to reorder between requests and a row can
+  // land in two ranges or in neither — a silently WRONG set, not a short one.
+  it("orders by a UNIQUE key so concurrent pages cannot overlap or skip", async () => {
+    state.data = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:12:00.000Z"),
+    );
+
+    await listUploads("c1");
+
+    expect(state.orderCalls).toContainEqual(["created_at", { ascending: false }]);
+    // `created_at` alone is not a total order — two uploads can share a
+    // timestamp, which this fixture deliberately makes true of every row.
+    expect(state.orderCalls).toContainEqual(["id", { ascending: true }]);
+  });
+
+  it("still filters to the one client when paged", async () => {
+    state.data = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:12:00.000Z"),
+    );
+
+    await listUploads("c1");
+
+    expect(state.eqCalls).toContainEqual(["client_id", "c1"]);
+  });
 });
 
 describe("latestUploadByClient", () => {
@@ -146,6 +217,49 @@ describe("latestUploadByClient", () => {
     expect(state.fromCalls).toHaveLength(1);
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE REGRESSION GUARD.
+  //
+  // This read is NEWEST-FIRST and was unpaged, so PostgREST's 1000-row cap
+  // silently dropped the OLDEST rows — and with them, entire dormant clients.
+  // A client whose only upload sat past the cap came back absent from the map,
+  // which the Client List renders as "Never" ingested.
+  //
+  // That is the exact "we don't know" / "confirmed zero" collapse the ⚠️ comment
+  // on this function warns against, reintroduced by the paging it lacked.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("finds a dormant client whose only upload sits BEYOND the first page", async () => {
+    state.data = [
+      // 1200 recent uploads from a busy client fill page 0 and spill into page 1.
+      ...Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+        dbRow(`busy${i}`, "2026-07-16T09:00:00.000Z", { client_id: "busy" }),
+      ),
+      // The dormant client's single, oldest upload — last in newest-first order.
+      dbRow("old1", "2025-01-05T09:00:00.000Z", { client_id: "dormant" }),
+    ];
+
+    const latest = await latestUploadByClient();
+
+    // Against the unpaged read this was `undefined`, and the Client List said
+    // "Never" — asserting a fact it did not have.
+    expect(latest?.get("dormant")).toBe("2025-01-05T09:00:00.000Z");
+    expect(latest?.get("busy")).toBe("2026-07-16T09:00:00.000Z");
+    expect(latest?.size).toBe(2);
+  });
+
+  // ⚠️ Same rule as postsCount: a truncated read is NO answer, not a smaller
+  // one. A partial map would tell the table that every client beyond the cap has
+  // never been ingested.
+  it("returns NULL when the read is TRUNCATED, never a partial map", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.data = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:00:00.000Z", { client_id: `c${i}` }),
+    );
+
+    expect(await latestUploadByClient()).toBeNull();
+    warn.mockRestore();
+  });
+
   it("returns an EMPTY MAP when no client has ever been ingested", async () => {
     state.data = [];
 
@@ -163,6 +277,71 @@ describe("latestUploadByClient", () => {
     // a confident fact.
     expect(await latestUploadByClient()).toBeNull();
     expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+});
+
+describe("listAllUploads — a FAILED read and an OVERSIZED one are different facts", () => {
+  // ⚠️ TWO FACTS THAT USED TO SHARE ONE CHANNEL. Both a read that FAILED and one
+  // too large to read in full return `null` — safe, because neither ever prints a
+  // wrong number — but they license different sentences on screen ("could not be
+  // read" vs "too many uploads to read at once"). The optional outcome lets a
+  // caller tell them apart without disturbing the `Upload[] | null` contract that
+  // the Data Quality audit and the cross-client comparison already read.
+  it("returns the full audit and reports NOT truncated on a complete read", async () => {
+    state.data = [
+      dbRow("u1", "2026-07-16T09:12:00.000Z"),
+      dbRow("u2", "2026-07-10T08:00:00.000Z", { client_id: "c2" }),
+    ];
+    const outcome = { truncated: false };
+
+    const uploads = await listAllUploads(outcome);
+
+    expect(uploads).toHaveLength(2);
+    expect(outcome.truncated).toBe(false);
+  });
+
+  it("returns null AND flags truncated=true when the audit is OVERSIZED", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.data = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
+      dbRow(`u${i}`, "2026-07-16T09:00:00.000Z", { client_id: `c${i}` }),
+    );
+    const outcome = { truncated: false };
+
+    const uploads = await listAllUploads(outcome);
+
+    // Null, EXACTLY as a failure — a partial audit must never render as complete.
+    expect(uploads).toBeNull();
+    // ...but the caller can now SAY it was oversized, not unreadable.
+    expect(outcome.truncated).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("returns null AND leaves truncated=false when the read FAILED", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.error = { message: "permission denied" };
+    const outcome = { truncated: false };
+
+    const uploads = await listAllUploads(outcome);
+
+    expect(uploads).toBeNull();
+    // A FAILED read is not an oversized one — this is the distinction the
+    // invariant requires, and the two null returns above are what made it
+    // invisible before.
+    expect(outcome.truncated).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("keeps the existing Upload[] | null contract when called with NO outcome", async () => {
+    // The Data Quality audit and the cross-client comparison call it with no
+    // argument and must keep getting exactly `Upload[] | null` — a partial audit
+    // stays `null` (unavailable) for them, never a complete-looking result.
+    state.data = [dbRow("u1", "2026-07-16T09:12:00.000Z")];
+    expect(await listAllUploads()).toHaveLength(1);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.error = { message: "permission denied" };
+    expect(await listAllUploads()).toBeNull();
     warn.mockRestore();
   });
 });

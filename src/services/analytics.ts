@@ -1,12 +1,20 @@
 import { cookies } from "next/headers";
 
+import { median } from "@/lib/median";
+import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
+import { listClientRegistry } from "@/services/clients";
+import { listAllUploads } from "@/services/uploads";
 import type {
+  ClientComparison,
+  ClientComparisonRow,
+  ComparisonMedian,
   DashboardAnalytics,
   DashboardRange,
   Kpi,
   RecentPost,
   SeriesPoint,
+  Upload,
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +66,19 @@ const DAY_MS = 86_400_000;
 export interface DashboardOptions {
   clientId?: string;
   range: DashboardRange;
+  /**
+   * The client roster, already being read by the caller for something else (the
+   * Dashboard reads it for its filter dropdown). Passed in so the all-clients
+   * comparison REUSES that one read instead of issuing a second read of the same
+   * table — the Dashboard's most-hit route otherwise reads `public.clients` twice.
+   *
+   * ⚠️ A PROMISE, NOT A VALUE, so the caller can hand in the read still in flight
+   * and it overlaps the bi read here rather than serialising ahead of it. Omit it
+   * and this falls back to its own `listClientRegistry()`, so every other caller
+   * and test is unaffected. `null` (a resolved failed read) is honoured as failed
+   * — the comparison goes unavailable rather than silently re-reading.
+   */
+  registry?: Promise<{ id: string; name: string }[] | null>;
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────────────
@@ -71,10 +92,27 @@ function round1(v: number): number {
 }
 
 /**
+ * The rounded arithmetic mean, or 0 for an empty set — the report's weekday chart
+ * idiom, reused so the two surfaces average a weekday the same way. An empty
+ * weekday is a genuine 0 here (nothing was posted), never a stand-in for unknown.
+ */
+function mean(values: number[]): number {
+  return values.length === 0 ? 0 : round1(values.reduce((s, v) => s + v, 0) / values.length);
+}
+
+/**
  * The RESOLVED publish date, or null. DISPLAY ONLY — never use this to decide
  * whether a post falls in a window; use `effectiveMs` for that.
+ *
+ * ⚠️ EXPORTED FOR POSTING CADENCE, AND FOR NOTHING ELSE HERE. Cadence dates a
+ * post by when it was PUBLISHED, so a post whose age was scraped in hours (no
+ * resolved date) must return null and be omitted from the timeline — never fall
+ * back to `scraped_at`, which would drop it onto scrape day and fabricate rhythm.
+ * That is exactly the null-returning behaviour this helper has and `effectiveMs`
+ * (the windowing helper) deliberately does not. Reused rather than re-copied so
+ * the two seams cannot drift on what "the post's date" means.
  */
-function estMs(row: BiPostRow): number | null {
+export function estMs(row: BiPostRow): number | null {
   if (!row.estimated_post_date) return null;
   const t = Date.parse(row.estimated_post_date);
   return Number.isNaN(t) ? null : t;
@@ -124,6 +162,25 @@ function toKpi(label: string, current: number, prior: number): Kpi {
   return { label, value: current, delta, direction };
 }
 
+/**
+ * The IMPRESSION-WEIGHTED engagement rate over a SET of posts:
+ * `Σinteractions / Σimpressions × 100`. This is the figure on the dashboard.
+ *
+ * ⚠️ IT CANNOT BE THE MEAN OF THE POSTS' INDIVIDUAL RATES, and must never be
+ * rewritten as one. Averaging per-post rates gives a 12-impression post the same
+ * say as a 100,000-impression post, which is not what "engagement rate for this
+ * period" means to anyone reading it. A set-level rate is a ratio of totals.
+ *
+ * ⚠️ THIS IS NOT A RIVAL TO THE VIEW'S `calculated_engagement_rate`. That column
+ * is the PER-POST rate and is what the posts table shows; this is its AGGREGATE
+ * counterpart. They answer different questions and both are correct.
+ *
+ * What they must SHARE is a numerator and a denominator. The Data Quality panel
+ * now checks exactly that — see `aggregateFormulaMatches` in
+ * `@/services/data-quality` — because if the view defines its per-post rate over
+ * some other basis, this aggregate and that column would be quietly measuring
+ * two different things under one word.
+ */
 function weightedRate(rows: BiPostRow[]): number {
   const impressions = sumOf(rows, (r) => r.impressions);
   return impressions > 0 ? (sumOf(rows, (r) => r.interactions) / impressions) * 100 : 0;
@@ -146,6 +203,27 @@ function formatSync(ms: number): string {
 
 // ── the aggregation (pure, deterministic given `now`) ────────────────────────
 
+/**
+ * The posts the dashboard is ABOUT: inside the selected range, and datable.
+ *
+ * ⚠️ EXPORTED SO THERE IS EXACTLY ONE DEFINITION OF "THE WINDOW". `totalPosts` is
+ * this set's length and the client comparison partitions this same set, so the
+ * table and the KPI cards above it agree BY CONSTRUCTION rather than by two
+ * filters being kept in step by hand. A second copy is how the count above a
+ * table comes to disagree with the rows in it.
+ */
+export function currentWindow(
+  rows: BiPostRow[],
+  { range, now }: { range: DashboardRange; now: Date },
+): BiPostRow[] {
+  const nowMs = now.getTime();
+  const currentStart = nowMs - RANGE_DAYS[range] * DAY_MS;
+  return rows.filter((r) => {
+    const t = effectiveMs(r);
+    return t !== null && t >= currentStart && t <= nowMs;
+  });
+}
+
 export function buildDashboardAnalytics(
   rows: BiPostRow[],
   { range, now }: { range: DashboardRange; now: Date },
@@ -155,10 +233,7 @@ export function buildDashboardAnalytics(
   const currentStart = nowMs - days * DAY_MS;
   const priorStart = nowMs - 2 * days * DAY_MS;
 
-  const current = rows.filter((r) => {
-    const t = effectiveMs(r);
-    return t !== null && t >= currentStart && t <= nowMs;
-  });
+  const current = currentWindow(rows, { range, now });
   const prior = rows.filter((r) => {
     const t = effectiveMs(r);
     return t !== null && t >= priorStart && t < currentStart;
@@ -172,6 +247,11 @@ export function buildDashboardAnalytics(
     sumOf(prior, (r) => r.impressions),
   );
   const kpis: Kpi[] = [
+    // Publishing VOLUME leads the row: it is the number of posts the engagement
+    // outputs below were earned on. A count, not a sum — `toKpi` takes two numbers
+    // and carries the same vs-prior delta every other KPI does. `current.length`
+    // is `totalPosts` by construction, so the KPI and the header caption agree.
+    toKpi("Posts", current.length, prior.length),
     toKpi(
       "Likes",
       sumOf(current, (r) => r.likes),
@@ -183,7 +263,11 @@ export function buildDashboardAnalytics(
       sumOf(prior, (r) => r.comments),
     ),
     toKpi(
-      "Reposts",
+      // `reposts` in the view; ALWAYS "Shares" to staff. This KPI was the lone
+      // violator of that rule — the report and the posts table already said
+      // "Shares", so a user moving between screens met the same column under two
+      // names and had no way to know it was one metric.
+      "Shares",
       sumOf(current, (r) => r.reposts),
       sumOf(prior, (r) => r.reposts),
     ),
@@ -244,6 +328,33 @@ export function buildDashboardAnalytics(
           comments: num(r.comments),
         }));
 
+  // Average impressions by the weekday a post was PUBLISHED on, over the current
+  // window.
+  //
+  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT `effectiveMs`. Every
+  // other figure here windows on `effectiveMs`, which stands `scraped_at` in for an
+  // hour-age post's missing date; that is right for "is it in the window", but a
+  // weekday may NOT be asserted that way. Every post in one weekly scrape shares a
+  // `scraped_at`, so bucketing undated posts by it would pile a scrape onto a single
+  // weekday and fabricate a rhythm — "which weekday lands best" becoming "which
+  // weekday we scraped". Undated posts are excluded and counted separately so the
+  // chart can disclose the gap. (The report's weekday chart now applies this same
+  // `estMs`-only dating and `weekdayUndatedPosts` count — see `client-report.ts`.)
+  const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
+  let weekdayUndatedPosts = 0;
+  for (const r of current) {
+    const t = estMs(r);
+    if (t === null) {
+      weekdayUndatedPosts += 1;
+      continue;
+    }
+    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(r.impressions));
+  }
+  const impressionsByWeekday: SeriesPoint[] = WEEKDAYS.map((label, i) => ({
+    label,
+    value: mean(weekdayBuckets[i]!),
+  }));
+
   const scrapedTimes = rows
     .map((r) => (r.scraped_at ? Date.parse(r.scraped_at) : NaN))
     .filter((t) => !Number.isNaN(t));
@@ -257,16 +368,199 @@ export function buildDashboardAnalytics(
     engagement,
     impressionsSeries,
     engagementSeries,
+    impressionsByWeekday,
+    weekdayUndatedPosts,
     recentPosts,
   };
 }
 
+// ── the cross-client comparison (pure) ───────────────────────────────────────
+
+/**
+ * A median over the Clients that HAVE the figure, plus how many those were.
+ *
+ * ⚠️ NULLS ARE EXCLUDED, NOT COERCED. Folding a Client with no followers in as a
+ * 0 would drag every median toward zero and quietly redefine it as "median
+ * across the book" when it is "median among those we can measure".
+ */
+function medianOf(
+  rows: ClientComparisonRow[],
+  pick: (r: ClientComparisonRow) => number | null,
+): ComparisonMedian {
+  const values = rows.map(pick).filter((v): v is number => v !== null);
+  return { value: median(values), clients: values.length };
+}
+
+/**
+ * The newest recorded follower count per Client.
+ *
+ * Uploads that recorded NO count are skipped rather than read as zero — the same
+ * rule `follower-trend.ts` establishes, so the dashboard and the Client detail
+ * page cannot disagree about a Client's follower count.
+ */
+function latestFollowersByClient(uploads: Upload[] | null): Map<string, number> {
+  const newest = new Map<string, { at: number; followers: number }>();
+  // A failed upload read (`null`) is an EMPTY follower history, not an error:
+  // every Client's follower figure is then unknown and the per-row gate below
+  // em-dashes it. Distinct from "read ok, nobody recorded a count" only via the
+  // `followersUnavailable` flag the caller sets — the numbers are identical.
+  for (const u of uploads ?? []) {
+    if (u.followerCount == null) continue;
+    const at = Date.parse(u.createdAt);
+    if (Number.isNaN(at)) continue;
+    const prev = newest.get(u.clientId);
+    if (!prev || at > prev.at) newest.set(u.clientId, { at, followers: u.followerCount });
+  }
+  return new Map([...newest].map(([id, v]) => [id, v.followers]));
+}
+
+/**
+ * Every Client side by side over one window.
+ *
+ * ⚠️ `current` MUST BE THE SET `buildDashboardAnalytics` REPORTS AS `totalPosts`
+ * — both come from `currentWindow`. That is what makes the parity gate
+ * (`Σposts + unattributedPosts === totalPosts`) hold by construction rather than
+ * by coincidence.
+ *
+ * ⚠️ NO PERCENTILES, RANKS OR PERFORMANCE LABELS. ArcBase tracks dozens of
+ * Clients; against a book that size a percentile is a rank wearing a lab coat
+ * and a label is a judgement the data cannot support. The `posts` column IS the
+ * sample size, and the table plus a median is honest at any N.
+ */
+export function buildClientComparison(
+  current: BiPostRow[],
+  registry: { id: string; name: string }[],
+  uploads: Upload[] | null,
+): ClientComparison {
+  const registered = new Set(registry.map((c) => c.id));
+  const byClient = new Map<string, BiPostRow[]>();
+  let unattributedPosts = 0;
+
+  for (const row of current) {
+    // ⚠️ A post attributed to nobody in the roster is COUNTED, not dropped.
+    // Attribution is downstream (ADR 0009), so this is expected — and it is the
+    // term that lets the table be reconciled against the post count above it.
+    if (!row.client_id || !registered.has(row.client_id)) {
+      unattributedPosts += 1;
+      continue;
+    }
+    const bucket = byClient.get(row.client_id);
+    if (bucket) bucket.push(row);
+    else byClient.set(row.client_id, [row]);
+  }
+
+  const followersByClient = latestFollowersByClient(uploads);
+
+  const rows: ClientComparisonRow[] = registry.map((client) => {
+    // A Client with no posts still gets a row: publishing nothing is a finding,
+    // and dropping the row would make the book look smaller and better than it is.
+    const posts = byClient.get(client.id) ?? [];
+    const impressions = sumOf(posts, (r) => r.impressions);
+    const interactions = sumOf(posts, (r) => r.interactions);
+    const followers = followersByClient.get(client.id) ?? null;
+
+    return {
+      clientId: client.id,
+      clientName: client.name,
+      posts: posts.length,
+      avgImpressions: posts.length === 0 ? null : round1(impressions / posts.length),
+      // THE ONE definition, reused. Gated on impressions so a Client nobody saw
+      // reads as "not applicable" rather than as a measured 0% engagement.
+      engagementRate: impressions > 0 ? round1(weightedRate(posts)) : null,
+      followers,
+      // ⚠️ THREE WAYS THIS IS NOT APPLICABLE, AND NONE OF THEM IS A ZERO:
+      //   • no posts    — nothing was measured; a 0 would rank a silent Client
+      //                   bottom of a normalised column for a reading never taken
+      //   • no followers — the denominator is unknown
+      //   • zero followers — a rate per nothing is undefined, not infinite
+      // A Client who DID post and genuinely earned nothing keeps its measured 0.
+      interactionsPer1K:
+        posts.length === 0 || followers === null || followers === 0
+          ? null
+          : round1((interactions / followers) * 1000),
+    };
+  });
+
+  return {
+    rows,
+    medians: {
+      avgImpressions: medianOf(rows, (r) => r.avgImpressions),
+      engagementRate: medianOf(rows, (r) => r.engagementRate),
+      followers: medianOf(rows, (r) => r.followers),
+      interactionsPer1K: medianOf(rows, (r) => r.interactionsPer1K),
+    },
+    unattributedPosts,
+    unavailable: false,
+    // The follower columns are real only if the upload read returned something to
+    // read. `null` there means the read failed — the rows already em-dash both
+    // follower columns, and this tells the table WHY.
+    followersUnavailable: uploads === null,
+  };
+}
+
+/** The comparison when the ROSTER could not be read — distinct from an empty book. */
+const COMPARISON_UNAVAILABLE: ClientComparison = {
+  rows: [],
+  medians: {
+    avgImpressions: { value: null, clients: 0 },
+    engagementRate: { value: null, clients: 0 },
+    followers: { value: null, clients: 0 },
+    interactionsPer1K: { value: null, clients: 0 },
+  },
+  unattributedPosts: 0,
+  unavailable: true,
+  // Moot here — the whole comparison is unavailable, so there is no follower
+  // column to qualify. Kept explicit so the type is satisfied without a cast.
+  followersUnavailable: false,
+};
+
 const SELECT_COLUMNS =
   "client_id, linkedin_post_id, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, scraped_at";
+
+const BI_LABEL = "bi.linkedin_post_latest";
+
+/**
+ * One page of the dashboard's window, built per request.
+ *
+ * ⚠️ THIS READ WAS THE THIRD REAPPEARANCE of the defect `paged.ts` was extracted
+ * to prevent (after `fetchPostCounts` and `latestUploadByClient`). It issued a
+ * bare `.select()`, so above PostgREST's 1000-row cap it returned 1000 rows and a
+ * 200 — every KPI, the engagement figure, both charts and `lastSync` computed
+ * from a subset and presented as totals. It survived the earlier sweeps because
+ * `analytics.ts` carries its own column list and its own read path.
+ *
+ * ⚠️ THE `.order()` IS LOAD-BEARING, NOT TIDINESS. Pages 1..n are issued
+ * CONCURRENTLY, so without a total order the database may return a row in two
+ * ranges or in neither — a silently WRONG row set rather than a short one.
+ * `linkedin_post_id` is the view's per-post identity and is unique, so it totally
+ * orders the result.
+ *
+ * ⚠️ `SELECT_COLUMNS` AND `BiPostRow` ARE A PAIR — `asPage` asserts the row type
+ * rather than checking it. Edit the two together.
+ */
+function dashboardPageReader(
+  clientId: string | undefined,
+  boundIso: string,
+): PageReader<BiPostRow> {
+  let supabase: ReturnType<typeof createClient> | undefined;
+  return (from, to, opts) => {
+    supabase ??= createClient(cookies());
+    const base = supabase.schema("bi").from("linkedin_post_latest").select(SELECT_COLUMNS, opts);
+    const scoped = clientId ? base.eq("client_id", clientId) : base;
+    return asPage<BiPostRow>(
+      scoped
+        // Keeps null-dated hour-age posts so they can still appear in "recent posts".
+        .or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`)
+        .order("linkedin_post_id", { ascending: true })
+        .range(from, to),
+    );
+  };
+}
 
 export async function getDashboardAnalytics({
   clientId,
   range,
+  registry,
 }: DashboardOptions): Promise<DashboardAnalytics> {
   const now = new Date();
   // Bound to the largest window needed (current + prior = 2N days), but keep
@@ -275,21 +569,62 @@ export async function getDashboardAnalytics({
     .toISOString()
     .slice(0, 10);
 
-  const supabase = createClient(cookies());
-  let query = supabase.schema("bi").from("linkedin_post_latest").select(SELECT_COLUMNS);
-  if (clientId) query = query.eq("client_id", clientId);
-  query = query.or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`);
+  const { rows, unavailable, truncated, total } = await readAllPages(
+    dashboardPageReader(clientId, boundIso),
+    BI_LABEL,
+  );
 
-  const { data, error } = await query;
-  if (error) {
-    // Degrade gracefully while `bi` access is still being wired: show the empty
-    // dashboard instead of crashing the page. (This temporarily conflates "BI
-    // unavailable" with "no data" — both render the "No posts yet" state.)
-    console.warn(`Analytics unavailable — bi.linkedin_post_latest read failed: ${error.message}`);
+  if (unavailable) {
     // Distinct from "no data": flag it so the page can show an "unavailable"
-    // panel rather than the "No posts yet" empty state.
+    // panel rather than the "No posts yet" empty state. `readAllPages` has
+    // already warned, so this does not warn again.
     return { ...buildDashboardAnalytics([], { range, now }), unavailable: true };
   }
 
-  return buildDashboardAnalytics((data ?? []) as BiPostRow[], { range, now });
+  const analytics = buildDashboardAnalytics(rows, { range, now });
+
+  // ⚠️ ONLY IN THE ALL-CLIENTS STATE, and the two extra reads are not issued
+  // otherwise. With one Client selected the screen is about that Client and a
+  // comparison is meaningless — fetching a registry and an upload history to
+  // throw away would be paying for nothing.
+  let comparison: ClientComparison | null = null;
+  if (!clientId) {
+    // ⚠️ REUSE THE CALLER'S ROSTER READ WHEN IT GAVE US ONE. `registry ??
+    // listClientRegistry()` uses the read the Dashboard already issued for its
+    // filter, so `public.clients` is read once per request rather than twice; the
+    // fallback keeps every other caller and test issuing its own read. `??` on the
+    // promise itself, so a passed-in resolved `null` (a failed roster) is honoured
+    // as failed below, not swapped for a fresh read.
+    const [roster, uploads] = await Promise.all([
+      registry ?? listClientRegistry(),
+      listAllUploads(),
+    ]);
+    // ⚠️ BAIL ONLY ON A NULL ROSTER. Without Client names there are no rows to
+    // show. A failed UPLOAD read is NOT fatal to the comparison — it feeds only
+    // `followers` and `interactionsPer1K`, so it is passed through as `null` and
+    // those two columns em-dash for every row while the three post-derived
+    // columns stay real. Folding `uploads === null` back in here throws away
+    // three readable columns to hide two.
+    comparison =
+      roster === null
+        ? COMPARISON_UNAVAILABLE
+        : // THE SAME `currentWindow` CALL `buildDashboardAnalytics` makes, on the
+          // same rows — so the table partitions exactly what `totalPosts` counts.
+          buildClientComparison(currentWindow(rows, { range, now }), roster, uploads);
+  }
+
+  // ⚠️ TRUNCATION IS A DIFFERENT FACT FROM `unavailable` AND MUST NOT COLLAPSE
+  // INTO IT. Unavailable means the numbers are meaningless; truncated means they
+  // are real but incomplete, so every figure on the screen is a LOWER BOUND and
+  // the screen has to say so rather than presenting short numbers as totals.
+  //
+  // ⚠️ AND THE NUMBERS COME FROM THE PAGER, NOT FROM ANYTHING COUNTED HERE.
+  // `rows.length` is what was read and `total` is what matched — the gap between
+  // them is exactly what the banner exists to state, and re-deriving either from
+  // the aggregated figures would reintroduce the guesswork this removes.
+  return {
+    ...analytics,
+    comparison,
+    truncation: truncated ? { read: rows.length, total } : null,
+  };
 }

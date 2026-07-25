@@ -8,33 +8,94 @@ const { biState } = vi.hoisted(() => ({
     eqCalls: [] as unknown[][],
     schemaCalls: [] as string[],
     fromCalls: [] as string[],
+    orderCalls: [] as unknown[][],
+    registry: null as { id: string; name: string }[] | null,
+    uploads: null as unknown[] | null,
+    registryCalls: 0,
+    uploadsCalls: 0,
   },
 }));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
+
+/**
+ * ⚠️ THIS MOCK MODELS POSTGREST'S 1000-ROW RESPONSE CAP, AND THAT IS THE POINT.
+ *
+ * The previous version returned `biState.rows` wholesale however the query was
+ * built, so it could not tell a paged read from an unpaged one — which is why
+ * the dashboard's silent cap survived here unnoticed while two sibling reads were
+ * being fixed. A request with no `.range()` gets the first PAGE_SIZE rows and a
+ * 200: no error, no signal. Modelling that is what lets the guards below fail
+ * against the old read instead of passing against any implementation.
+ *
+ * Each `.from()` hands back a FRESH chain, because `readAllPages` issues pages
+ * 1..n CONCURRENTLY and a shared cursor would let one page overwrite another's
+ * range — the real client builds a new query per call too.
+ */
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => {
-    const chain: Record<string, unknown> = {};
-    chain.select = () => chain;
-    chain.eq = (...a: unknown[]) => {
-      biState.eqCalls.push(a);
-      return chain;
-    };
-    chain.or = () => chain;
-    chain.then = (resolve: (v: unknown) => unknown) =>
-      Promise.resolve({ data: biState.rows, error: biState.error }).then(resolve);
-    return {
-      schema: (s: string) => {
-        biState.schemaCalls.push(s);
-        return {
-          from: (t: string) => {
-            biState.fromCalls.push(t);
+  createClient: () => ({
+    schema: (s: string) => {
+      biState.schemaCalls.push(s);
+      return {
+        from: (t: string) => {
+          biState.fromCalls.push(t);
+          const chain: Record<string, unknown> = {};
+          let from = 0;
+          // The implicit window PostgREST applies when no range is asked for.
+          let to = PAGE_SIZE - 1;
+          let wantsCount = false;
+
+          chain.select = (_columns?: unknown, opts?: { count?: string }) => {
+            if (opts?.count === "exact") wantsCount = true;
             return chain;
-          },
-        };
-      },
-    };
+          };
+          chain.eq = (...a: unknown[]) => {
+            biState.eqCalls.push(a);
+            return chain;
+          };
+          chain.or = () => chain;
+          chain.order = (...a: unknown[]) => {
+            biState.orderCalls.push(a);
+            return chain;
+          };
+          chain.range = (f: number, t2: number) => {
+            from = f;
+            to = t2;
+            return chain;
+          };
+          chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+            Promise.resolve()
+              .then(() => {
+                if (biState.error) return { data: null, error: biState.error, count: null };
+                return {
+                  data: biState.rows.slice(from, to + 1),
+                  error: null,
+                  count: wantsCount ? biState.rows.length : null,
+                };
+              })
+              .then(resolve, reject);
+          return chain;
+        },
+      };
+    },
+  }),
+}));
+
+vi.mock("@/services/clients", () => ({
+  listClientRegistry: () => {
+    biState.registryCalls += 1;
+    return Promise.resolve(biState.registry);
   },
 }));
+vi.mock("@/services/uploads", () => ({
+  listAllUploads: () => {
+    biState.uploadsCalls += 1;
+    return Promise.resolve(biState.uploads);
+  },
+}));
+
+import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
+
+import type { SeriesPoint } from "@/services/types";
 
 import {
   buildDashboardAnalytics,
@@ -194,7 +255,7 @@ describe("buildDashboardAnalytics (pure)", () => {
     // Current window (Jul 1 + Jul 10 + the hour-age p4) impressions = 1700;
     // prior (May 20) = 600. p4 counts via its scraped_at — see `effectiveMs`.
     expect(a.hero).toEqual({ label: "Impressions", value: 1700, delta: 183, direction: "up" });
-    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Reposts", "Saves"]);
+    expect(a.kpis.map((k) => k.label)).toEqual(["Posts", "Likes", "Comments", "Shares", "Saves"]);
     const likes = a.kpis.find((k) => k.label === "Likes")!;
     expect(likes.value).toBe(150); // 100 + 40 + p4's 10
     expect(likes.direction).toBe("up");
@@ -257,6 +318,237 @@ describe("buildDashboardAnalytics (pure)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLISHING VOLUME IS A KPI, NOT A CAPTION. The engagement outputs were earned
+// on a number of posts; that number belongs in the row beside them, with the
+// same vs-prior delta every other KPI carries.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the Posts KPI (publishing volume)", () => {
+  it("leads the KPI row with the current window's post count", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    // Posts is the volume the engagement outputs were earned on, so it reads
+    // Posts → Likes → Comments → Shares → Saves.
+    expect(a.kpis[0]!.label).toBe("Posts");
+    expect(a.kpis[0]!.value).toBe(3); // p1 + p2 + hour-age p4, exactly totalPosts
+    expect(a.kpis[0]!.value).toBe(a.totalPosts);
+  });
+
+  it("carries a vs-prior delta built from the two windows' counts", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    // current 3 posts vs prior 1 (May p3): (3 − 1) / 1 × 100 = 200%, up.
+    expect(a.kpis[0]).toEqual({ label: "Posts", value: 3, delta: 200, direction: "up" });
+  });
+
+  it("reports a DECLINE when fewer posts went out than in the prior window", () => {
+    // One current post; three in the prior 30-day window. A count that fell must
+    // read as a down delta, not a flat one — the discriminator against a Posts
+    // KPI wired to compare a window against itself.
+    const rows: BiPostRow[] = [
+      biRow({ linkedin_post_id: "cur", estimated_post_date: "2026-07-10", impressions: 10 }),
+      biRow({ linkedin_post_id: "pr1", estimated_post_date: "2026-06-01", impressions: 10 }),
+      biRow({ linkedin_post_id: "pr2", estimated_post_date: "2026-06-05", impressions: 10 }),
+      biRow({ linkedin_post_id: "pr3", estimated_post_date: "2026-05-20", impressions: 10 }),
+    ];
+    const a = buildDashboardAnalytics(rows, { range: "30d", now: NOW });
+    // (1 − 3) / 3 × 100 = −66.7 → 67%, down.
+    expect(a.kpis[0]).toEqual({ label: "Posts", value: 1, delta: 67, direction: "down" });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE WEEKDAY IS WHEN THE POST WENT OUT, NOT WHEN IT WAS SCRAPED.
+//
+// ⚠️ A post whose estimated_post_date the pipeline never resolved (an hour-age
+// post) has NO assertable weekday. Bucketing it by its scrape weekday would pile
+// a whole weekly scrape onto one day and fabricate a spike — turning "which
+// weekday lands best" into "which weekday we happened to scrape". Such posts are
+// EXCLUDED from the weekday buckets and counted separately so the chart can say so.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("average impressions by weekday", () => {
+  const wk = (label: string, data: SeriesPoint[]) => data.find((d) => d.label === label)!.value;
+
+  // All four posts fall in the 30-day current window ending at NOW (2026-07-16).
+  //   w1 Wed 2026-07-01 · 100 impressions   w2 Wed 2026-07-08 · 300 impressions
+  //   w3 Fri 2026-07-10 · 500 impressions
+  //   w4 UNDATED (est null) scraped Thu 2026-07-16 · 999 impressions
+  const WEEKDAY_ROWS: BiPostRow[] = [
+    biRow({ linkedin_post_id: "w1", estimated_post_date: "2026-07-01", impressions: 100 }),
+    biRow({ linkedin_post_id: "w2", estimated_post_date: "2026-07-08", impressions: 300 }),
+    biRow({ linkedin_post_id: "w3", estimated_post_date: "2026-07-10", impressions: 500 }),
+    biRow({
+      linkedin_post_id: "w4",
+      estimated_post_date: null,
+      post_age: "5h",
+      impressions: 999,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+    }),
+  ];
+
+  it("returns seven buckets, Sunday through Saturday", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    expect(a.impressionsByWeekday.map((d) => d.label)).toEqual([
+      "Sun",
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+    ]);
+  });
+
+  it("averages each weekday's impressions — the MEAN, never the sum", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // Two Wednesday posts: mean(100, 300) = 200. A sum would read 400 and let a
+    // high-volume weekday dominate a chart that is meant to compare per-post reach.
+    expect(wk("Wed", a.impressionsByWeekday)).toBe(200);
+    expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
+  });
+
+  it("dates each post by its estimated_post_date weekday, NOT its scrape weekday", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // w4 was scraped on a Thursday but has no resolved publish date. If it were
+    // bucketed by effectiveMs/scraped_at it would drop 999 onto Thursday; it must
+    // not. Thursday saw no DATABLE post, so it is a genuine zero.
+    expect(wk("Thu", a.impressionsByWeekday)).toBe(0);
+  });
+
+  it("excludes undated posts and counts how many were excluded", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // w4 is the one in-window post with no resolved date. It is counted in
+    // totalPosts (it is a real post) but excluded from the weekday chart, and the
+    // exclusion is surfaced so the UI can disclose it rather than hide it.
+    expect(a.totalPosts).toBe(4);
+    expect(a.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("gives a weekday with no posts a genuine zero", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // Sunday saw nothing — a real 0, distinct from a weekday we could not measure.
+    expect(wk("Sun", a.impressionsByWeekday)).toBe(0);
+    expect(wk("Mon", a.impressionsByWeekday)).toBe(0);
+  });
+
+  it("yields all-zero buckets when the window holds no datable posts", () => {
+    // Every post in the window is hour-age (undated). There is nothing to place on
+    // a weekday, so every bucket is 0 and the whole window is disclosed as excluded
+    // — the chart's all-zero empty state still triggers, honestly this time.
+    const undatedOnly: BiPostRow[] = [
+      biRow({
+        linkedin_post_id: "u1",
+        estimated_post_date: null,
+        post_age: "2h",
+        impressions: 400,
+        scraped_at: "2026-07-15T06:00:00.000Z",
+      }),
+      biRow({
+        linkedin_post_id: "u2",
+        estimated_post_date: null,
+        post_age: "9h",
+        impressions: 800,
+        scraped_at: "2026-07-16T06:00:00.000Z",
+      }),
+    ];
+    const a = buildDashboardAnalytics(undatedOnly, { range: "30d", now: NOW });
+    expect(a.impressionsByWeekday.every((d) => d.value === 0)).toBe(true);
+    expect(a.totalPosts).toBe(2);
+    expect(a.weekdayUndatedPosts).toBe(2);
+  });
+
+  it("aggregates the CURRENT window only, respecting the range filter", () => {
+    // A Friday post from the prior window (2026-06-05) must not inflate Friday of
+    // the current window's chart. Under 30d it is out of scope; only w3 (Jul 10,
+    // Fri) counts, so Friday stays 500.
+    const withPrior: BiPostRow[] = [
+      ...WEEKDAY_ROWS,
+      biRow({ linkedin_post_id: "old", estimated_post_date: "2026-06-05", impressions: 9000 }),
+    ];
+    const a = buildDashboardAnalytics(withPrior, { range: "30d", now: NOW });
+    expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE AGGREGATE RATE IS IMPRESSION-WEIGHTED, AND MUST STAY THAT WAY.
+//
+// ⚠️ A rate over a SET of posts is a ratio of TOTALS — Σinteractions / Σimpressions
+// — never the mean of the posts' individual rates. Averaging per-post rates gives
+// a 12-impression post the same say as a 100,000-impression one, which is not
+// what "engagement rate for this period" means to anybody reading it.
+//
+// This is pinned rather than merely commented because the temptation to "simplify"
+// it into a mean is real, and the two agree on uniform fixtures — so a fixture
+// with EVEN impressions would pass under both formulas and prove nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the dashboard engagement rate is impression-weighted, not a mean of rates", () => {
+  // Wildly uneven on purpose. Post A: 100,000 impressions, 1,000 interactions
+  // → 1%. Post B: 10 impressions, 5 interactions → 50%.
+  //
+  //   weighted : (1000 + 5) / (100000 + 10) × 100 = 1.0049…  ≈ 1.0
+  //   mean     : (1 + 50) / 2                     = 25.5
+  //
+  // A 25× gap. Nothing subtle can hide in it.
+  const LOPSIDED = [
+    biRow({
+      linkedin_post_id: "whale",
+      impressions: 100_000,
+      interactions: 1_000,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+    biRow({
+      linkedin_post_id: "minnow",
+      impressions: 10,
+      interactions: 5,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+  ];
+
+  it("reports the ratio of TOTALS, not the average of the two posts' rates", () => {
+    const a = buildDashboardAnalytics(LOPSIDED, { range: "30d", now: NOW });
+
+    expect(a.engagement.value).toBeCloseTo(1.0, 1);
+    // Spelled out so the failure message names the defect rather than a number:
+    // 25.5 is what the mean-of-rates formula returns.
+    expect(a.engagement.value).not.toBeCloseTo(25.5, 1);
+  });
+
+  it("lets one high-impression post dominate, which is the whole point", () => {
+    // Swapping the SMALL post's rate must barely move the figure. Under a mean
+    // of rates this jumps by ~25 points; weighted, it moves by ~0.005.
+    const quieterMinnow = [
+      LOPSIDED[0]!,
+      biRow({
+        linkedin_post_id: "minnow",
+        impressions: 10,
+        interactions: 0,
+        scraped_at: "2026-07-15T00:00:00.000Z",
+      }),
+    ];
+
+    const before = buildDashboardAnalytics(LOPSIDED, { range: "30d", now: NOW }).engagement.value;
+    const after = buildDashboardAnalytics(quieterMinnow, { range: "30d", now: NOW }).engagement
+      .value;
+
+    expect(Math.abs(after - before)).toBeLessThan(0.5);
+  });
+
+  it("reports 0 — not NaN — when the period has impressions of zero", () => {
+    const noReach = [
+      biRow({
+        linkedin_post_id: "a",
+        impressions: 0,
+        interactions: 0,
+        scraped_at: "2026-07-15T00:00:00.000Z",
+      }),
+    ];
+
+    const a = buildDashboardAnalytics(noReach, { range: "30d", now: NOW });
+
+    expect(a.engagement.value).toBe(0);
+    expect(Number.isNaN(a.engagement.value)).toBe(false);
+  });
+});
+
 describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
   beforeEach(() => {
     biState.rows = [];
@@ -264,6 +556,9 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     biState.eqCalls = [];
     biState.schemaCalls = [];
     biState.fromCalls = [];
+    biState.orderCalls = [];
+    biState.registry = [];
+    biState.uploads = [];
   });
 
   it("reads the bi view and returns a well-formed analytics", async () => {
@@ -273,7 +568,7 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     expect(biState.schemaCalls).toContain("bi");
     expect(biState.fromCalls).toContain("linkedin_post_latest");
     expect(a.hero.label).toBe("Impressions");
-    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Reposts", "Saves"]);
+    expect(a.kpis.map((k) => k.label)).toEqual(["Posts", "Likes", "Comments", "Shares", "Saves"]);
     expect(Array.isArray(a.impressionsSeries)).toBe(true);
     expect(Array.isArray(a.recentPosts)).toBe(true);
   });
@@ -305,5 +600,536 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     expect(warn).toHaveBeenCalledOnce();
 
     warn.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE THIRD REAPPEARANCE OF THE DEFECT `paged.ts` WAS EXTRACTED TO PREVENT.
+//
+// The dashboard read issued a bare `.select()` — no `.range()`, no ordering — so
+// above PostgREST's 1000-row cap it returned 1000 rows and a 200. Every KPI, the
+// engagement figure, both charts and `lastSync` were then computed from an
+// arbitrary subset, and the screen presented them as totals.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the dashboard read is paged — every post, not the first 1000", () => {
+  /** Dated relative to the real clock: `getDashboardAnalytics` builds its own `now`. */
+  const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+
+  beforeEach(() => {
+    biState.rows = [];
+    biState.error = null;
+    biState.eqCalls = [];
+    biState.schemaCalls = [];
+    biState.fromCalls = [];
+    biState.orderCalls = [];
+    biState.registry = [];
+    biState.uploads = [];
+  });
+
+  it("counts EVERY post past the 1000-row response cap, not just the first page", async () => {
+    biState.rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
+    );
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+
+    expect(a.totalPosts).toBe(PAGE_SIZE + 200);
+    // Nailed down explicitly: 1000 is precisely the number the defect produced.
+    expect(a.totalPosts).not.toBe(PAGE_SIZE);
+  });
+
+  it("sums impressions across every page, so the hero KPI is not short either", async () => {
+    biState.rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
+    );
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+
+    expect(a.hero.value).toBe((PAGE_SIZE + 200) * 10);
+  });
+
+  // ⚠️ WITHOUT A STABLE ORDER THE ROW SET IS SILENTLY WRONG, NOT MERELY SHORT.
+  // Pages 1..n are issued concurrently; with no total order the database may
+  // return a row in two ranges or in neither.
+  it("applies a stable order so concurrent page ranges cannot overlap or skip", async () => {
+    biState.rows = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
+      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
+    );
+
+    await getDashboardAnalytics({ range: "30d" });
+
+    expect(biState.orderCalls).toContainEqual(["linkedin_post_id", { ascending: true }]);
+  });
+
+  // ⚠️ TWO DIFFERENT FACTS. "Meaningless" and "real but incomplete" must not
+  // collapse into one flag — the screen says something different for each.
+  it("flags TRUNCATED, not unavailable, when the read hits the page cap", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    biState.rows = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
+      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
+    );
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+
+    // ⚠️ THE TWO NUMBERS MUST DIFFER. "Incomplete" is a warning; "50,000 of
+    // 50,001" is actionable, and only the pager knows the second one.
+    expect(a.truncation).toEqual({ read: MAX_PAGES * PAGE_SIZE, total: MAX_PAGES * PAGE_SIZE + 1 });
+    expect(a.truncation!.total).not.toBe(a.truncation!.read);
+    // The rows are REAL — just incomplete. Not an outage.
+    expect(a.unavailable).toBeFalsy();
+    expect(a.totalPosts).toBe(MAX_PAGES * PAGE_SIZE);
+
+    warn.mockRestore();
+  });
+
+  it("flags UNAVAILABLE, not truncated, when the read fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    biState.error = { message: "permission denied for schema bi" };
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+
+    expect(a.unavailable).toBe(true);
+    expect(a.truncation).toBeFalsy();
+
+    warn.mockRestore();
+  });
+
+  it("flags neither on a complete read", async () => {
+    biState.rows = ROWS;
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+
+    expect(a.unavailable).toBeFalsy();
+    expect(a.truncation).toBeFalsy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE CROSS-CLIENT COMPARISON.
+//
+// ⚠️ A COMPARISON'S INTEGRITY LIVES IN ITS DENOMINATORS. Every figure here is a
+// normalised one, so a Client with no posts, a Client with no impressions and a
+// Client whose followers were never recorded must each produce "not applicable"
+// rather than a 0 that reads as a measured failure to perform.
+//
+// ⚠️ AND IT PARTITIONS THE SAME WINDOW THE KPI CARDS REPORT. If it re-derived
+// its own, the table would disagree with the cards directly above it.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the client comparison", () => {
+  const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+  const outOfWindow = new Date(Date.now() - 200 * 86_400_000).toISOString().slice(0, 10);
+
+  const upload = (clientId: string, createdAt: string, followerCount: number | null) => ({
+    id: `u-${clientId}-${createdAt}`,
+    clientId,
+    sourceType: "csv" as const,
+    rowsInserted: 0,
+    rowsUpdated: 0,
+    rowsUnchanged: 0,
+    followerCount,
+    createdAt,
+  });
+
+  beforeEach(() => {
+    biState.rows = [];
+    biState.error = null;
+    biState.eqCalls = [];
+    biState.schemaCalls = [];
+    biState.fromCalls = [];
+    biState.orderCalls = [];
+    biState.registryCalls = 0;
+    biState.uploadsCalls = 0;
+    biState.registry = [
+      { id: "c1", name: "Bryan Wish" },
+      { id: "c2", name: "Ada Lovelace" },
+    ];
+    biState.uploads = [
+      upload("c1", "2026-07-20T00:00:00.000Z", 10_000),
+      upload("c2", "2026-07-20T00:00:00.000Z", 2_000),
+    ];
+  });
+
+  // ⚠️ THE PARITY GATE. Every post in the window is either attributed to a
+  // registry Client or counted as unattributed — never silently dropped. A
+  // reader must be able to reconcile the table against the post count above it.
+  it("accounts for EVERY post in the window: rows + unattributed === totalPosts", async () => {
+    biState.rows = [
+      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+      biRow({ linkedin_post_id: "b", client_id: "c1", estimated_post_date: inWindow }),
+      biRow({ linkedin_post_id: "c", client_id: "c2", estimated_post_date: inWindow }),
+      // ⚠️ A REAL UNATTRIBUTED POST. Attribution happens downstream (ADR 0009),
+      // so a client_id matching nobody in the roster is expected, not a bug. A
+      // parity test whose unattributed term is always 0 proves nothing.
+      biRow({ linkedin_post_id: "d", client_id: "ghost", estimated_post_date: inWindow }),
+    ];
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+    const c = a.comparison!;
+
+    expect(c.unattributedPosts).toBe(1);
+    expect(c.rows.reduce((s, r) => s + r.posts, 0) + c.unattributedPosts).toBe(a.totalPosts);
+    expect(a.totalPosts).toBe(4);
+  });
+
+  it("excludes posts outside the window from both the rows and the unattributed count", async () => {
+    biState.rows = [
+      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+      biRow({ linkedin_post_id: "old", client_id: "c1", estimated_post_date: outOfWindow }),
+      biRow({ linkedin_post_id: "oldghost", client_id: "ghost", estimated_post_date: outOfWindow }),
+    ];
+
+    const a = await getDashboardAnalytics({ range: "30d" });
+    const c = a.comparison!;
+
+    expect(a.totalPosts).toBe(1);
+    expect(c.rows.find((r) => r.clientId === "c1")!.posts).toBe(1);
+    expect(c.unattributedPosts).toBe(0);
+    expect(c.rows.reduce((s, r) => s + r.posts, 0) + c.unattributedPosts).toBe(a.totalPosts);
+  });
+
+  // ⚠️ A CLIENT WHO PUBLISHED NOTHING IS A FINDING. Dropping the row would make
+  // the book look smaller and better than it is.
+  it("keeps a Client with no posts in range, as a genuine 0 with nothing derived", async () => {
+    biState.rows = [
+      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const quiet = c.rows.find((r) => r.clientId === "c2")!;
+
+    expect(quiet.posts).toBe(0);
+    // ⚠️ NOT 0%. A Client who did not post has no engagement rate; a 0 would
+    // claim a measured failure to engage.
+    expect(quiet.engagementRate).toBeNull();
+    expect(quiet.avgImpressions).toBeNull();
+    expect(quiet.interactionsPer1K).toBeNull();
+  });
+
+  it("reports the engagement rate as null, never 0, when a Client had no impressions", async () => {
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 0,
+        interactions: 0,
+      }),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const row = c.rows.find((r) => r.clientId === "c1")!;
+
+    expect(row.posts).toBe(1); // it DID post — that part is measured
+    expect(row.engagementRate).toBeNull();
+    expect(row.avgImpressions).toBe(0); // a measured zero: it posted, got no reach
+  });
+
+  // ⚠️ ONE ENGAGEMENT-RATE DEFINITION. Impression-weighted, via `weightedRate`
+  // — never the mean of the posts' individual rates.
+  it("computes the engagement rate impression-weighted, not as a mean of per-post rates", async () => {
+    biState.rows = [
+      // 1 interaction / 10 impressions = 10%
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 10,
+        interactions: 1,
+      }),
+      // 10 interactions / 1000 impressions = 1%
+      biRow({
+        linkedin_post_id: "b",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 1000,
+        interactions: 10,
+      }),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    // Weighted: 11 / 1010 = 1.1%. A mean of rates would give 5.5%.
+    expect(c.rows.find((r) => r.clientId === "c1")!.engagementRate).toBeCloseTo(1.1, 1);
+  });
+
+  it("averages impressions per post, and reports null rather than 0 when there are none", async () => {
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 300,
+      }),
+      biRow({
+        linkedin_post_id: "b",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 100,
+      }),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows.find((r) => r.clientId === "c1")!.avgImpressions).toBe(200);
+    expect(c.rows.find((r) => r.clientId === "c2")!.avgImpressions).toBeNull();
+  });
+});
+
+describe("the comparison's follower-normalised figure", () => {
+  const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+  const upload = (clientId: string, createdAt: string, followerCount: number | null) => ({
+    id: `u-${clientId}-${createdAt}`,
+    clientId,
+    sourceType: "csv" as const,
+    rowsInserted: 0,
+    rowsUpdated: 0,
+    rowsUnchanged: 0,
+    followerCount,
+    createdAt,
+  });
+
+  beforeEach(() => {
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        interactions: 500,
+        impressions: 1000,
+      }),
+    ];
+    biState.error = null;
+    biState.orderCalls = [];
+    biState.registryCalls = 0;
+    biState.uploadsCalls = 0;
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = [];
+  });
+
+  it("takes the MOST RECENT recorded follower count, skipping uploads that recorded none", async () => {
+    biState.uploads = [
+      // Newest, but recorded nothing — skipped, never read as a drop to zero.
+      upload("c1", "2026-07-22T00:00:00.000Z", null),
+      upload("c1", "2026-07-20T00:00:00.000Z", 10_000),
+      upload("c1", "2026-06-01T00:00:00.000Z", 4_000),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.followers).toBe(10_000);
+    // 500 interactions / 10,000 followers × 1000 = 50
+    expect(c.rows[0]!.interactionsPer1K).toBeCloseTo(50, 5);
+  });
+
+  it("reports followers and the per-1,000 rate as null when nothing was ever recorded", async () => {
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.followers).toBeNull();
+    expect(c.rows[0]!.interactionsPer1K).toBeNull();
+  });
+
+  // ⚠️ A RATE PER NOTHING IS UNDEFINED — not Infinity, and not zero.
+  it("reports the per-1,000 rate as null when the follower count is a recorded 0", async () => {
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 0)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    // The 0 itself is a real measurement and is reported.
+    expect(c.rows[0]!.followers).toBe(0);
+    expect(c.rows[0]!.interactionsPer1K).toBeNull();
+    expect(Number.isFinite(c.rows[0]!.interactionsPer1K as number)).toBe(false);
+  });
+});
+
+describe("the comparison's medians carry their sample size", () => {
+  const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+
+  beforeEach(() => {
+    biState.error = null;
+    biState.orderCalls = [];
+    biState.registryCalls = 0;
+    biState.uploadsCalls = 0;
+    biState.uploads = [];
+    biState.registry = [
+      { id: "c1", name: "A" },
+      { id: "c2", name: "B" },
+      { id: "c3", name: "C" },
+      // Posted nothing: contributes no value to any median.
+      { id: "c4", name: "D" },
+    ];
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 100,
+      }),
+      biRow({
+        linkedin_post_id: "b",
+        client_id: "c2",
+        estimated_post_date: inWindow,
+        impressions: 200,
+      }),
+      biRow({
+        linkedin_post_id: "c",
+        client_id: "c3",
+        estimated_post_date: inWindow,
+        impressions: 300,
+      }),
+    ];
+  });
+
+  // ⚠️ A MEDIAN OVER THREE CLIENTS AND A MEDIAN OVER THIRTY ARE DIFFERENT
+  // CLAIMS. The count is what lets the UI say which one it is showing.
+  it("computes each median only over Clients where the figure exists, and says how many", async () => {
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.medians.avgImpressions.value).toBe(200);
+    // Three, NOT four — the silent Client has no average to contribute.
+    expect(c.medians.avgImpressions.clients).toBe(3);
+  });
+
+  it("reports a null median with a zero count when no Client has the figure", async () => {
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    // No uploads at all, so nobody has a follower count.
+    expect(c.medians.followers.value).toBeNull();
+    expect(c.medians.followers.clients).toBe(0);
+  });
+});
+
+describe("the comparison is only built where it is meaningful", () => {
+  const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+
+  beforeEach(() => {
+    biState.rows = [
+      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+    ];
+    biState.error = null;
+    biState.orderCalls = [];
+    biState.registryCalls = 0;
+    biState.uploadsCalls = 0;
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = [];
+  });
+
+  // ⚠️ AND IT DOES NOT PAY FOR WHAT IT WILL NOT USE.
+  it("is null for a single-client dashboard, and issues neither extra read", async () => {
+    const a = await getDashboardAnalytics({ range: "30d", clientId: "c1" });
+
+    expect(a.comparison).toBeNull();
+    expect(biState.registryCalls).toBe(0);
+    expect(biState.uploadsCalls).toBe(0);
+  });
+
+  it("is built, and reads both sources, in the all-clients state", async () => {
+    const a = await getDashboardAnalytics({ range: "30d" });
+
+    expect(a.comparison).not.toBeNull();
+    expect(biState.registryCalls).toBe(1);
+    expect(biState.uploadsCalls).toBe(1);
+  });
+
+  // ⚠️ THE DASHBOARD READS THE CLIENT BOOK ONCE PER REQUEST. The page reads the
+  // registry for its filter and hands the SAME read in; the comparison must reuse
+  // it rather than issuing a second read of the same table. Without this the app's
+  // most-hit route reads `public.clients` twice on every all-clients render.
+  it("reuses a caller-supplied registry instead of reading it a second time", async () => {
+    const a = await getDashboardAnalytics({
+      range: "30d",
+      registry: Promise.resolve([{ id: "c1", name: "Bryan Wish" }]),
+    });
+
+    // Still built — the passed roster is a real answer, used exactly as its own
+    // read would have been.
+    expect(a.comparison).not.toBeNull();
+    // ...but NOT re-read. The uploads read is still the comparison's own.
+    expect(biState.registryCalls).toBe(0);
+    expect(biState.uploadsCalls).toBe(1);
+  });
+
+  it("still reads its own registry when the caller supplies none", async () => {
+    // The fallback the other callers and every existing test rely on.
+    await getDashboardAnalytics({ range: "30d" });
+    expect(biState.registryCalls).toBe(1);
+  });
+
+  it("honours a caller-supplied registry that FAILED — comparison unavailable, still no re-read", async () => {
+    const c = (await getDashboardAnalytics({ range: "30d", registry: Promise.resolve(null) }))
+      .comparison!;
+
+    // A passed-in null is a failed roster read; the comparison is unavailable and
+    // the service does not fall back to a second read that would likely fail too.
+    expect(c.unavailable).toBe(true);
+    expect(biState.registryCalls).toBe(0);
+  });
+
+  it("marks the comparison unavailable when the registry read failed — not empty", async () => {
+    biState.registry = null;
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.unavailable).toBe(true);
+    expect(c.rows).toEqual([]);
+  });
+
+  // ⚠️ REPLACES an earlier test that asserted `c.unavailable === true` when the
+  // uploads read failed — that WAS the defect. Uploads feed only two of the six
+  // columns; blanking the whole table to hide them threw away three readable
+  // ones. The comparison is now BUILT, and only the follower columns degrade.
+  it("BUILDS the comparison when the roster reads but uploads fail — only follower columns degrade", async () => {
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        impressions: 1000,
+        interactions: 50,
+      }),
+    ];
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = null; // the upload read FAILED
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    // Built, not blanked — the whole point of the fix.
+    expect(c.unavailable).toBe(false);
+    expect(c.rows).toHaveLength(1);
+
+    const clientRow = c.rows[0]!;
+    // The three post-derived columns are real, from the post read and the roster.
+    expect(clientRow.posts).toBe(1);
+    expect(clientRow.avgImpressions).toBe(1000);
+    expect(clientRow.engagementRate).not.toBeNull();
+    // The two follower-derived columns em-dash themselves for EVERY row — the
+    // existing per-row gate makes `interactionsPer1K` null once `followers` is.
+    expect(clientRow.followers).toBeNull();
+    expect(clientRow.interactionsPer1K).toBeNull();
+    // ...and the comparison SAYS the followers could not be read, so the reader
+    // can tell a failed upload read from a client that simply has no follower
+    // figure — the two would otherwise render identically.
+    expect(c.followersUnavailable).toBe(true);
+  });
+
+  it("does not claim followers are unavailable when the uploads read SUCCEEDED", async () => {
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = []; // read ok, just no follower rows
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    // Every row still em-dashes followers, but that is "no follower figure", NOT
+    // an outage — the flag must stay false so the panel does not cry wolf.
+    expect(c.followersUnavailable).toBe(false);
+  });
+
+  it("is available and empty — not unavailable — when the registry is genuinely empty", async () => {
+    biState.registry = [];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.unavailable).toBe(false);
+    expect(c.rows).toEqual([]);
   });
 });

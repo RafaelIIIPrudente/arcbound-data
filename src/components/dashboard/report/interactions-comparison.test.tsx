@@ -5,18 +5,23 @@ import type { InteractionsRow } from "@/services/types";
 
 import { InteractionsComparison, visibleInteractionRows } from "./interactions-comparison";
 
+/** Saves default to a plain, fully-reported sum; each test overrides as needed. */
+function row(over: Partial<InteractionsRow> & Pick<InteractionsRow, "scope" | "label">) {
+  return { likes: 0, comments: 0, shares: 0, saves: 0, savesPartial: false, ...over };
+}
+
 const ROWS: InteractionsRow[] = [
-  { scope: "selected", label: "July 2026", likes: 10, comments: 2, shares: 1 },
-  { scope: "prior3", label: "Prior 3 months", likes: 33, comments: 6, shares: 3 },
-  { scope: "allTime", label: "All time", likes: 143, comments: 28, shares: 14 },
+  row({ scope: "selected", label: "July 2026", likes: 10, comments: 2, shares: 1, saves: 4 }),
+  row({ scope: "prior3", label: "Prior 3 months", likes: 33, comments: 6, shares: 3, saves: 9 }),
+  row({ scope: "allTime", label: "All time", likes: 143, comments: 28, shares: 14, saves: 31 }),
 ];
 
 // What the seam produces when the SELECTED period is all-time: the scoped row
 // and the all-time row are the same posts under the same heading.
 const ALL_TIME_ROWS: InteractionsRow[] = [
-  { scope: "selected", label: "All time", likes: 143, comments: 28, shares: 14 },
-  { scope: "prior3", label: "Prior 3 months", likes: 33, comments: 6, shares: 3 },
-  { scope: "allTime", label: "All time", likes: 143, comments: 28, shares: 14 },
+  row({ scope: "selected", label: "All time", likes: 143, comments: 28, shares: 14, saves: 31 }),
+  row({ scope: "prior3", label: "Prior 3 months", likes: 33, comments: 6, shares: 3, saves: 9 }),
+  row({ scope: "allTime", label: "All time", likes: 143, comments: 28, shares: 14, saves: 31 }),
 ];
 
 describe("visibleInteractionRows", () => {
@@ -34,9 +39,9 @@ describe("visibleInteractionRows", () => {
     // Same numbers, DIFFERENT headings — "July 2026" and "All time" are two
     // real facts that coincide, not one fact printed twice.
     const coincident: InteractionsRow[] = [
-      { scope: "selected", label: "July 2026", likes: 143, comments: 28, shares: 14 },
-      { scope: "prior3", label: "Prior 3 months", likes: 0, comments: 0, shares: 0 },
-      { scope: "allTime", label: "All time", likes: 143, comments: 28, shares: 14 },
+      row({ scope: "selected", label: "July 2026", likes: 143, comments: 28, shares: 14 }),
+      row({ scope: "prior3", label: "Prior 3 months" }),
+      row({ scope: "allTime", label: "All time", likes: 143, comments: 28, shares: 14 }),
     ];
 
     expect(visibleInteractionRows(coincident)).toHaveLength(3);
@@ -70,11 +75,126 @@ describe("InteractionsComparison", () => {
     expect(screen.getByRole("cell", { name: "143" })).toBeInTheDocument();
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // SAVES — THREE STATES, KEPT APART.
+  //
+  // ⚠️ The scrape may omit saves entirely. Summing absent values as zero would
+  // report a missing measurement as a measured one; printing a PARTIAL sum as a
+  // total is the same lie in a subtler form. Each state has to look different.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("renders a fully-reported scope as a plain sum", () => {
+    render(<InteractionsComparison rows={ROWS} />);
+
+    expect(screen.getByRole("columnheader", { name: "Saves" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "31" })).toBeInTheDocument();
+  });
+
+  it("renders an em dash when NO post in a scope reported saves", () => {
+    render(
+      <InteractionsComparison
+        rows={[
+          row({ scope: "selected", label: "July 2026", likes: 10, saves: null }),
+          row({ scope: "prior3", label: "Prior 3 months", likes: 5 }),
+          row({ scope: "allTime", label: "All time", likes: 143 }),
+        ]}
+      />,
+    );
+
+    // Never a 0 — that would claim the posts were saved zero times.
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Saves were not reported for any post in this period/i),
+    ).toBeInTheDocument();
+  });
+
+  it("marks a MIXED scope as a lower bound rather than printing it as a total", () => {
+    render(
+      <InteractionsComparison
+        rows={[
+          row({ scope: "selected", label: "July 2026", likes: 10, saves: 7, savesPartial: true }),
+          row({ scope: "prior3", label: "Prior 3 months", likes: 5 }),
+          row({ scope: "allTime", label: "All time", likes: 143 }),
+        ]}
+      />,
+    );
+
+    // The figure is real but incomplete, and the row says so — visually with the
+    // marker, and in words for a screen reader.
+    expect(screen.getByText(/some posts in this period did not report saves/i)).toBeInTheDocument();
+    expect(screen.getByText("At least", { exact: false })).toBeInTheDocument();
+  });
+
+  it("distinguishes all three saves states within ONE table", () => {
+    // The discriminating case: rendered side by side, none of the three may be
+    // mistakable for another.
+    render(
+      <InteractionsComparison
+        rows={[
+          row({ scope: "selected", label: "July 2026", likes: 10, saves: null }),
+          row({ scope: "prior3", label: "Prior 3 months", likes: 5, saves: 7, savesPartial: true }),
+          row({ scope: "allTime", label: "All time", likes: 143, saves: 31 }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("—")).toBeInTheDocument(); // unknown
+    expect(screen.getByText("At least", { exact: false })).toBeInTheDocument(); // lower bound
+    expect(screen.getByRole("cell", { name: "31" })).toBeInTheDocument(); // a real total
+  });
+
   it("renders an empty state when every scope is zero", () => {
-    const empty = ROWS.map((r) => ({ ...r, likes: 0, comments: 0, shares: 0 }));
+    // ⚠️ SAVES ZEROED TOO. `ROWS` carry real saves (4/9/31); zeroing only
+    // likes/comments/shares left this "empty" fixture with a full Saves column,
+    // so the check passed only because it ignored saves. A GENUINELY empty period
+    // is zero across all four — and `savesPartial: false`, so this is a confirmed
+    // zero, not the lower-bound case the next test covers.
+    const empty = ROWS.map((r) => ({
+      ...r,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      saves: 0,
+      savesPartial: false,
+    }));
     render(<InteractionsComparison rows={empty} />);
 
     expect(screen.getByText("No posts in this period.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("renders the TABLE for a saves-only period, not the empty state", () => {
+    // Every post earned ONLY saves — no likes, comments or shares. The Saves
+    // column holds real numbers, so the period is not empty; the old check
+    // ignored saves and collapsed a whole readable column to "No posts".
+    const savesOnly: InteractionsRow[] = [
+      row({ scope: "selected", label: "July 2026", saves: 12 }),
+      row({ scope: "prior3", label: "Prior 3 months", saves: 30 }),
+      row({ scope: "allTime", label: "All time", saves: 42 }),
+    ];
+    render(<InteractionsComparison rows={savesOnly} />);
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("No posts in this period.")).not.toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "12" })).toBeInTheDocument();
+  });
+
+  it("renders the table when the only signal is a PARTIAL saves lower bound, even at zero", () => {
+    // ⚠️ THE `savesPartial` DECISION. likes/comments/shares are all 0 and the
+    // saves SUM is 0 — but `savesPartial` means some posts did not report saves,
+    // so the true total may be higher and the cell renders "≥ 0", a LOWER BOUND.
+    // That is not a confirmed-empty period (posts demonstrably exist), so the
+    // table renders. Collapsing it to "No posts" would fold "≥ 0 (partial)" into
+    // "genuinely empty" — exactly the four-state collapse this repo forbids.
+    const partialOnly: InteractionsRow[] = [
+      row({ scope: "selected", label: "July 2026", saves: 0, savesPartial: true }),
+      row({ scope: "prior3", label: "Prior 3 months", saves: 0, savesPartial: true }),
+      row({ scope: "allTime", label: "All time", saves: 0, savesPartial: true }),
+    ];
+    render(<InteractionsComparison rows={partialOnly} />);
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("No posts in this period.")).not.toBeInTheDocument();
+    // One "≥ 0" lower bound per row — the marker every partial saves cell carries.
+    expect(screen.getAllByText("At least", { exact: false })).toHaveLength(3);
   });
 });

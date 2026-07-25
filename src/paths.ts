@@ -8,6 +8,8 @@ export const paths = {
     list: "/clients",
     details: (id: string) => `/clients/${id}`,
     report: (id: string) => `/clients/${id}/report`,
+    /** Per-post drill-down: the individual posts behind the report's figures. */
+    posts: (id: string) => `/clients/${id}/posts`,
     // The print-optimised export of the report above. `(print)` is a route
     // GROUP, so it never appears in the URL — this path is auth-gated by the
     // same default-deny rule as every other app route (see lib/route-access).
@@ -15,6 +17,14 @@ export const paths = {
   },
   upload: "/upload",
   resources: "/resources",
+  // Public, tokenized client Report Link — the ONLY unauthenticated app route
+  // besides `/login`. Gated by an out-of-band Access Code (see the `/r/[token]`
+  // route + lib/report-link-session), NOT by the staff auth session. The base is
+  // its own entry so lib/route-access can mark `/r` public without hard-coding it.
+  reportLinkBase: "/r",
+  reportLink: (token: string) => `/r/${token}`,
+  /** Pipeline health across the whole client book: submitted vs. attributed. */
+  dataQuality: "/data-quality",
   // Template reference feature — kept building, not linked in the ArcBase nav.
   // A later slice (T3) repurposes it into Clients.
   customers: {

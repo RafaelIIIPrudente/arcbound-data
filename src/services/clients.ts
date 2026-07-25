@@ -2,6 +2,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type { Client, ClientListRow, LastUpload, Paginated } from "@/services/types";
 import { latestUploadByClient } from "@/services/uploads";
@@ -43,24 +44,69 @@ function toClient(row: ClientRow, postsCount: number | null): Client {
  * real answer ("the view attributes no posts to anyone"); returning it for a
  * failed read made a `0` in the Client List mean either "no posts yet" or "the
  * bi read broke", with no way for staff to tell which.
+ *
+ * ⚠️ AND `null` WHEN THE READ IS TRUNCATED, for the same reason. This read was
+ * once unpaged, so above PostgREST's 1000-row cap it returned a short response
+ * and a 200 — every count on the Client List quietly understated, while the
+ * client DETAIL page stayed right because it uses `count: "exact", head: true`.
+ * Two screens disagreeing, neither saying so.
+ *
+ * Paging fixes that up to MAX_PAGES. Past it the rows are a PREFIX, so a count
+ * built from them is wrong while looking entirely plausible — and a plausible
+ * wrong number is worse than an em dash. Never return partial counts.
  */
 async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, number> | null> {
+  const { rows, unavailable, truncated } = await readAllPages<{ client_id: string | null }>(
+    (from, to, opts) =>
+      asPage<{ client_id: string | null }>(
+        supabase
+          .schema("bi")
+          .from("linkedin_post_latest")
+          .select("client_id", opts)
+          // Stable ordering — CONCURRENT ranges can otherwise overlap or skip
+          // rows. Ordering by a column that is not selected is fine.
+          .order("linkedin_post_id", { ascending: true })
+          .range(from, to),
+      ),
+    "bi.linkedin_post_latest",
+  );
+  if (unavailable || truncated) return null;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.client_id) counts.set(row.client_id, (counts.get(row.client_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * The client roster — id and name only.
+ *
+ * ⚠️ DELIBERATELY NOT `listClients`. That function joins a post count from a
+ * SECOND, independent bi read; a caller that also reads the posts itself would
+ * end up with two counts of the same thing, which is precisely how one screen
+ * comes to contradict another. This returns the roster and nothing else, so the
+ * caller derives every figure from the single read it already owns.
+ *
+ * Unpaged on purpose: ArcBase tracks dozens of individual LinkedIn profiles, not
+ * thousands, and `clients` is nowhere near the 1000-row response cap.
+ */
+export async function listClientRegistry(): Promise<{ id: string; name: string }[] | null> {
   try {
+    const supabase = createServerClient(cookies());
     const { data, error } = await supabase
-      .schema("bi")
-      .from("linkedin_post_latest")
-      .select("client_id");
-    if (error || !data) {
-      console.warn(`Failed to load post counts: ${error?.message ?? "no rows returned"}`);
+      .from("clients")
+      .select("id, name")
+      .order("name", { ascending: true });
+    if (error) {
+      console.warn(`Failed to load the client registry: ${error.message}`);
       return null;
     }
-    const counts = new Map<string, number>();
-    for (const row of data as { client_id: string | null }[]) {
-      if (row.client_id) counts.set(row.client_id, (counts.get(row.client_id) ?? 0) + 1);
-    }
-    return counts;
+    return (data ?? []) as { id: string; name: string }[];
   } catch (err) {
-    console.warn(`Failed to load post counts: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(
+      `Failed to load the client registry: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
@@ -94,6 +140,41 @@ export interface ListClientsOptions {
   pageSize?: number;
 }
 
+/**
+ * A `PageReader` over `public.clients`, newest first.
+ *
+ * ⚠️ THIS READ WAS UNPAGED, AND THAT WAS WORSE THAN A SHORT ANSWER: `listClients`
+ * paginates IN MEMORY with `.slice()`, so above PostgREST's 1000-row cap page 2
+ * of the Clients screen was built from a set that never contained page 2's rows.
+ * The screen reported a total it could not show the rows for.
+ *
+ * ⚠️ THE `id` TIEBREAK IS LOAD-BEARING. `created_at` alone is not a total order —
+ * clients created in one transaction share a timestamp — and pages 1..n are
+ * issued CONCURRENTLY, so an ambiguous sort lets the database return a row twice
+ * across two ranges, or not at all. `id` is the primary key, so it is unique by
+ * definition and makes the order total.
+ *
+ * `failure` captures the database's own message, which `readAllPages` otherwise
+ * only writes to a console warning — this seam throws with it.
+ */
+function clientPageReader(
+  supabase: SupabaseClient,
+  failure: { message: string | null },
+): PageReader<ClientRow> {
+  return async (from, to, opts) => {
+    const page = await asPage<ClientRow>(
+      supabase
+        .from("clients")
+        .select(CLIENT_COLUMNS, opts)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+    if (page.error && failure.message === null) failure.message = page.error.message;
+    return page;
+  };
+}
+
 export async function listClients(
   opts: ListClientsOptions = {},
 ): Promise<Paginated<ClientListRow>> {
@@ -110,14 +191,21 @@ export async function listClients(
   // Error precedence is unchanged: the two helpers swallow their own failures
   // (signalling with `null`), so neither can reject, and the select's error is
   // still the only one that can surface here.
-  const [{ data, error }, counts, latestUploads] = await Promise.all([
-    supabase.from("clients").select(CLIENT_COLUMNS).order("created_at", { ascending: false }),
+  // `readAllPages` reports THAT a read failed, not WHY. This seam's contract is
+  // to throw with the database's own message, so the reader keeps the first one
+  // it sees rather than losing it to a console warning.
+  const failure: { message: string | null } = { message: null };
+
+  const [clientsRead, counts, latestUploads] = await Promise.all([
+    readAllPages(clientPageReader(supabase, failure), "public.clients"),
     fetchPostCounts(supabase),
     latestUploadByClient(),
   ]);
-  if (error) throw new Error(`Failed to load clients: ${error.message}`);
+  if (clientsRead.unavailable) {
+    throw new Error(`Failed to load clients: ${failure.message ?? "read failed"}`);
+  }
 
-  let clients = ((data ?? []) as ClientRow[]).map((row): ClientListRow => {
+  let clients = clientsRead.rows.map((row): ClientListRow => {
     // A failed read means we don't know ANY client's value — `null`/"unavailable",
     // never a fabricated 0 or "never ingested".
     const lastUpload: LastUpload =

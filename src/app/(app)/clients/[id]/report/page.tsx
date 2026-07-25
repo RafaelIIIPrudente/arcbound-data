@@ -3,13 +3,18 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Printer } from "lucide-react";
 
-import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
+import {
+  AnalyticsTruncated,
+  AnalyticsUnavailable,
+} from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
 import { ImpressionsByMonthChart } from "@/components/dashboard/report/impressions-by-month-chart";
 import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impressions-by-weekday-chart";
 import { InteractionsByAssetChart } from "@/components/dashboard/report/interactions-by-asset-chart";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
+import { ContentComposition } from "@/components/dashboard/report/content-composition";
+import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
@@ -108,6 +113,14 @@ export default async function ClientReportPage({
         <AnalyticsUnavailable />
       ) : (
         <div className="space-y-10">
+          {/* A truncated read means the pager stopped at its cap, so every figure
+              in all three sections below counts only the posts it reached — a
+              lower bound, not a total. The same banner the print export carries,
+              so screen and paper say it in the same words. Absent when the read
+              was complete, rather than reassuring with "showing all". */}
+          {report.truncation ? (
+            <AnalyticsTruncated read={report.truncation.read} total={report.truncation.total} />
+          ) : null}
           {/* ALL THREE sections follow the period chosen in the page header. */}
           <section className="space-y-4">
             <SectionHeader title="Key performance" scope={scopeCaption(report.period)} />
@@ -131,10 +144,26 @@ export default async function ClientReportPage({
               <ImpressionsByWeekdayChart
                 data={report.impressionsByWeekday}
                 period={report.period}
-                postCount={report.impressionsPostCount}
+                // Datable posts only — the weekday chart excludes undated ones,
+                // so its N is the sibling impressions chart's N minus those. The
+                // month/week chart above keeps `impressionsPostCount` untouched.
+                datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+                undatedPosts={report.weekdayUndatedPosts}
               />
             </div>
           </section>
+
+          {/* Posting cadence — a sibling of the temporal sections, and like them it
+              FOLLOWS the period picker (the service scopes it). Hidden when the
+              SELECTED period has no posts, so no empty header is stranded — keyed on
+              the period-scoped count, not the all-time one (the component also
+              self-guards on a zero total). */}
+          {report.cadence.totalPosts > 0 ? (
+            <section className="space-y-4">
+              <SectionHeader title="Posting cadence" scope={scopeCaption(report.period)} />
+              <PostingCadence cadence={report.cadence} />
+            </section>
+          ) : null}
 
           <section className="space-y-4">
             <SectionHeader title="Content mix" scope={scopeCaption(report.period)} />
@@ -151,6 +180,16 @@ export default async function ClientReportPage({
               />
             </div>
           </section>
+
+          {/* Content composition — sibling of Content mix, and like the other
+              sections it FOLLOWS the period picker (the service scopes it). Hidden
+              when the selected period has no posts (the component also self-guards). */}
+          {report.composition.totalPosts > 0 ? (
+            <section className="space-y-4">
+              <SectionHeader title="Content composition" scope={scopeCaption(report.period)} />
+              <ContentComposition composition={report.composition} />
+            </section>
+          ) : null}
         </div>
       )}
     </div>
