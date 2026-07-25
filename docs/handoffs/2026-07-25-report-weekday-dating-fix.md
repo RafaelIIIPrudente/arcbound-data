@@ -125,5 +125,11 @@ REPORT BACK
 
 - **2026-07-25 — v1 emitted.** Initial handoff authored from ground-truth reads of
   the defect and the dashboard reference. Not yet run by an executer.
+- **2026-07-25 — collision found.** The Content composition (B) slice is present but
+  UNCOMMITTED in the working tree and modifies the exact 5 wiring files this fix
+  touches. The prompt's git-state guardrail ("HEAD `19dbe14`, working tree clean")
+  is therefore stale. **Before running this fix:** commit or set aside B, then edit
+  the guardrail to the real baseline. Not editing the prompt body yet — the
+  sequencing decision (commit B first vs. fold both) is the user's.
   _(Append dated entries here as feedback arrives or the executer reports back;
   edit the prompt above in place when a revision is needed.)_
