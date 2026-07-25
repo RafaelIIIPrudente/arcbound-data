@@ -1,6 +1,7 @@
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
-import { type BiPostRow } from "@/services/analytics";
+import { estMs, type BiPostRow } from "@/services/analytics";
 import { buildCadence } from "@/services/cadence";
+import { buildContentComposition } from "@/services/content-composition";
 import {
   periodRange,
   readClientPostRows,
@@ -377,9 +378,24 @@ export function buildClientReport(
       : monthSeries(selectedPlaceable);
 
   // ── weekday buckets (SELECTED PERIOD) ──────────────────────────────────────
+  //
+  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT the `ms` windowing key.
+  // `selectedPlaceable`'s `ms` is `effectiveMs`, which stands `scraped_at` in for
+  // an hour-age post's missing publish date; that is right for "is it in the
+  // period", but a weekday may NOT be asserted that way. Every post in one weekly
+  // scrape shares a `scraped_at`, so bucketing undated posts by it would pile a
+  // scrape onto a single weekday and fabricate a rhythm in a CLIENT-FACING chart.
+  // Undated posts are excluded and counted in `weekdayUndatedPosts` so the chart
+  // can disclose the gap — mirroring the dashboard's weekday chart exactly.
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
-  for (const { row, ms } of selectedPlaceable) {
-    weekdayBuckets[new Date(ms).getUTCDay()]!.push(num(row.impressions));
+  let weekdayUndatedPosts = 0;
+  for (const { row } of selectedPlaceable) {
+    const t = estMs(row);
+    if (t === null) {
+      weekdayUndatedPosts += 1;
+      continue;
+    }
+    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(row.impressions));
   }
   const impressionsByWeekday = WEEKDAYS.map((label, i) => ({
     label,
@@ -506,6 +522,7 @@ export function buildClientReport(
     // line through someone else's numbers.
     impressionsAverage: mean(selectedPlaceable.map((d) => num(d.row.impressions))),
     impressionsByWeekday,
+    weekdayUndatedPosts,
     interactionsByAsset,
     postTypeDistribution,
     // FOLLOWS THE SELECTED PERIOD — computed over `selected` (the same period rows
@@ -515,6 +532,11 @@ export function buildClientReport(
     // the report windows in by scrape date is counted but never placed on the
     // timeline. No new query.
     cadence: buildCadence(selected, now),
+    // FOLLOWS THE SELECTED PERIOD — computed over `selected`, like the temporal
+    // sections and cadence, so the composition on screen describes the posts in the
+    // window and the section moves with the picker. Pure over rows already read; no
+    // new query. Compositional only — no engagement, no ranking.
+    composition: buildContentComposition(selected),
     // ── small-N honesty ──────────────────────────────────────────────────────
     // All-time framing guaranteed these charts drew on the full history. Scoped
     // to a month they may draw on a handful of posts, where "Image 40%" is noise

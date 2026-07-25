@@ -21,9 +21,16 @@ export function KpiCards({
   kpis: Kpi[];
   rangeLabel: string;
 }) {
+  // Mobile stacks single-column; desktop is 3 columns, not 4. The hero is a 2×2
+  // block (4 cells) and there are five secondary KPIs (Posts · Likes · Comments ·
+  // Shares · Saves) — 4 + 5 = 9, which tiles a 3×3 grid exactly. A 4-column grid
+  // left the fifth card (Saves) orphaned alone on a third row with dead space
+  // beside it; a 2-column mobile grid stranded it the same way, so mobile stacks.
   return (
-    <div className="grid grid-cols-2 gap-3.5 md:auto-rows-fr md:grid-cols-4">
-      <div className="relative col-span-2 overflow-hidden rounded-lg border bg-card p-6 md:row-span-2">
+    <div className="grid grid-cols-1 gap-3.5 md:auto-rows-fr md:grid-cols-3">
+      {/* col-span-1 on mobile: in a single-column grid, col-span-2 would force an
+          implicit second track and render the stacked cards at half width. */}
+      <div className="relative col-span-1 overflow-hidden rounded-lg border bg-card p-6 md:col-span-2 md:row-span-2">
         <div
           className="pointer-events-none absolute -right-16 -bottom-24 h-64 w-64 rounded-full opacity-15"
           style={{ background: "radial-gradient(circle, var(--primary), transparent 65%)" }}

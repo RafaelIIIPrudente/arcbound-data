@@ -13,6 +13,7 @@ import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impress
 import { InteractionsByAssetChart } from "@/components/dashboard/report/interactions-by-asset-chart";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
+import { ContentComposition } from "@/components/dashboard/report/content-composition";
 import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
@@ -143,7 +144,11 @@ export default async function ClientReportPage({
               <ImpressionsByWeekdayChart
                 data={report.impressionsByWeekday}
                 period={report.period}
-                postCount={report.impressionsPostCount}
+                // Datable posts only — the weekday chart excludes undated ones,
+                // so its N is the sibling impressions chart's N minus those. The
+                // month/week chart above keeps `impressionsPostCount` untouched.
+                datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+                undatedPosts={report.weekdayUndatedPosts}
               />
             </div>
           </section>
@@ -175,6 +180,16 @@ export default async function ClientReportPage({
               />
             </div>
           </section>
+
+          {/* Content composition — sibling of Content mix, and like the other
+              sections it FOLLOWS the period picker (the service scopes it). Hidden
+              when the selected period has no posts (the component also self-guards). */}
+          {report.composition.totalPosts > 0 ? (
+            <section className="space-y-4">
+              <SectionHeader title="Content composition" scope={scopeCaption(report.period)} />
+              <ContentComposition composition={report.composition} />
+            </section>
+          ) : null}
         </div>
       )}
     </div>

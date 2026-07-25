@@ -27,13 +27,28 @@ const config = {
 export function ImpressionsByWeekdayChart({
   data,
   period,
-  postCount,
+  datedPosts,
+  undatedPosts,
 }: {
   data: SeriesPoint[];
   period: ReportPeriod;
-  postCount: number;
+  /** Posts with a resolved date — the ones actually averaged into the buckets. */
+  datedPosts: number;
+  /** In-period posts with no resolved date, excluded from the buckets. */
+  undatedPosts: number;
 }) {
-  const isEmpty = data.every((d) => d.value === 0);
+  // Empty when there is nothing DATABLE to place on a weekday — NOT merely when the
+  // buckets are all zero. A datable post that earned no impressions is a measured 0
+  // and still draws (a flat line); only the absence of any datable post is empty.
+  // (The old `data.every(v === 0)` check collapsed a real zero into "no posts".)
+  const hasChart = datedPosts > 0;
+
+  const exclusion =
+    undatedPosts === 0
+      ? null
+      : `${undatedPosts === 1 ? "1 post" : `${undatedPosts} posts`} without a resolved date ${
+          undatedPosts === 1 ? "is" : "are"
+        } not counted here.`;
 
   return (
     <div className="rounded-lg border bg-card p-5">
@@ -41,12 +56,10 @@ export function ImpressionsByWeekdayChart({
         <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
           Average impressions by day of week posted
         </div>
-        <ChartScope period={period} postCount={postCount} />
+        <ChartScope period={period} postCount={datedPosts} />
       </div>
 
-      {isEmpty ? (
-        <p className="py-16 text-center text-sm text-muted-foreground">No posts in this period.</p>
-      ) : (
+      {hasChart ? (
         <ChartContainer config={config} className="aspect-auto h-[240px] w-full">
           <AreaChart data={data} margin={{ left: 4, right: 4, top: 4, bottom: 0 }}>
             <defs>
@@ -67,7 +80,21 @@ export function ImpressionsByWeekdayChart({
             />
           </AreaChart>
         </ChartContainer>
+      ) : (
+        <p className="py-16 text-center text-sm text-muted-foreground">
+          {/* Distinguish "there were posts, none datable" from "no posts at all" —
+              collapsing them would let the disclosure below contradict the message. */}
+          {undatedPosts > 0
+            ? "No posts with a resolved publish date in this period."
+            : "No posts in this period."}
+        </p>
       )}
+
+      {exclusion ? (
+        <p className="mt-3 font-mono text-[10.5px] text-muted-foreground" role="note">
+          {exclusion}
+        </p>
+      ) : null}
     </div>
   );
 }

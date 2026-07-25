@@ -16,6 +16,7 @@ import {
 import { AnalyticsTruncated } from "@/components/dashboard/analytics/analytics-unavailable";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
+import { ContentComposition } from "@/components/dashboard/report/content-composition";
 import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { AssetLegend } from "@/components/dashboard/report/asset-legend";
 import { rampColor } from "@/components/dashboard/report/ramp";
@@ -194,19 +195,29 @@ function ImpressionsByMonth({
 function ImpressionsByWeekday({
   data,
   period,
-  postCount,
+  datedPosts,
+  undatedPosts,
 }: {
   data: SeriesPoint[];
   period: ReportPeriod;
-  postCount: number;
+  datedPosts: number;
+  undatedPosts: number;
 }) {
-  const isEmpty = data.every((d) => d.value === 0);
+  // Empty when nothing DATABLE fell in the period — not merely when the buckets
+  // are all zero. A datable post that earned no impressions is a measured 0 and
+  // still draws; only the absence of any datable post is empty. Mirrors the
+  // on-screen chart so the document and the app cannot disagree.
+  const hasChart = datedPosts > 0;
+  const exclusion =
+    undatedPosts === 0
+      ? null
+      : `${undatedPosts === 1 ? "1 post" : `${undatedPosts} posts`} without a resolved date ${
+          undatedPosts === 1 ? "is" : "are"
+        } not counted here.`;
 
   return (
-    <Panel title="Average impressions by day of week posted" period={period} postCount={postCount}>
-      {isEmpty ? (
-        <Empty />
-      ) : (
+    <Panel title="Average impressions by day of week posted" period={period} postCount={datedPosts}>
+      {hasChart ? (
         <AreaChart
           width={CHART_WIDTH}
           height={200}
@@ -237,7 +248,17 @@ function ImpressionsByWeekday({
             isAnimationActive={false}
           />
         </AreaChart>
+      ) : (
+        // Distinguish "there were posts, none datable" from "no posts at all".
+        <p className="py-12 text-center text-sm text-muted-foreground">
+          {undatedPosts > 0 ? "No posts with a resolved publish date in this period." : EMPTY}
+        </p>
       )}
+      {exclusion ? (
+        <p className="mt-3 font-mono text-[10.5px] text-muted-foreground" role="note">
+          {exclusion}
+        </p>
+      ) : null}
     </Panel>
   );
 }
@@ -378,7 +399,10 @@ export function PrintReport({ report }: { report: ClientReport }) {
         <ImpressionsByWeekday
           data={report.impressionsByWeekday}
           period={report.period}
-          postCount={report.impressionsPostCount}
+          // Datable posts only — the weekday chart excludes undated ones. The
+          // sibling month chart above keeps `impressionsPostCount` untouched.
+          datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+          undatedPosts={report.weekdayUndatedPosts}
         />
       </Section>
 
@@ -405,6 +429,15 @@ export function PrintReport({ report }: { report: ClientReport }) {
           postCount={report.assetPostCount}
         />
       </Section>
+
+      {/* Content composition — follows the selected period, like the screen. Pure
+          text and flex, `print-block` already on the component, so it exports
+          cleanly. Omitted for a period with no posts, matching the screen. */}
+      {report.composition.totalPosts > 0 ? (
+        <Section title="Content composition" scope={scopeCaption(report.period)}>
+          <ContentComposition composition={report.composition} />
+        </Section>
+      ) : null}
     </div>
   );
 }

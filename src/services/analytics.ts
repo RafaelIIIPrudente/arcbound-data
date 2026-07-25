@@ -338,8 +338,8 @@ export function buildDashboardAnalytics(
   // `scraped_at`, so bucketing undated posts by it would pile a scrape onto a single
   // weekday and fabricate a rhythm — "which weekday lands best" becoming "which
   // weekday we scraped". Undated posts are excluded and counted separately so the
-  // chart can disclose the gap. (The report's weekday chart still buckets on
-  // `effectiveMs` and so has this defect — flagged for a later, out-of-scope fix.)
+  // chart can disclose the gap. (The report's weekday chart now applies this same
+  // `estMs`-only dating and `weekdayUndatedPosts` count — see `client-report.ts`.)
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
   let weekdayUndatedPosts = 0;
   for (const r of current) {

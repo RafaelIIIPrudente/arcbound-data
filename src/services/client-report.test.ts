@@ -617,7 +617,90 @@ describe("the four charts follow the selected period", () => {
     // The weekday axis keeps all seven days at zero rather than vanishing.
     expect(report.impressionsByWeekday).toHaveLength(7);
     expect(report.impressionsByWeekday.every((d) => d.value === 0)).toBe(true);
+    // No datable posts and none undated either — the empty period excludes nothing.
+    expect(report.weekdayUndatedPosts).toBe(0);
     expect(JSON.stringify(report)).not.toContain('null,"value":NaN');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE WEEKDAY IS WHEN THE CLIENT PUBLISHED, NOT WHEN WE SCRAPED.
+//
+// ⚠️ The report's weekday chart used to bucket on `effectiveMs` (the windowing
+// key, which stands `scraped_at` in for an hour-age post's missing publish date).
+// That dropped every hour-age post onto its SCRAPE weekday — fabricating a rhythm
+// in a client-facing chart. It now dates by `estMs` (estimated_post_date) alone,
+// exactly as the dashboard's weekday chart does; undated posts are excluded and
+// counted in `weekdayUndatedPosts` so the chart can disclose the gap.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the report weekday chart dates by publish date, never scrape date", () => {
+  // All placeable into July — the dated ones by estimated_post_date, the hour-age
+  // one by its July scrape. Weekdays (UTC):
+  //   d1 Wed 2026-07-01 · 100    d2 Wed 2026-07-08 · 300    d3 Fri 2026-07-10 · 500
+  //   z1 Mon 2026-07-13 · 0      u1 UNDATED, scraped Thu 2026-07-16 · 999
+  const WEEKDAY_ROWS: BiPostRow[] = [
+    row({ linkedin_post_id: "d1", estimated_post_date: "2026-07-01", impressions: 100 }),
+    row({ linkedin_post_id: "d2", estimated_post_date: "2026-07-08", impressions: 300 }),
+    row({ linkedin_post_id: "d3", estimated_post_date: "2026-07-10", impressions: 500 }),
+    row({ linkedin_post_id: "z1", estimated_post_date: "2026-07-13", impressions: 0 }),
+    row({
+      linkedin_post_id: "u1",
+      estimated_post_date: null,
+      post_age: "5h",
+      impressions: 999,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+    }),
+  ];
+
+  const build = (rows = WEEKDAY_ROWS) =>
+    buildClientReport(rows, new Map<string, string>(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  const byDay = (r: ReturnType<typeof build>): Record<string, number> =>
+    Object.fromEntries(r.impressionsByWeekday.map((d) => [d.label, d.value]));
+
+  it("averages each weekday by the post's estimated_post_date", () => {
+    const day = byDay(build());
+    expect(day["Wed"]).toBe(200); // mean(100, 300)
+    expect(day["Fri"]).toBe(500);
+  });
+
+  it("does NOT place an hour-age post on its scrape weekday, and counts it as undated", () => {
+    // u1 was scraped on a Thursday but has no resolved publish date. Bucketed by
+    // scraped_at it would drop 999 onto Thursday; it must not — Thursday saw no
+    // DATABLE post, a genuine zero. And it is counted, never silently dropped.
+    // This is the assertion that pins the bug.
+    const report = build();
+    expect(byDay(report)["Thu"]).toBe(0);
+    expect(report.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("keeps a datable 0-impression weekday as a genuine 0, distinct from undated", () => {
+    const report = build();
+    expect(report.impressionsByWeekday).toHaveLength(7);
+    // z1 is a real, DATED Monday post that earned 0 impressions — a measured zero,
+    // present in the series. It is NOT undated: only u1 is.
+    expect(byDay(report)["Mon"]).toBe(0);
+    expect(report.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("counts weekdayUndatedPosts as every in-period placeable row with no resolved date", () => {
+    // A second hour-age post scraped into July → two undated placeable rows.
+    const rows = [
+      ...WEEKDAY_ROWS,
+      row({
+        linkedin_post_id: "u2",
+        estimated_post_date: null,
+        post_age: "2h",
+        impressions: 400,
+        scraped_at: "2026-07-15T06:00:00.000Z",
+      }),
+    ];
+    expect(build(rows).weekdayUndatedPosts).toBe(2);
   });
 });
 
@@ -986,6 +1069,65 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
     expect(cadence.undatedPosts).toBe(1);
     expect(cadence.timeline).toHaveLength(5); // never placed at its scrape instant
     expect(cadence.longestGapDays).toBe(110); // gaps unchanged by the undated post
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTENT COMPOSITION rides the report. The parsing is proven exhaustively in
+// content-composition.test.ts; these pin the WIRING — that buildClientReport
+// computes it over the SELECTED period's rows and preserves the counted-but-omitted
+// rule for textless posts end to end.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("content composition is carried on the report (period-scoped)", () => {
+  const build = (rows: BiPostRow[], period: ReportPeriod = JULY) =>
+    buildClientReport(rows, new Map(), {
+      period,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("FOLLOWS the selected period — composition recomputes for the window", () => {
+    const rows = [
+      row({
+        linkedin_post_id: "jul",
+        estimated_post_date: "2026-07-10",
+        post_content: "Big #saas news? Read https://example.com 🚀",
+      }),
+      row({
+        linkedin_post_id: "jan",
+        estimated_post_date: "2026-01-10",
+        post_content: "#SaaS again, thanks @jane",
+      }),
+    ];
+    const july = build(rows).composition; // JULY selects only the July post
+    const all = build(rows, ALL_TIME).composition; // all-time sees both
+
+    expect(july.totalPosts).toBe(1);
+    expect(july.hashtags).toEqual([{ tag: "saas", count: 1 }]); // only July's #saas
+    expect(july.withLink).toBe(1); // the July post's in-text URL
+    expect(july.withMention).toBe(0); // @jane is in the EXCLUDED January post
+
+    expect(all.totalPosts).toBe(2);
+    expect(all.hashtags).toEqual([{ tag: "saas", count: 2 }]); // both posts, case-folded
+    expect(all.withMention).toBe(1);
+  });
+
+  it("counts a textless post but omits it from features", () => {
+    const rows = [
+      row({
+        linkedin_post_id: "a",
+        estimated_post_date: "2026-07-01",
+        post_content: "#growth mindset",
+      }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-02", post_content: null }),
+    ];
+    const { composition } = build(rows);
+
+    expect(composition.totalPosts).toBe(2);
+    expect(composition.analysedPosts).toBe(1);
+    expect(composition.unanalysablePosts).toBe(1);
+    expect(composition.hashtags).toEqual([{ tag: "growth", count: 1 }]);
   });
 });
 

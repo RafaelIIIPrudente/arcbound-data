@@ -524,6 +524,66 @@ export interface CadenceBucket {
   count: number;
 }
 
+/** One hashtag and how many posts used it. `tag` is CASE-FOLDED and carries no `#`. */
+export interface HashtagCount {
+  /** Lower-cased, without the leading `#` (e.g. "saas"). The UI prepends the `#`. */
+  tag: string;
+  /** How many times it was used across the analysed posts (every use counted). */
+  count: number;
+}
+
+/**
+ * What a Client's content is MADE OF, derived from each post's text — hashtags,
+ * length, and how often a post asks a question / links / mentions / uses emoji.
+ *
+ * ⚠️ COMPOSITIONAL ONLY. This reports what the content IS, never what it EARNED.
+ * There is no engagement figure, no ranking, no "top-performing" here by design:
+ * on a handful of posts, "posts with a question earned more" is a coincidence
+ * dressed as advice, and this document is client-facing.
+ *
+ * ⚠️ FOUR STATES, KEPT APART. `analysedPosts` is the base every feature is "of":
+ *   • could not be analysed — a post with NULL/empty text; counted in `totalPosts`,
+ *     omitted from every feature, disclosed. With zero analysable posts every
+ *     feature is unknown, which the component renders as an em dash.
+ *   • genuinely none/zero   — analysed posts that used no hashtags → `hashtags: []`,
+ *     rendered "No hashtags used"; a real `0 of M` for an element. NEVER an em dash.
+ *   • truncated             — under a capped read these are lower bounds; the
+ *     report's existing banner already says so (no second banner here).
+ */
+export interface ContentComposition {
+  /** Every post — the visible N against which the analysed base reads. */
+  totalPosts: number;
+  /** Posts with analysable text — the denominator `M` in every "N of M" below. */
+  analysedPosts: number;
+  /**
+   * Posts with NULL or empty `post_content`. Counted in `totalPosts`, omitted from
+   * every feature, surfaced so the omission can be reconciled and disclosed.
+   */
+  unanalysablePosts: number;
+  /**
+   * Every distinct hashtag used, case-folded, DESCENDING by count then tag. `[]`
+   * is a genuine zero when `analysedPosts > 0` ("No hashtags used"); when
+   * `analysedPosts === 0` it means "could not be analysed". The UI caps the list
+   * for display and shows "+ N more" — the cap is presentation, not here.
+   */
+  hashtags: HashtagCount[];
+  /**
+   * MEDIAN character count over the analysed posts. `null` when NONE could be
+   * analysed — the em-dash "could not be analysed" state, never a `0`.
+   */
+  medianLength: number | null;
+  /** Analysed posts running PAST the 1,300-char "see more" fold (a real count). */
+  pastFold: number;
+  /** Analysed posts whose text asks a question. */
+  withQuestion: number;
+  /** Analysed posts with a URL IN THE TEXT — never `post_url`, which every post has. */
+  withLink: number;
+  /** Analysed posts that mention an `@handle` in the text. */
+  withMention: number;
+  /** Analysed posts that use a Unicode emoji. */
+  withEmoji: number;
+}
+
 export interface ClientReport {
   period: ReportPeriod;
   availablePeriods: ReportPeriod[];
@@ -556,8 +616,25 @@ export interface ClientReport {
   impressionsBucket: ImpressionsBucket;
   /** The reference line on that chart: mean impressions per post, same scope. */
   impressionsAverage: number;
-  /** Seven entries, Sunday → Saturday. */
+  /**
+   * Average impressions by the weekday a post was PUBLISHED on — seven entries,
+   * Sunday → Saturday.
+   *
+   * ⚠️ DATED BY `estimated_post_date` ALONE, undated posts EXCLUDED. The rest of
+   * the report windows on `effectiveMs`, which stands `scraped_at` in for an
+   * hour-age post's missing publish date; a weekday may not be asserted that way —
+   * bucketing a whole weekly scrape onto its scrape day fabricates a rhythm in a
+   * client-facing chart. Those posts are counted in `weekdayUndatedPosts` instead.
+   * An empty weekday is a genuine 0.
+   */
   impressionsByWeekday: { label: string; value: number }[];
+  /**
+   * Posts in the selected period with NO resolved publish date, excluded from
+   * `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose the
+   * exclusion; the datable count it averaged is `impressionsPostCount −
+   * weekdayUndatedPosts`.
+   */
+  weekdayUndatedPosts: number;
   interactionsByAsset: AssetBucket[];
   /** Share of the period's posts by asset type, as a percentage to one decimal. */
   postTypeDistribution: AssetBucket[];
@@ -568,6 +645,13 @@ export interface ClientReport {
    * move with the period picker.
    */
   cadence: PostingCadence;
+  /**
+   * What the content is MADE OF for the SELECTED period — hashtags, length, and
+   * element frequencies. FOLLOWS the period picker, like the temporal sections, so
+   * it describes the content actually posted in the window on screen. Compositional
+   * only — no engagement, no ranking (see `ContentComposition`).
+   */
+  composition: ContentComposition;
   /**
    * Posts behind the two IMPRESSIONS charts — the period's rows that could be
    * dated. Surfaced so a distribution over 5 posts reads differently from one
