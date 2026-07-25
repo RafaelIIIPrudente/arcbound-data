@@ -5,12 +5,14 @@ import { ArrowLeft } from "lucide-react";
 
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
 import { FollowerTrendPanel } from "@/components/dashboard/client/follower-trend";
+import { ReportLinkCard } from "@/components/dashboard/client/report-link-card";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
 import { followerTrend } from "@/lib/follower-trend";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
 import { followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
 import { paths } from "@/paths";
 import { getClient } from "@/services/clients";
+import { getReportLink } from "@/services/report-links";
 import { listUploads } from "@/services/uploads";
 
 export const metadata: Metadata = { title: "Client detail" };
@@ -94,7 +96,13 @@ function KpiCard({
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [client, uploads] = await Promise.all([getClient(id), listUploads(id)]);
+  // `getReportLink` is a metadata-only read that degrades to null on failure, so
+  // it can join the same parallel fetch without ever failing the page.
+  const [client, uploads, reportLink] = await Promise.all([
+    getClient(id),
+    listUploads(id),
+    getReportLink(id),
+  ]);
   if (!client) notFound();
 
   // `uploads === null` means the read FAILED — not that there are none. The
@@ -156,6 +164,13 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       </div>
 
       <ClientTabs clientId={client.id} />
+
+      {/* Sits right after the report/posts nav: this is how staff hand that same
+          report to the client — a private link + an out-of-band Access Code.
+          `status` is null when no link exists (→ Create); the Access Code is shown
+          once at Create/Rotate and never re-rendered from here (it isn't on
+          ReportLinkStatus). See components/report-link + supabase/report-links.sql. */}
+      <ReportLinkCard clientId={client.id} status={reportLink} />
 
       {/* Derived from the SAME `uploads` array the Followers card above reads,
           with no second query — so the series cannot end on a different figure

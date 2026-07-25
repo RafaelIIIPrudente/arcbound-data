@@ -219,6 +219,53 @@ no-referrer` for the route.
       word; the empty/low-N states render honestly.
 - [ ] Gate green; uncommitted.
 
+## Slice S5 — Public report read (token-scoped, read-grant)
+
+**Added 2026-07-25** after S3/S4 shipped: they built the gate + view, but the view's
+data read (`bi.*` + `uploads`) is RLS `authenticated`-only, so the anonymous `/r/<token>`
+route renders "not available". This slice gives the public path a **no-service-role,
+token-scoped, code-gated** read. Decision (Bryan): **read-grant** — preserve the URL +
+Access Code two-factor all the way to the DATA (a URL-only holder cannot pull rows).
+
+**Depends on:** S1 (functions), S3 (gate/session), S4 (view).
+**Files:** `supabase/report-links.sql` + migration + `REPORT-LINKS-APPLY.md` +
+`sql-sync.test.ts`; `src/services/report-links.ts` (+ test); `src/lib/
+report-link-session.ts` (+ test); `src/app/r/[token]/gate.tsx`/`actions.ts`;
+`src/components/report-link/public-report.tsx` (+ test); `report-status.tsx` (+ test).
+
+- [ ] SQL: mint a short-lived **read grant** on successful resolve. `resolve_report_link`
+      now also returns a random `read_grant` (e.g. `encode(gen_random_bytes(16),'hex')`);
+      store it **hashed** with a short expiry (≈ the gate-cookie TTL) — a
+      `report_link_grants(link_id, grant_hash, expires_at)` table (allows >1 concurrent
+      viewer session) or a hashed grant + expiry on the link row. Keep the return shape
+      `jsonb {status, client_id, read_grant}` (extends the existing `{status, client_id}`).
+- [ ] SQL: a SECURITY DEFINER `report_link_read(p_token, p_grant) returns jsonb` that
+      verifies the token active + not revoked AND the grant matches (hash) + unexpired,
+      then returns a bundle of the client's report source — the `bi.linkedin_post_latest`
+      rows `where client_id = <the link's client>` and that client's `public.uploads`
+      rows (for follower history + freshness) + the client name/handle. Invalid grant →
+      returns null/empty, never an error oracle. `grant execute` to `anon` on this fn and
+      on the modified `resolve`; anon still has NO direct table/`bi.*` access.
+- [ ] Confirm (action item, whoever applies the SQL): the definer's owner role has
+      `usage` on schema `bi` + `select` on `bi.linkedin_post_latest` and `public.uploads`
+      (very likely — the existing definer fns already run privileged). Note in APPLY.md.
+- [ ] Service: `resolveReportLink` surfaces `readGrant`; add `readReportLinkSource(token,
+    grant): Promise<{ posts: BiPostRow[]; uploads: UploadRow[]; … } | null>` over
+      `report_link_read`. Update `sql-sync.test.ts` PAIR.
+- [ ] Session: the signed gate cookie now also carries the `read_grant` (alongside token +
+      clientId). RED-first the extended claims.
+- [ ] Gate action: on resolve success, store the returned grant in the gate cookie.
+- [ ] View: `public-report.tsx` fetches via `readReportLinkSource(token, grant)` (from the
+      cookie) → `buildClientReport(...)` → render. Unavailable/expired-grant → the neutral
+      "not available" state (unchanged).
+- [ ] Status strip freshness fix (flag #3): derive `current as of` = latest Upload scrape
+      date, `tracked since` = earliest Upload, from the uploads the read now returns —
+      replacing the cadence-date approximation.
+- [ ] TDD: read fn returns rows only for a valid (token, grant); a URL/token WITHOUT a
+      grant reads nothing (two-factor to the data); expired grant → nothing; the view
+      renders real numbers given a valid grant and the "not available" state otherwise.
+- [ ] Gate green; SQL NOT applied by the agent; uncommitted.
+
 ## Self-Review
 
 - **Spec coverage:** every decision from the grilling (access model, liveness,

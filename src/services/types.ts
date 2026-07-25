@@ -347,6 +347,61 @@ export interface Upload {
   createdAt: string;
 }
 
+// ── Report Links ─────────────────────────────────────────────────────────────
+// A capability record letting ONE Client view their own live report through a
+// tokenized public URL (`/r/<token>`) gated by an out-of-band Access Code. The
+// viewer is NOT an ArcBase user (narrows ADR 0007): no account, no role tier —
+// just a holder of a URL + code. App-owned (public.report_links); every mutation
+// and the public verify go through SECURITY DEFINER functions (no service-role
+// key, no direct anon read).
+//
+// ⚠️ THE ACCESS CODE IS NEVER STORED, ONLY ITS BCRYPT HASH — and the raw code is
+// returned exactly ONCE, at issue/rotate. `ReportLinkStatus` (the staff read)
+// therefore has NO code field: it CANNOT be re-displayed, by construction.
+
+/**
+ * The staff-facing state of a Client's Report Link — metadata only.
+ *
+ * ⚠️ CARRIES NO ACCESS CODE AND NO HASH. `getReportLink` selects these columns
+ * and never `access_code_hash`; the raw code is shown once at issue/rotate and is
+ * unrecoverable thereafter. A status object that could surface the code would
+ * defeat the whole out-of-band model.
+ */
+export interface ReportLinkStatus {
+  clientId: string;
+  /** The full `/r/<token>` URL — the token is re-copyable (only the code is secret). */
+  url: string;
+  /** ISO 8601 — when the active link was issued. */
+  createdAt: string;
+  /** ISO 8601 of the last successful gate pass, or `null` if never accessed. */
+  lastAccessedAt: string | null;
+  /** `revoked_at is null` — an active link exists for this Client. */
+  active: boolean;
+}
+
+/**
+ * The result of issuing or rotating a link: the URL plus the raw Access Code,
+ * surfaced ONCE. Staff must copy the code now — it is never shown again.
+ */
+export interface IssuedReportLink {
+  url: string;
+  accessCode: string;
+}
+
+/**
+ * The outcome of the public gate's verify. Three states, kept apart so the gate
+ * can fail closed with no oracle:
+ *   • ok      — token + code matched; `clientId` is the single Client to render,
+ *               and `readGrant` is the short-lived bearer secret (minted ONLY here,
+ *               on success) that carries the Access Code factor to the data read.
+ *               It is sealed into the signed gate cookie, never exposed to the URL.
+ *   • invalid — unknown/revoked token OR wrong code. THE SAME REASON for both, on
+ *               purpose: a wrong URL and a wrong code must be indistinguishable.
+ *   • locked  — too many failed attempts; a rate-limit state, "try again later".
+ */
+export type ResolveReportLink =
+  { ok: true; clientId: string; readGrant: string } | { ok: false; reason: "invalid" | "locked" };
+
 // ── Post attributes ──────────────────────────────────────────────────────────
 // App-owned per-post facts that the externally-owned `bi.linkedin_post_latest`
 // does not expose. Today that is just the Format Type (Asset Type): ArcBase

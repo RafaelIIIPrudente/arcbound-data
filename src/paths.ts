@@ -17,6 +17,12 @@ export const paths = {
   },
   upload: "/upload",
   resources: "/resources",
+  // Public, tokenized client Report Link — the ONLY unauthenticated app route
+  // besides `/login`. Gated by an out-of-band Access Code (see the `/r/[token]`
+  // route + lib/report-link-session), NOT by the staff auth session. The base is
+  // its own entry so lib/route-access can mark `/r` public without hard-coding it.
+  reportLinkBase: "/r",
+  reportLink: (token: string) => `/r/${token}`,
   /** Pipeline health across the whole client book: submitted vs. attributed. */
   dataQuality: "/data-quality",
   // Template reference feature — kept building, not linked in the ArcBase nav.

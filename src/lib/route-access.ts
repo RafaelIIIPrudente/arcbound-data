@@ -5,15 +5,24 @@ import { paths } from "@/paths";
 // (ADR 0007). Every route except the public set below requires a session.
 
 /**
- * Routes reachable without a session: the login screen, the auth callback, and
- * the password-reset flow (the recovery link establishes a session, so the
- * update-password page must stay reachable while "authenticated").
+ * Routes reachable without a session: the login screen, the auth callback, the
+ * password-reset flow (the recovery link establishes a session, so the
+ * update-password page must stay reachable while "authenticated"), and the public
+ * client Report Link base.
+ *
+ * ⚠️ `reportLinkBase` ("/r") IS AUTH-PUBLIC BUT NOT UNGUARDED. It carries no
+ * ArcBase session by design — the viewer is a Client holding a URL + Access Code,
+ * not a user (ADR 0011 narrows ADR 0007). Its OWN gate (the Access Code + signed
+ * cookie) lives in the `/r/[token]` route, not here; route-access only decides
+ * that the auth middleware must not bounce it to `/login`. Matching is exact-or-
+ * nested (`isPublicRoute`), so `/resources` and other `/r…` siblings stay gated.
  */
 export const PUBLIC_ROUTES: readonly string[] = [
   paths.login,
   paths.auth.callback,
   paths.auth.resetPassword,
   paths.auth.updatePassword,
+  paths.reportLinkBase,
 ];
 
 /**
