@@ -97,4 +97,19 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Guard** — a mechanism that permits or denies access based on whether the
   current visitor is an authenticated user. A _route Guard_ protects a URL; a
   _component Guard_ protects a region of a screen. In ArcBase every route except
-  the login page is guarded.
+  the login page (and the passcode-gated Report Link) is guarded.
+
+- **Report Link** — a revocable, read-only URL that lets a Client's own viewer see
+  that one Client's live report without an ArcBase account. It is a capability
+  bound to a single Client, not a user identity: the viewer is never an
+  authenticated user and can reach only that Client's data. Exactly one Report Link
+  is active per Client at a time.
+
+- **Access Code** — the out-of-band passcode a viewer must supply, together with the
+  Report Link URL, to open the report. It gates a Report Link; possession of the
+  URL alone is not enough.
+
+- **Report Status** — the at-a-glance state shown atop a Report Link view: how
+  current the data is (last Scrape date and tracked-since) and a plain, non-graded
+  activity line (recent posting cadence and trend direction). It describes state,
+  never a score or grade.
