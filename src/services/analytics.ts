@@ -92,6 +92,15 @@ function round1(v: number): number {
 }
 
 /**
+ * The rounded arithmetic mean, or 0 for an empty set — the report's weekday chart
+ * idiom, reused so the two surfaces average a weekday the same way. An empty
+ * weekday is a genuine 0 here (nothing was posted), never a stand-in for unknown.
+ */
+function mean(values: number[]): number {
+  return values.length === 0 ? 0 : round1(values.reduce((s, v) => s + v, 0) / values.length);
+}
+
+/**
  * The RESOLVED publish date, or null. DISPLAY ONLY — never use this to decide
  * whether a post falls in a window; use `effectiveMs` for that.
  *
@@ -238,6 +247,11 @@ export function buildDashboardAnalytics(
     sumOf(prior, (r) => r.impressions),
   );
   const kpis: Kpi[] = [
+    // Publishing VOLUME leads the row: it is the number of posts the engagement
+    // outputs below were earned on. A count, not a sum — `toKpi` takes two numbers
+    // and carries the same vs-prior delta every other KPI does. `current.length`
+    // is `totalPosts` by construction, so the KPI and the header caption agree.
+    toKpi("Posts", current.length, prior.length),
     toKpi(
       "Likes",
       sumOf(current, (r) => r.likes),
@@ -314,6 +328,33 @@ export function buildDashboardAnalytics(
           comments: num(r.comments),
         }));
 
+  // Average impressions by the weekday a post was PUBLISHED on, over the current
+  // window.
+  //
+  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT `effectiveMs`. Every
+  // other figure here windows on `effectiveMs`, which stands `scraped_at` in for an
+  // hour-age post's missing date; that is right for "is it in the window", but a
+  // weekday may NOT be asserted that way. Every post in one weekly scrape shares a
+  // `scraped_at`, so bucketing undated posts by it would pile a scrape onto a single
+  // weekday and fabricate a rhythm — "which weekday lands best" becoming "which
+  // weekday we scraped". Undated posts are excluded and counted separately so the
+  // chart can disclose the gap. (The report's weekday chart still buckets on
+  // `effectiveMs` and so has this defect — flagged for a later, out-of-scope fix.)
+  const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
+  let weekdayUndatedPosts = 0;
+  for (const r of current) {
+    const t = estMs(r);
+    if (t === null) {
+      weekdayUndatedPosts += 1;
+      continue;
+    }
+    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(r.impressions));
+  }
+  const impressionsByWeekday: SeriesPoint[] = WEEKDAYS.map((label, i) => ({
+    label,
+    value: mean(weekdayBuckets[i]!),
+  }));
+
   const scrapedTimes = rows
     .map((r) => (r.scraped_at ? Date.parse(r.scraped_at) : NaN))
     .filter((t) => !Number.isNaN(t));
@@ -327,6 +368,8 @@ export function buildDashboardAnalytics(
     engagement,
     impressionsSeries,
     engagementSeries,
+    impressionsByWeekday,
+    weekdayUndatedPosts,
     recentPosts,
   };
 }

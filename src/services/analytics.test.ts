@@ -95,6 +95,8 @@ vi.mock("@/services/uploads", () => ({
 
 import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
+import type { SeriesPoint } from "@/services/types";
+
 import {
   buildDashboardAnalytics,
   effectiveMs,
@@ -253,7 +255,7 @@ describe("buildDashboardAnalytics (pure)", () => {
     // Current window (Jul 1 + Jul 10 + the hour-age p4) impressions = 1700;
     // prior (May 20) = 600. p4 counts via its scraped_at — see `effectiveMs`.
     expect(a.hero).toEqual({ label: "Impressions", value: 1700, delta: 183, direction: "up" });
-    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Shares", "Saves"]);
+    expect(a.kpis.map((k) => k.label)).toEqual(["Posts", "Likes", "Comments", "Shares", "Saves"]);
     const likes = a.kpis.find((k) => k.label === "Likes")!;
     expect(likes.value).toBe(150); // 100 + 40 + p4's 10
     expect(likes.direction).toBe("up");
@@ -313,6 +315,156 @@ describe("buildDashboardAnalytics (pure)", () => {
     expect(a.hero.value).toBe(0);
     expect(a.engagement.value).toBe(0);
     expect(a.recentPosts).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLISHING VOLUME IS A KPI, NOT A CAPTION. The engagement outputs were earned
+// on a number of posts; that number belongs in the row beside them, with the
+// same vs-prior delta every other KPI carries.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the Posts KPI (publishing volume)", () => {
+  it("leads the KPI row with the current window's post count", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    // Posts is the volume the engagement outputs were earned on, so it reads
+    // Posts → Likes → Comments → Shares → Saves.
+    expect(a.kpis[0]!.label).toBe("Posts");
+    expect(a.kpis[0]!.value).toBe(3); // p1 + p2 + hour-age p4, exactly totalPosts
+    expect(a.kpis[0]!.value).toBe(a.totalPosts);
+  });
+
+  it("carries a vs-prior delta built from the two windows' counts", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    // current 3 posts vs prior 1 (May p3): (3 − 1) / 1 × 100 = 200%, up.
+    expect(a.kpis[0]).toEqual({ label: "Posts", value: 3, delta: 200, direction: "up" });
+  });
+
+  it("reports a DECLINE when fewer posts went out than in the prior window", () => {
+    // One current post; three in the prior 30-day window. A count that fell must
+    // read as a down delta, not a flat one — the discriminator against a Posts
+    // KPI wired to compare a window against itself.
+    const rows: BiPostRow[] = [
+      biRow({ linkedin_post_id: "cur", estimated_post_date: "2026-07-10", impressions: 10 }),
+      biRow({ linkedin_post_id: "pr1", estimated_post_date: "2026-06-01", impressions: 10 }),
+      biRow({ linkedin_post_id: "pr2", estimated_post_date: "2026-06-05", impressions: 10 }),
+      biRow({ linkedin_post_id: "pr3", estimated_post_date: "2026-05-20", impressions: 10 }),
+    ];
+    const a = buildDashboardAnalytics(rows, { range: "30d", now: NOW });
+    // (1 − 3) / 3 × 100 = −66.7 → 67%, down.
+    expect(a.kpis[0]).toEqual({ label: "Posts", value: 1, delta: 67, direction: "down" });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE WEEKDAY IS WHEN THE POST WENT OUT, NOT WHEN IT WAS SCRAPED.
+//
+// ⚠️ A post whose estimated_post_date the pipeline never resolved (an hour-age
+// post) has NO assertable weekday. Bucketing it by its scrape weekday would pile
+// a whole weekly scrape onto one day and fabricate a spike — turning "which
+// weekday lands best" into "which weekday we happened to scrape". Such posts are
+// EXCLUDED from the weekday buckets and counted separately so the chart can say so.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("average impressions by weekday", () => {
+  const wk = (label: string, data: SeriesPoint[]) => data.find((d) => d.label === label)!.value;
+
+  // All four posts fall in the 30-day current window ending at NOW (2026-07-16).
+  //   w1 Wed 2026-07-01 · 100 impressions   w2 Wed 2026-07-08 · 300 impressions
+  //   w3 Fri 2026-07-10 · 500 impressions
+  //   w4 UNDATED (est null) scraped Thu 2026-07-16 · 999 impressions
+  const WEEKDAY_ROWS: BiPostRow[] = [
+    biRow({ linkedin_post_id: "w1", estimated_post_date: "2026-07-01", impressions: 100 }),
+    biRow({ linkedin_post_id: "w2", estimated_post_date: "2026-07-08", impressions: 300 }),
+    biRow({ linkedin_post_id: "w3", estimated_post_date: "2026-07-10", impressions: 500 }),
+    biRow({
+      linkedin_post_id: "w4",
+      estimated_post_date: null,
+      post_age: "5h",
+      impressions: 999,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+    }),
+  ];
+
+  it("returns seven buckets, Sunday through Saturday", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    expect(a.impressionsByWeekday.map((d) => d.label)).toEqual([
+      "Sun",
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+    ]);
+  });
+
+  it("averages each weekday's impressions — the MEAN, never the sum", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // Two Wednesday posts: mean(100, 300) = 200. A sum would read 400 and let a
+    // high-volume weekday dominate a chart that is meant to compare per-post reach.
+    expect(wk("Wed", a.impressionsByWeekday)).toBe(200);
+    expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
+  });
+
+  it("dates each post by its estimated_post_date weekday, NOT its scrape weekday", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // w4 was scraped on a Thursday but has no resolved publish date. If it were
+    // bucketed by effectiveMs/scraped_at it would drop 999 onto Thursday; it must
+    // not. Thursday saw no DATABLE post, so it is a genuine zero.
+    expect(wk("Thu", a.impressionsByWeekday)).toBe(0);
+  });
+
+  it("excludes undated posts and counts how many were excluded", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // w4 is the one in-window post with no resolved date. It is counted in
+    // totalPosts (it is a real post) but excluded from the weekday chart, and the
+    // exclusion is surfaced so the UI can disclose it rather than hide it.
+    expect(a.totalPosts).toBe(4);
+    expect(a.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("gives a weekday with no posts a genuine zero", () => {
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    // Sunday saw nothing — a real 0, distinct from a weekday we could not measure.
+    expect(wk("Sun", a.impressionsByWeekday)).toBe(0);
+    expect(wk("Mon", a.impressionsByWeekday)).toBe(0);
+  });
+
+  it("yields all-zero buckets when the window holds no datable posts", () => {
+    // Every post in the window is hour-age (undated). There is nothing to place on
+    // a weekday, so every bucket is 0 and the whole window is disclosed as excluded
+    // — the chart's all-zero empty state still triggers, honestly this time.
+    const undatedOnly: BiPostRow[] = [
+      biRow({
+        linkedin_post_id: "u1",
+        estimated_post_date: null,
+        post_age: "2h",
+        impressions: 400,
+        scraped_at: "2026-07-15T06:00:00.000Z",
+      }),
+      biRow({
+        linkedin_post_id: "u2",
+        estimated_post_date: null,
+        post_age: "9h",
+        impressions: 800,
+        scraped_at: "2026-07-16T06:00:00.000Z",
+      }),
+    ];
+    const a = buildDashboardAnalytics(undatedOnly, { range: "30d", now: NOW });
+    expect(a.impressionsByWeekday.every((d) => d.value === 0)).toBe(true);
+    expect(a.totalPosts).toBe(2);
+    expect(a.weekdayUndatedPosts).toBe(2);
+  });
+
+  it("aggregates the CURRENT window only, respecting the range filter", () => {
+    // A Friday post from the prior window (2026-06-05) must not inflate Friday of
+    // the current window's chart. Under 30d it is out of scope; only w3 (Jul 10,
+    // Fri) counts, so Friday stays 500.
+    const withPrior: BiPostRow[] = [
+      ...WEEKDAY_ROWS,
+      biRow({ linkedin_post_id: "old", estimated_post_date: "2026-06-05", impressions: 9000 }),
+    ];
+    const a = buildDashboardAnalytics(withPrior, { range: "30d", now: NOW });
+    expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
   });
 });
 
@@ -416,7 +568,7 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     expect(biState.schemaCalls).toContain("bi");
     expect(biState.fromCalls).toContain("linkedin_post_latest");
     expect(a.hero.label).toBe("Impressions");
-    expect(a.kpis.map((k) => k.label)).toEqual(["Likes", "Comments", "Shares", "Saves"]);
+    expect(a.kpis.map((k) => k.label)).toEqual(["Posts", "Likes", "Comments", "Shares", "Saves"]);
     expect(Array.isArray(a.impressionsSeries)).toBe(true);
     expect(Array.isArray(a.recentPosts)).toBe(true);
   });

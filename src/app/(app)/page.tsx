@@ -10,6 +10,7 @@ import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-fil
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
 import { KpiCards } from "@/components/dashboard/analytics/kpi-cards";
+import { WeekdayImpressionsChart } from "@/components/dashboard/analytics/weekday-impressions-chart";
 import { Button } from "@/components/ui/button";
 import { paths } from "@/paths";
 import { getDashboardAnalytics, RANGE_LABEL } from "@/services/analytics";
@@ -43,7 +44,13 @@ export default async function DashboardPage({
     registry,
   ]);
   const clients = clientList ?? [];
-  const hasData = analytics.recentPosts.length > 0;
+  // `totalPosts > 0` is the honest has-data signal: it is the count of posts in
+  // the current window, which is exactly what every figure below is computed from.
+  // (It previously keyed off `recentPosts.length`, a leftover from the removed
+  // recent-posts table; the two are equivalent — `recentPosts` is `[]` iff the
+  // window is empty — so `recentPosts` is now vestigial on this page. Left in place;
+  // removing it is a separate change with its own blast radius.)
+  const hasData = analytics.totalPosts > 0;
 
   return (
     <div className="space-y-6">
@@ -82,6 +89,16 @@ export default async function DashboardPage({
               delta={analytics.engagement.delta}
             />
           </div>
+          {/* Dated by estimated_post_date alone; undated (hour-age) posts have no
+              assertable weekday and are disclosed, not bucketed onto a scrape day.
+              `datedPosts` is the count actually averaged — `totalPosts` minus the
+              excluded undated ones. */}
+          <WeekdayImpressionsChart
+            data={analytics.impressionsByWeekday}
+            rangeLabel={RANGE_LABEL[range]}
+            datedPosts={analytics.totalPosts - analytics.weekdayUndatedPosts}
+            undatedPosts={analytics.weekdayUndatedPosts}
+          />
           {/* All-clients state only: the service returns `null` when one client
               is selected, and does not issue the comparison's two extra reads. */}
           {analytics.comparison ? (

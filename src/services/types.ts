@@ -118,6 +118,23 @@ export interface DashboardAnalytics {
   engagement: { value: number; delta: number };
   impressionsSeries: SeriesPoint[];
   engagementSeries: SeriesPoint[];
+  /**
+   * Average impressions by the weekday a post was PUBLISHED on, Sunday → Saturday.
+   *
+   * ⚠️ DATED BY `estimated_post_date` ALONE, undated posts EXCLUDED. Unlike every
+   * other dashboard figure — which windows on `effectiveMs` and so counts hour-age
+   * posts via their `scraped_at` — a weekday may not be asserted for a post whose
+   * publish date was never resolved: bucketing it by its scrape weekday would pile
+   * a whole weekly scrape onto one day and fabricate rhythm. Those posts are
+   * counted in `weekdayUndatedPosts` instead. An empty weekday is a genuine 0.
+   */
+  impressionsByWeekday: SeriesPoint[];
+  /**
+   * Posts in the current window with NO resolved publish date, excluded from
+   * `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose the
+   * exclusion; the datable count it averaged is `totalPosts − weekdayUndatedPosts`.
+   */
+  weekdayUndatedPosts: number;
   recentPosts: RecentPost[];
   /** True when the analytics source couldn't be read (distinct from "no data"). */
   unavailable?: boolean;
