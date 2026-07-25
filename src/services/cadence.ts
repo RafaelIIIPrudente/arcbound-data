@@ -3,11 +3,10 @@ import { estMs, type BiPostRow } from "@/services/analytics";
 import type { CadenceBucket, PostingCadence } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Posting cadence: how regularly a Client posts, over their ALL-TIME history.
-//
-// A pure function over the SAME rows `client-report.ts` already read — no new
-// query — computed alongside the report and hung on `ClientReport`, exactly as
-// `reconcileRates(rows)` is.
+// Posting cadence: how regularly a Client posts. A pure function over whatever
+// rows the caller passes — `client-report.ts` hands it the SELECTED-period rows,
+// so the section follows the report's period picker — computed alongside the
+// report from rows already read (no new query), exactly as `reconcileRates(rows)`.
 //
 // ⚠️ DATED BY `estimated_post_date` ALONE (via the exported `estMs`). A post
 // scraped at hour-granularity has no resolved date; the windowing helper
