@@ -16,6 +16,7 @@ import {
 import { AnalyticsTruncated } from "@/components/dashboard/analytics/analytics-unavailable";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
+import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { AssetLegend } from "@/components/dashboard/report/asset-legend";
 import { rampColor } from "@/components/dashboard/report/ramp";
 import { ChartScope } from "@/components/dashboard/report/chart-scope";
@@ -380,6 +381,16 @@ export function PrintReport({ report }: { report: ClientReport }) {
           postCount={report.impressionsPostCount}
         />
       </Section>
+
+      {/* Posting cadence — ALL-TIME, so its scope reads "All time" rather than the
+          selected period. The component is print-safe by construction (percentage
+          layout, no recharts) and already carries `print-block`. Omitted for a
+          client with no posts, matching the screen. */}
+      {report.totalPostsAllTime > 0 ? (
+        <Section title="Posting cadence" scope="All time">
+          <PostingCadence cadence={report.cadence} />
+        </Section>
+      ) : null}
 
       <Section title="Content mix" scope={scopeCaption(report.period)}>
         <InteractionsByAsset

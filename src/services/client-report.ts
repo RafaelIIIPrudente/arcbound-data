@@ -1,5 +1,6 @@
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
 import { type BiPostRow } from "@/services/analytics";
+import { buildCadence } from "@/services/cadence";
 import {
   periodRange,
   readClientPostRows,
@@ -507,6 +508,11 @@ export function buildClientReport(
     impressionsByWeekday,
     interactionsByAsset,
     postTypeDistribution,
+    // ALL-TIME by design, like `totalPostsAllTime` — cadence answers a
+    // whole-history question and does not follow the period picker. Computed over
+    // the SAME `rows` already read; no new query. Dated by `estimated_post_date`
+    // alone (see cadence.ts), so an hour-age post is counted but never placed.
+    cadence: buildCadence(rows, now),
     // ── small-N honesty ──────────────────────────────────────────────────────
     // All-time framing guaranteed these charts drew on the full history. Scoped
     // to a month they may draw on a handful of posts, where "Image 40%" is noise

@@ -437,6 +437,56 @@ export interface AssetBucket {
   count: number;
 }
 
+/**
+ * How regularly a Client posts, over their ALL-TIME history. Plain descriptive
+ * figures and a timeline — it reports rhythm and never SCORES it.
+ *
+ * ⚠️ DATED BY THE PUBLISH DATE ALONE, AND FOUR-STATE THROUGHOUT. Cadence places a
+ * post by `estimated_post_date`; a post scraped at hour-granularity has none, so
+ * it is COUNTED in `totalPosts` but OMITTED from every gap and from `timeline` —
+ * never dropped onto its scrape instant. The four honest states are kept apart:
+ *   • could not be read — cadence rides the report's read; a failed read shows the
+ *     report's own unavailable banner, so there is no cadence-specific flag here.
+ *   • not applicable    — a figure that cannot exist yet (a gap with <2 dated
+ *     posts, a weekly rate over a zero-length span): `null`, an em dash on screen.
+ *   • genuinely zero    — a MEASURED zero (two posts on the same day are 0 days
+ *     apart): a real number, never conflated with `null`.
+ *   • truncated         — under a capped read every figure is a lower bound; the
+ *     report's existing truncation banner already says so (no second banner).
+ */
+export interface PostingCadence {
+  /** Every post in the history — the visible N against which every figure reads. */
+  totalPosts: number;
+  /** Posts carrying a resolved publish date: the ones placed on the timeline. */
+  datedPosts: number;
+  /**
+   * Posts with no resolved publish date. Counted in `totalPosts`, absent from
+   * `timeline` and every gap — surfaced so the two can be reconciled and disclosed.
+   */
+  undatedPosts: number;
+  /**
+   * Posts per week across the ACTIVE SPAN (first dated post → last dated post),
+   * NOT up to today — a client who paused reads as their rhythm while active.
+   *
+   * `null` (not applicable) with fewer than two dated posts, or when every dated
+   * post shares one day: a rate over a zero-length span is undefined, not zero.
+   */
+  postsPerWeek: number | null;
+  /** MEDIAN days between consecutive dated posts — a hiatus must not inflate it.
+   *  `null` with fewer than two dated posts; a genuine `0` when posts share a day. */
+  medianGapDays: number | null;
+  /** Longest gap in days between consecutive dated posts — the "went quiet" signal.
+   *  `null` with fewer than two dated posts. */
+  longestGapDays: number | null;
+  /** Whole days since the most recent dated post. `null` when no post is dated. */
+  daysSinceLastPost: number | null;
+  /**
+   * One resolved-publish-date timestamp (ms) per DATED post, ASCENDING — the marks
+   * on the timeline. Empty when nothing is dated. An undated post is never here.
+   */
+  timeline: number[];
+}
+
 export interface ClientReport {
   period: ReportPeriod;
   availablePeriods: ReportPeriod[];
@@ -474,6 +524,13 @@ export interface ClientReport {
   interactionsByAsset: AssetBucket[];
   /** Share of the period's posts by asset type, as a percentage to one decimal. */
   postTypeDistribution: AssetBucket[];
+  /**
+   * Posting cadence over the ALL-TIME history — DELIBERATELY not period-scoped.
+   * Like `totalPostsAllTime` and the Key Performance matrix, it answers a
+   * whole-history question ("how regularly does this Client post?") and must not
+   * move with the period picker.
+   */
+  cadence: PostingCadence;
   /**
    * Posts behind the two IMPRESSIONS charts — the period's rows that could be
    * dated. Surfaced so a distribution over 5 posts reads differently from one

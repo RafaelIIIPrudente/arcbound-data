@@ -71,11 +71,78 @@ describe("PostsTable", () => {
     expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
   });
 
-  it("renders NO pagination controls", () => {
+  it("renders NO pagination controls when everything fits on one page", () => {
+    // One page of rows needs no pager — the controls appear only once a second
+    // page exists (see the pagination block below).
     render(<PostsTable data={[post({ id: "a" })]} />);
 
     expect(screen.queryByRole("button", { name: /previous/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /next/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("pagination: 20 posts per page", () => {
+  /** `count` posts, impressions descending so the default sort order is known. */
+  const many = (count: number) =>
+    Array.from({ length: count }, (_, i) =>
+      post({ id: `p${i}`, snippet: `Post ${i}`, impressions: count - i }),
+    );
+
+  it("shows at most 20 rows on a page", () => {
+    render(<PostsTable data={many(25)} />);
+
+    expect(bodyRows()).toHaveLength(20);
+  });
+
+  it("keeps a full-but-single page free of pagination controls", () => {
+    // Exactly one page. The boundary case: 20 rows is still one page, so no pager.
+    render(<PostsTable data={many(20)} />);
+
+    expect(bodyRows()).toHaveLength(20);
+    expect(screen.queryByRole("button", { name: /next/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the pager and the page position once a second page exists", () => {
+    render(<PostsTable data={many(25)} />);
+
+    expect(screen.getByRole("button", { name: /previous/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /next/i })).toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+    // On the first page there is nowhere to go back to.
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
+  });
+
+  it("advances to the remainder on the last page and disables Next there", async () => {
+    const user = userEvent.setup();
+    render(<PostsTable data={many(25)} />);
+
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(bodyRows()).toHaveLength(5); // 25 − 20
+    expect(screen.getByText(/page 2 of 2/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /previous/i })).toBeEnabled();
+  });
+
+  it("paginates the FULL sorted set, not just the current page", async () => {
+    const user = userEvent.setup();
+    // Impressions ascending in source order, so the least-engaged post is FIRST
+    // in the array but must land on the LAST page under the default desc sort.
+    render(
+      <PostsTable
+        data={Array.from({ length: 25 }, (_, i) =>
+          post({ id: `p${i}`, snippet: `Post ${i}`, impressions: i + 1 }),
+        )}
+      />,
+    );
+
+    // Page 1 opens with the HIGHEST impressions (Post 24 = 25 impressions).
+    expect(snippets()[0]).toBe("Post 24");
+
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Page 2 is the tail of the sorted order — the five weakest posts, ascending.
+    expect(snippets()).toEqual(["Post 4", "Post 3", "Post 2", "Post 1", "Post 0"]);
   });
 });
 

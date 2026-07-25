@@ -94,8 +94,16 @@ function round1(v: number): number {
 /**
  * The RESOLVED publish date, or null. DISPLAY ONLY — never use this to decide
  * whether a post falls in a window; use `effectiveMs` for that.
+ *
+ * ⚠️ EXPORTED FOR POSTING CADENCE, AND FOR NOTHING ELSE HERE. Cadence dates a
+ * post by when it was PUBLISHED, so a post whose age was scraped in hours (no
+ * resolved date) must return null and be omitted from the timeline — never fall
+ * back to `scraped_at`, which would drop it onto scrape day and fabricate rhythm.
+ * That is exactly the null-returning behaviour this helper has and `effectiveMs`
+ * (the windowing helper) deliberately does not. Reused rather than re-copied so
+ * the two seams cannot drift on what "the post's date" means.
  */
-function estMs(row: BiPostRow): number | null {
+export function estMs(row: BiPostRow): number | null {
   if (!row.estimated_post_date) return null;
   const t = Date.parse(row.estimated_post_date);
   return Number.isNaN(t) ? null : t;

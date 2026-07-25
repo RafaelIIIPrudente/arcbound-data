@@ -931,6 +931,55 @@ describe("buildClientReport (pure)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POSTING CADENCE rides the report. The pure arithmetic is proven exhaustively in
+// cadence.test.ts; these pin the WIRING — that buildClientReport computes it over
+// the same rows, keeps it all-time, and preserves the counted-but-not-placed rule
+// for undated posts end to end.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("posting cadence is carried on the report (all-time)", () => {
+  const build = (period: ReportPeriod, rows = HISTORY) =>
+    buildClientReport(rows, new Map(), {
+      period,
+      now: NOW,
+      followers: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("computes the cadence figures from the full history", () => {
+    // HISTORY sorted: Jan 15, May 5, Jun 10, Jun 20, Jul 10 → gaps 110, 36, 10, 20.
+    const { cadence } = build(JULY);
+
+    expect(cadence.totalPosts).toBe(5);
+    expect(cadence.datedPosts).toBe(5);
+    expect(cadence.medianGapDays).toBe(28); // median of 110/36/10/20, not the mean (44)
+    expect(cadence.longestGapDays).toBe(110);
+    expect(cadence.daysSinceLastPost).toBe(6); // Jul 10 → Jul 16 12:00 = 6 whole days
+    expect(cadence.timeline).toHaveLength(5);
+  });
+
+  it("does NOT follow the period picker — cadence is identical for every period", () => {
+    // Like totalPostsAllTime and the Key Performance matrix, cadence answers a
+    // whole-history question and must not move when the period changes.
+    expect(build(JULY).cadence).toEqual(build(ALL_TIME).cadence);
+    expect(build(Q3).cadence).toEqual(build(ALL_TIME).cadence);
+  });
+
+  it("counts an undated post in the total but keeps it off the timeline", () => {
+    const rows = [
+      ...HISTORY,
+      row({ linkedin_post_id: "ghost", estimated_post_date: null, scraped_at: "2026-07-15" }),
+    ];
+    const { cadence } = build(ALL_TIME, rows);
+
+    expect(cadence.totalPosts).toBe(6); // counted
+    expect(cadence.datedPosts).toBe(5); // but not dated
+    expect(cadence.undatedPosts).toBe(1);
+    expect(cadence.timeline).toHaveLength(5); // never placed at its scrape instant
+    expect(cadence.longestGapDays).toBe(110); // gaps unchanged by the undated post
+  });
+});
+
 describe("getClientReport (seam → paged bi read)", () => {
   it("pages past the PostgREST 1000-row cap and merges every page", async () => {
     // A FULL first page must trigger a second request — a silent truncation here

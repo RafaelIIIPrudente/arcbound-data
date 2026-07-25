@@ -13,6 +13,7 @@ import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impress
 import { InteractionsByAssetChart } from "@/components/dashboard/report/interactions-by-asset-chart";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
+import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
@@ -146,6 +147,18 @@ export default async function ClientReportPage({
               />
             </div>
           </section>
+
+          {/* Posting cadence — a sibling of the temporal sections, but ALL-TIME
+              by design: it answers "how regularly does this Client post?" over the
+              whole history, so its scope caption reads "All time" and it does not
+              move with the picker. Hidden entirely for a client with no posts, so
+              no empty header is left stranded (the component also self-guards). */}
+          {report.totalPostsAllTime > 0 ? (
+            <section className="space-y-4">
+              <SectionHeader title="Posting cadence" scope="All time" />
+              <PostingCadence cadence={report.cadence} />
+            </section>
+          ) : null}
 
           <section className="space-y-4">
             <SectionHeader title="Content mix" scope={scopeCaption(report.period)} />
