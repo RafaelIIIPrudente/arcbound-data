@@ -10,7 +10,9 @@ import type {
   OutreachAnalytics,
   OutreachCount,
   OutreachFunnelStep,
+  OutreachMovement,
   OutreachProspect,
+  SentTrendPoint,
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,6 +94,20 @@ function distinct(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+// ⚠️ THE FOUR FUNNEL RULES BELOW ARE IMPLEMENTED TWICE, IN TWO LANGUAGES.
+// The second copy is in `public.report_link_read`
+// (`supabase/outreach-report-link.sql`), which computes the SAME four counts in
+// SQL for the Client's public Report Link.
+//
+// A CHANGE HERE MUST BE MADE THERE — otherwise the Client's report will quietly
+// disagree with this staff page, and nobody looks at both screens at once.
+//
+// The duplication CANNOT be removed, and that is a decision rather than debt:
+// computing the Client's figure here would mean shipping prospect rows out of
+// the database on the public path, which is exactly what ADR 0012 forbids. The
+// privacy boundary costs one duplicated rule, so the rule is guarded instead of
+// deduplicated — `outreach-analytics.test.ts` pins each SQL predicate against
+// its TypeScript twin and fails loudly if either side is edited alone.
 export function buildOutreachAnalytics(prospects: OutreachProspect[]): OutreachAnalytics {
   // ── The funnel: four columns, four rules, no Stage ────────────────────────
   const sent = prospects.filter((p) => !isBlank(p.dateSent)).length;
@@ -290,5 +306,209 @@ export function buildOutreachAnalytics(prospects: OutreachProspect[]): OutreachA
     undatedSent,
     unreadableSentValues: distinct(unreadableSent),
     sentDateRange,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S5 — TRENDS. Two pure helpers over what `buildOutreachAnalytics` already
+// computed. Neither reads the database, and neither recomputes a figure that
+// exists above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Month names for the axis. A LOOKUP, NOT `toLocaleDateString`.
+ *
+ * ⚠️ THE SAME REASON `isoDate` MATCHES STRINGS. Formatting `YYYY-MM` for a
+ * human through a `Date` would first have to construct one, and
+ * `new Date("2026-07")` is UTC midnight — which in a negative-offset zone
+ * renders as June. A label that disagrees with the bucket it sits under is
+ * worse than no label.
+ */
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** `YYYY-MM` → months since year 0, so month arithmetic is plain integer maths. */
+function monthIndex(ym: string): number {
+  return Number(ym.slice(0, 4)) * 12 + (Number(ym.slice(5, 7)) - 1);
+}
+
+/** The inverse. */
+function monthKey(index: number): string {
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+}
+
+/** `2026-07` → `Jul 2026`. */
+function monthLabel(ym: string): string {
+  return `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
+}
+
+/**
+ * Every month between the first and last bucket, empty ones included as `0`.
+ *
+ * ⚠️ THIS ZERO IS A REAL ZERO, AND THAT IS THE ONLY REASON IT IS ALLOWED.
+ * Everywhere else on this page an absent value renders as a gap and never as 0 —
+ * a blank Stage gets its own named bar, an unreadable follow-up count never
+ * lands in the "0" bucket, a failed read shows no figures at all. Here the rule
+ * INVERTS, deliberately: `sentOverTime` is built from a column whose date range
+ * is KNOWN, so "no requests were sent in February" is an observation the data
+ * supports, not a measurement nobody took. The distinction is the same one the
+ * rest of the file enforces — never assert what was not measured — applied to a
+ * case where the absence IS the measurement.
+ *
+ * Without this, `sentOverTime` renders January beside March and the chart
+ * silently claims February did not exist.
+ */
+export function fillSentMonths(
+  series: { date: string; count: number }[],
+): { date: string; count: number }[] {
+  if (series.length === 0) return [];
+
+  const byMonth = new Map(series.map((m) => [m.date, m.count]));
+  // Derived from the data rather than from its order: the caller sorts, but a
+  // fill that silently depended on that would break quietly if it stopped.
+  const indices = series.map((m) => monthIndex(m.date));
+  const first = Math.min(...indices);
+  const last = Math.max(...indices);
+
+  const filled: { date: string; count: number }[] = [];
+  for (let i = first; i <= last; i += 1) {
+    const date = monthKey(i);
+    filled.push({ date, count: byMonth.get(date) ?? 0 });
+  }
+  return filled;
+}
+
+/**
+ * Runs of empty months shorter than this stay as real zero bars.
+ *
+ * ⚠️ THREE IS A JUDGEMENT, AND IT IS THE ONE THE FILL EXISTS FOR. One or two
+ * quiet months are legible as bars and are exactly the "February did not vanish"
+ * case; past that the axis costs more than it says. The real snapshot runs
+ * `2020-12` → 2026 — 68 months, of which 61 are consecutive dormancy — and drawn
+ * in full the six months that actually carry the Client's outreach are squeezed
+ * into the right-hand tenth of the chart.
+ */
+const MIN_COLLAPSED_RUN = 3;
+
+/**
+ * The requests-sent timeline: filled months, with long dormancies compressed.
+ *
+ * ⚠️ COMPRESSED, NEVER TRIMMED, AND THE COMPRESSION SAYS SO WHERE IT HAPPENS.
+ * The `2020-12-04` row is real and S3 already decided it is neither filtered nor
+ * hidden (`sentDateRange` publishes it). Dropping the early months to make the
+ * chart pretty is the one option not available: it would delete a genuine
+ * observation to improve a picture. So the span is kept whole and its empty
+ * stretch becomes ONE labelled point reading "61 months, none sent (Jan 2021 –
+ * Jan 2026)" — a broken axis that names its own break, which a reader can
+ * audit, rather than a smooth axis that quietly lost five years.
+ */
+export function sentTrend(
+  series: { date: string; count: number }[],
+  minRun: number = MIN_COLLAPSED_RUN,
+): SentTrendPoint[] {
+  const filled = fillSentMonths(series);
+  const points: SentTrendPoint[] = [];
+
+  let i = 0;
+  while (i < filled.length) {
+    if (filled[i]!.count === 0) {
+      let end = i;
+      while (end < filled.length && filled[end]!.count === 0) end += 1;
+      const months = end - i;
+
+      if (months >= minRun) {
+        const from = filled[i]!.date;
+        const to = filled[end - 1]!.date;
+        points.push({
+          kind: "gap",
+          months,
+          from,
+          to,
+          // `count: null` — not 0. See `SentTrendPoint`: this is many months
+          // compressed, not one month that measured nothing.
+          count: null,
+          label: `${months} months, none sent (${monthLabel(from)} – ${monthLabel(to)})`,
+        });
+        i = end;
+        continue;
+      }
+    }
+
+    const month = filled[i]!;
+    points.push({
+      kind: "month",
+      date: month.date,
+      label: monthLabel(month.date),
+      count: month.count,
+    });
+    i += 1;
+  }
+
+  return points;
+}
+
+/**
+ * What moved between two snapshots. PURE, and RECOMPUTED FROM RAW ROWS.
+ *
+ * ⚠️ BOTH SIDES COME FROM `buildOutreachAnalytics`, WHICH IS THE POINT. ADR 0009:
+ * raw values are never rewritten and interpretation happens at read time, so a
+ * corrected reading fixes every past snapshot at once. Freezing per-snapshot
+ * counts into the database at ingest would leave old snapshots asserting
+ * arithmetic the app no longer believes — and the reply vocabulary has already
+ * changed once.
+ *
+ * ⚠️ THE STEPS ARE PAIRED BY POSITION AND THEN CHECKED. Both funnels are built
+ * by the same function, so they agree by construction; this throws anyway,
+ * because the failure it guards against is silent. A zip that slipped by one
+ * would subtract "connections accepted" from "requests sent" and return a
+ * perfectly plausible integer, and no reader could ever tell.
+ */
+export function outreachMovement(
+  current: OutreachAnalytics,
+  previous: OutreachAnalytics,
+): OutreachMovement {
+  if (current.funnel.length !== previous.funnel.length) {
+    throw new Error(
+      `Outreach movement needs two funnels of the same shape: ${current.funnel.length} steps against ${previous.funnel.length}.`,
+    );
+  }
+
+  const steps = current.funnel.map((step, i) => {
+    const before = previous.funnel[i]!;
+    if (before.label !== step.label || before.source !== step.source) {
+      throw new Error(
+        `Outreach movement compared two different steps: "${step.label}" (${step.source}) against "${before.label}" (${before.source}).`,
+      );
+    }
+    return {
+      label: step.label,
+      source: step.source,
+      previous: before.count,
+      current: step.count,
+      // A difference of two counts. Nothing is divided by anything, here or
+      // downstream — see `OutreachMovementStep`.
+      delta: step.count - before.count,
+    };
+  });
+
+  return {
+    steps,
+    prospects: {
+      previous: previous.totalProspects,
+      current: current.totalProspects,
+      delta: current.totalProspects - previous.totalProspects,
+    },
   };
 }

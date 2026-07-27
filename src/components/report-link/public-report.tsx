@@ -11,9 +11,14 @@ import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-
 import { getGateReadGrant } from "@/lib/report-link-session";
 import { availablePeriods, buildClientReport, parseReportPeriod } from "@/services/client-report";
 import { toFormatMap } from "@/services/post-attributes";
-import { readReportLinkSource, type ReportLinkSource } from "@/services/report-links";
+import {
+  readReportLinkSource,
+  type ReportLinkOutreach,
+  type ReportLinkSource,
+} from "@/services/report-links";
 import type { ClientReport } from "@/services/types";
 
+import { OutreachSummary } from "./outreach-summary";
 import { ReportStatus, type ReportFreshness } from "./report-status";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +113,7 @@ export async function PublicReport({ token, period }: { token: string; period?: 
       report={buildReportFromSource(source, period)}
       clientName={source.clientName}
       freshness={computeFreshness(source.uploads)}
+      outreach={source.outreach}
     />
   );
 }
@@ -129,10 +135,16 @@ export function PublicReportView({
   report,
   clientName,
   freshness,
+  outreach = null,
 }: {
   report: ClientReport;
   clientName: string | null;
   freshness: ReportFreshness;
+  /**
+   * This Client's outreach as aggregate counts, or null. Defaults to null — which
+   * is also what "no snapshot" means — so the block simply does not appear.
+   */
+  outreach?: ReportLinkOutreach | null;
 }) {
   const scope = scopeCaption(report.period);
 
@@ -155,6 +167,10 @@ export function PublicReportView({
 
       <div className="space-y-10">
         <ReportStatus report={report} freshness={freshness} />
+
+        {/* Aggregate counts only, and absent entirely when this Client has no
+            outreach snapshot (ADR 0012). Renders nothing on its own when null. */}
+        <OutreachSummary outreach={outreach} />
 
         {/* A partial history, in plain client language — NOT the "read X of Y"
             developer banner. Omitted entirely when the read was complete. */}

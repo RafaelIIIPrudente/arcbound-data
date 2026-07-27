@@ -1135,6 +1135,34 @@ export type LatestSnapshot =
   | { status: "empty" }
   | { status: "unavailable" };
 
+/**
+ * The result of reading a snapshot the caller NAMES, by upload id.
+ *
+ * ⚠️ TWO STATES, NOT THREE, AND THE MISSING ONE IS "not applicable" RATHER THAN
+ * A COLLAPSE. `LatestSnapshot`'s third state — `empty` — answers "does this
+ * Client have any snapshot at all?", and a caller holding an upload id already
+ * knows the answer: it read the id off a header. So a read that returns no rows
+ * here is `ok` with `[]` — a real snapshot of an empty file — and a read that
+ * BROKE is `unavailable`, exactly as before. Adding an unreachable `empty` would
+ * invite a caller to handle it as "no snapshot" and quietly swallow the outage.
+ */
+export type NamedSnapshot =
+  | {
+      status: "ok";
+      prospects: OutreachProspect[];
+      /**
+       * The read hit the pager's cap, so `prospects` is a PREFIX.
+       *
+       * ⚠️ A TRUNCATED SNAPSHOT MUST NOT BE COMPARED WITH A WHOLE ONE. Its
+       * counts are floors; subtracting a floor from a total manufactures
+       * movement nobody made. See `OutreachMovementState`'s `partial-read`.
+       */
+      truncated: boolean;
+      /** Rows the snapshot actually has, per the database. `null` = not known. */
+      total: number | null;
+    }
+  | { status: "unavailable" };
+
 /** One row of a breakdown: a label and how many prospects carry it. */
 export interface OutreachCount {
   label: string;
@@ -1223,3 +1251,98 @@ export interface OutreachAnalytics {
    */
   sentDateRange: { earliest: string; latest: string } | null;
 }
+
+/**
+ * One position on the requests-sent timeline.
+ *
+ * ⚠️ TWO KINDS, AND A `gap` IS NOT A MONTH. `sentOverTime` carries only months
+ * that HAVE rows, so rendering it raw puts a January bar beside a March bar and
+ * silently claims February did not happen. Every month in the span is therefore
+ * materialised — but this Client's span runs from a single `2020-12` row to
+ * 2026, which is 68 months of which most are empty. A run of empty months is
+ * collapsed into ONE `gap` that STATES its length in words; short runs stay as
+ * real zero months, because those are exactly the case the fill exists for.
+ *
+ * ⚠️ A GAP'S `count` IS `null`, NEVER `0`. A gap is not a bucket that measured
+ * zero — it is many buckets, compressed. Giving it a 0 would draw a bar for one
+ * month where sixty-one are hiding, which is the four-state failure in its
+ * quietest form. `null` draws nothing; the label carries the fact.
+ */
+export type SentTrendPoint =
+  | { kind: "month"; date: string; label: string; count: number }
+  | { kind: "gap"; label: string; months: number; from: string; to: string; count: null };
+
+/**
+ * One funnel step's movement between two snapshots.
+ *
+ * ⚠️ A DELTA IS A DIFFERENCE OF TWO COUNTS AND NOTHING ELSE. There is no rate,
+ * percentage, "growth", direction, or severity here, and none may be added:
+ * "+12 replies" is a fact, "+31% reply growth" is a verdict this sample cannot
+ * support, and the no-score discipline binding the rest of the Outreach tab
+ * binds deltas too (ADR 0012).
+ *
+ * ⚠️ A NEGATIVE DELTA IS NOT A REGRESSION, WHICH IS WHY NO FIELD SAYS IT IS.
+ * Snapshots are full re-uploads of a sheet somebody edits: rows get removed,
+ * renamed or re-scoped between exports, so a drop can mean the SOURCE shrank
+ * rather than that anyone un-replied. Neither cause is knowable from here. The
+ * type carries the change; the panel states both readings; nothing colours it.
+ */
+export interface OutreachMovementStep {
+  label: string;
+  /**
+   * The source column, carried through from the funnel.
+   *
+   * ⚠️ IDENTICAL ON BOTH SIDES BY CONSTRUCTION, AND CHECKED. Both snapshots go
+   * through `buildOutreachAnalytics`, so a step can only ever be compared with
+   * its own definition — `outreachMovement` throws rather than compare two
+   * different questions, because a mis-paired zip produces a plausible number
+   * with nothing on screen to reveal it.
+   */
+  source: string;
+  previous: number;
+  current: number;
+  /** `current − previous`. Always an integer; may be negative. */
+  delta: number;
+}
+
+/** What moved between a Client's two most recent snapshots. */
+export interface OutreachMovement {
+  steps: OutreachMovementStep[];
+  /**
+   * The sheet's own size. Its own field rather than a fifth step, because it is
+   * not a funnel stage — and because it is the number that explains most
+   * negative deltas: rows leaving the export move every step at once.
+   */
+  prospects: { previous: number; current: number; delta: number };
+}
+
+/**
+ * What the movement panel has to say, as one value.
+ *
+ * ⚠️ FIVE OUTCOMES THAT MUST NOT COLLAPSE. Four of them are "no comparison", and
+ * a reader is owed which:
+ *   • `history-unavailable` — the upload history could not be read. We do not
+ *     know whether a previous snapshot exists.
+ *   • `single`              — the read WORKED and this Client has exactly one
+ *     snapshot. The common case today. Never a zeroed panel: zeros would assert
+ *     that nothing changed, which is not what "nothing to compare with" means.
+ *   • `previous-unavailable`— the previous snapshot's header is known but its
+ *     rows could not be read. The current figures still stand.
+ *   • `partial-read`        — a read on either side hit the pager's cap, so its
+ *     counts are LOWER BOUNDS. Subtracting a floor from a total manufactures
+ *     movement that never happened — a truncated previous snapshot short by 435
+ *     rows reads as "−435 requests sent". No delta is shown at all.
+ *   • `ok`                  — two whole snapshots, recomputed from raw rows.
+ */
+export type OutreachMovementState =
+  | {
+      status: "ok";
+      movement: OutreachMovement;
+      /** ISO 8601 — the two uploads being compared, oldest first on screen. */
+      previousAt: string;
+      currentAt: string;
+    }
+  | { status: "single" }
+  | { status: "history-unavailable" }
+  | { status: "previous-unavailable"; previousAt: string }
+  | { status: "partial-read" };

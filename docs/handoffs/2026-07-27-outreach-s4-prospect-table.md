@@ -239,3 +239,57 @@ REPORT BACK
   as vetoable: keeping a pager rather than the viewer's single long scroll, and
   rewriting rather than deleting the page's staff-only ⚠️ comment.
   _(Append dated entries as the executer reports back.)_
+
+- **2026-07-27 — v2: executer run COMPLETE and green.** Gate: lint clean,
+  type-check clean, **1217 tests** (1129 → +88), build exit 0, route
+  `/clients/[id]/outreach` at 6.63 kB / 326 kB First Load. All four mutations
+  caught. Planner spot-checked the tree and confirms: the pill reads
+  `canonicalReply` (never a regex), `unclassified` is a distinct tone rendered
+  amber-dashed and carried on a `data-tone` attribute so tests assert the
+  classification rather than a class string; no leftover mutation code
+  (`grep filteredAnalytics` → nothing); working tree is 1 modified + 6 new, all
+  in SCOPE.
+  - **Both planner calls accepted by the executer, with reasoning worth keeping.**
+    Page size 100 (~2,400 cells vs the viewer's ~34,000, re-laid-out on every
+    keystroke). Their sharper framing: the pager's value isn't paging — search
+    narrows 1,435 to a handful in one keystroke, so pagination rarely engages at
+    all; it only matters when browsing without a query.
+  - **⚠️ A REAL DEFECT THEY FOUND AND FIXED, outside the brief.** TanStack's
+    default filter is a substring `includes`, so selecting "Connected" from the
+    dropdown would ALSO have matched "Not Connected". The Stage filter passed its
+    test only by luck (canonical == raw for that fixture) and would have broken on
+    any row stored as `closed-low fit`. All four filters now match explicitly —
+    `equalsRaw` on Connection Status and ICP Seg, `matchesCanonical` on Reply
+    Status and Stage. **Verified in `prospect-columns.tsx:163,199,204,212`.**
+    Accepted as in-scope: the brief specified the filters' semantics, and the
+    default fn silently violated them.
+  - **Payload, measured on a synthetic 1,435-row snapshot** (no live data in
+    reach, and no dev-server walk permitted): 1.99 MB as objects (planner
+    estimated ~2.10 MB), 1.46 MB as arrays (estimated ~1.51 MB), **631 kB gzip /
+    406 kB brotli over the wire**. Their argument for keeping the object shape is
+    accepted: ~540 kB is the 24 key names repeated 1,435 times and ~131 kB is two
+    UUIDs repeated per row, and that redundancy is precisely what brotli removes —
+    so the readable shape costs memory and parse time, not download.
+  - **Two judgement calls accepted:** header labels show the short form with the
+    EXACT spreadsheet spelling (`Why They Fit (signal)`, `Meeting Booked (date)`)
+    preserved in `meta.sourceHeader` and surfaced as the header tooltip, pinned by
+    a test — so nobody loses the literal name when reconciling against the sheet;
+    and ICP Seg gets ONE neutral pill rather than a hue per segment, because the
+    column has no ranking and no fixed vocabulary, so a per-value palette would
+    invent a categorisation the source does not contain.
+  - **⚠️ OPEN — the usability finding, which is well-founded.** At ~1440px roughly
+    6 of 24 columns are visible, and the four triage columns sit at positions
+    14 (Connection Status), 15 (Date Sent), 16 (Reply Status) and 21 (Stage),
+    behind seven wide free-text columns (Why They Fit, What They Lack, What
+    Arcbound Offers, Matching Client Archetype, Source Citation, Rationale,
+    LinkedIn Message). **Planner verified the positions against the
+    `OutreachProspect` field order.** Consequence: Full Name (position 1) is never
+    on screen together with any status column. Their proposal — keep all 24, pin
+    Full Name as a sticky first column, add a column-visibility toggle defaulting
+    to a curated ~8 with a "show all 24" control — preserves parity while making
+    triage possible. Put to Bryan as a follow-up; NOT built unilaterally.
+  - **Git:** commit `64900b5` ("feat: implement outreach system with immutable
+    snapshots and atomic ingestion", 46 files, +7469/−12) landed MID-TURN,
+    committing all S1/S2/S3 work. Bryan's own commit — expected under the
+    standing "I commit" rule — surfaced by the executer as instructed rather than
+    acted on. Nothing was dropped; S4 built additively on top.

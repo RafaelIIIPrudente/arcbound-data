@@ -1,8 +1,16 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { OutreachProspect } from "@/services/types";
 
-import { buildOutreachAnalytics } from "./outreach-analytics";
+import {
+  buildOutreachAnalytics,
+  fillSentMonths,
+  outreachMovement,
+  sentTrend,
+} from "./outreach-analytics";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PURE — no I/O, no clock. Every fixture below is shaped from the REAL observed
@@ -528,6 +536,372 @@ describe("buildOutreachAnalytics — EVERY BREAKDOWN ACCOUNTS FOR EVERY PROSPECT
       ["followUps", a.followUps],
     ] as const) {
       expect(sum(breakdown), name).toBe(a.totalProspects);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S5 — TRENDS. Two pure helpers over figures S3 already computes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("fillSentMonths — a month with no requests is a REAL zero", () => {
+  it("fills a missing FEBRUARY between January and March", () => {
+    const filled = fillSentMonths([
+      { date: "2026-01", count: 4 },
+      { date: "2026-03", count: 6 },
+    ]);
+
+    expect(filled).toEqual([
+      { date: "2026-01", count: 4 },
+      { date: "2026-02", count: 0 },
+      { date: "2026-03", count: 6 },
+    ]);
+  });
+
+  it("crosses a YEAR BOUNDARY without losing a month", () => {
+    const filled = fillSentMonths([
+      { date: "2025-11", count: 1 },
+      { date: "2026-02", count: 2 },
+    ]);
+
+    expect(filled.map((m) => m.date)).toEqual(["2025-11", "2025-12", "2026-01", "2026-02"]);
+  });
+
+  it("never trims an endpoint — the 2020 outlier survives the fill", () => {
+    const filled = fillSentMonths([
+      { date: "2020-12", count: 1 },
+      { date: "2026-07", count: 9 },
+    ]);
+
+    expect(filled[0]).toEqual({ date: "2020-12", count: 1 });
+    expect(filled[filled.length - 1]).toEqual({ date: "2026-07", count: 9 });
+    // Dec 2020 → Jul 2026 inclusive.
+    expect(filled).toHaveLength(68);
+  });
+
+  it("adds nothing to a series with no gaps, and handles the degenerate sizes", () => {
+    expect(fillSentMonths([])).toEqual([]);
+    expect(fillSentMonths([{ date: "2026-07", count: 3 }])).toEqual([
+      { date: "2026-07", count: 3 },
+    ]);
+    const contiguous = [
+      { date: "2026-06", count: 1 },
+      { date: "2026-07", count: 2 },
+    ];
+    expect(fillSentMonths(contiguous)).toEqual(contiguous);
+  });
+});
+
+describe("sentTrend — a long dormancy is COMPRESSED, never trimmed", () => {
+  it("keeps a ONE-month gap as a visible zero bar, not a collapsed range", () => {
+    const points = sentTrend([
+      { date: "2026-01", count: 4 },
+      { date: "2026-03", count: 6 },
+    ]);
+
+    expect(points.every((p) => p.kind === "month")).toBe(true);
+    expect(points.map((p) => p.count)).toEqual([4, 0, 6]);
+  });
+
+  it("collapses a run of three or more empty months into ONE labelled gap", () => {
+    const points = sentTrend([
+      { date: "2026-01", count: 4 },
+      { date: "2026-06", count: 6 },
+    ]);
+
+    expect(points).toHaveLength(3);
+    expect(points[0]).toMatchObject({ kind: "month", date: "2026-01", count: 4 });
+    expect(points[1]).toMatchObject({
+      kind: "gap",
+      months: 4,
+      from: "2026-02",
+      to: "2026-05",
+    });
+    expect(points[2]).toMatchObject({ kind: "month", date: "2026-06", count: 6 });
+  });
+
+  it("STATES the gap in words on the label a reader actually sees", () => {
+    const gap = sentTrend([
+      { date: "2020-12", count: 1 },
+      { date: "2026-02", count: 5 },
+    ]).find((p) => p.kind === "gap");
+
+    // Dec 2020 → Feb 2026 is 63 months; the two endpoints carry requests, so 61
+    // dormant months sit between them.
+    expect(gap).toMatchObject({ months: 61, from: "2021-01", to: "2026-01" });
+    expect(gap?.label).toMatch(/61 months/);
+    expect(gap?.label).toMatch(/none sent/i);
+  });
+
+  it("gives a gap a NULL count — it is a collapsed range, not a measured month", () => {
+    const gap = sentTrend([
+      { date: "2026-01", count: 4 },
+      { date: "2026-06", count: 6 },
+    ]).find((p) => p.kind === "gap");
+
+    expect(gap?.count).toBeNull();
+    expect(gap?.count).not.toBe(0);
+  });
+
+  it("ACCOUNTS FOR EVERY MONTH IN THE SPAN — nothing is silently dropped", () => {
+    const series = [
+      { date: "2020-12", count: 1 },
+      { date: "2026-02", count: 5 },
+      { date: "2026-03", count: 7 },
+      { date: "2026-07", count: 2 },
+    ];
+    const points = sentTrend(series);
+
+    const covered = points.reduce((n, p) => n + (p.kind === "gap" ? p.months : 1), 0);
+    expect(covered).toBe(fillSentMonths(series).length);
+
+    // …and every REQUEST is still on the chart: a collapsed gap holds only zeros.
+    const charted = points.reduce((n, p) => n + (p.kind === "month" ? p.count : 0), 0);
+    expect(charted).toBe(series.reduce((n, m) => n + m.count, 0));
+  });
+
+  it("labels a month for a human without ever constructing a Date", () => {
+    const points = sentTrend([{ date: "2026-07", count: 3 }]);
+    expect(points[0]?.label).toBe("Jul 2026");
+  });
+
+  it("is empty for a snapshot where nothing carries a readable send date", () => {
+    expect(sentTrend([])).toEqual([]);
+  });
+});
+
+describe("outreachMovement — a DIFFERENCE OF TWO COUNTS, and nothing more", () => {
+  // ⚠️ EVERY DELTA BELOW IS DISTINCT (+6, +5, +4, +3, +1). That is deliberate:
+  // with two steps sharing a delta, a mis-paired zip would still produce the
+  // expected numbers and the pairing would go untested.
+  const previous = buildOutreachAnalytics([
+    prospect({
+      dateSent: "2026-06-01",
+      connectionStatus: "Connected",
+      replyStatus: "Replied - Positive",
+      meetingBookedDate: "2026-06-10",
+    }),
+    prospect({ dateSent: "2026-06-02", connectionStatus: "Connected", replyStatus: "Replied" }),
+    prospect({ dateSent: "2026-06-03", connectionStatus: "Connected", replyStatus: "No Reply" }),
+    prospect({ dateSent: "2026-06-04", connectionStatus: "Pending", replyStatus: "No Reply" }),
+  ]);
+
+  const current = buildOutreachAnalytics([
+    ...Array.from({ length: 2 }, () =>
+      prospect({
+        dateSent: "2026-07-01",
+        connectionStatus: "Connected",
+        replyStatus: "Replied - Positive",
+        meetingBookedDate: "2026-07-10",
+      }),
+    ),
+    ...Array.from({ length: 3 }, () =>
+      prospect({ dateSent: "2026-07-02", connectionStatus: "Connected", replyStatus: "Replied" }),
+    ),
+    ...Array.from({ length: 2 }, () =>
+      prospect({ dateSent: "2026-07-03", connectionStatus: "Connected", replyStatus: "No Reply" }),
+    ),
+    ...Array.from({ length: 2 }, () =>
+      prospect({ dateSent: "2026-07-04", connectionStatus: "Pending", replyStatus: "No Reply" }),
+    ),
+    prospect({ dateSent: null, connectionStatus: "Pending", replyStatus: "No Reply" }),
+  ]);
+
+  it("reports previous, current and the difference for every funnel step", () => {
+    const movement = outreachMovement(current, previous);
+
+    expect(movement.steps.map((s) => [s.label, s.previous, s.current, s.delta])).toEqual([
+      ["Requests sent", 4, 9, 5],
+      ["Connections accepted", 3, 7, 4],
+      ["Replied", 2, 5, 3],
+      ["Meetings booked", 1, 2, 1],
+    ]);
+  });
+
+  it("reports the PROSPECT-COUNT movement — the sheet's own size", () => {
+    expect(outreachMovement(current, previous).prospects).toEqual({
+      previous: 4,
+      current: 10,
+      delta: 6,
+    });
+  });
+
+  it("STATES a negative delta as a negative number, with no verdict attached", () => {
+    const movement = outreachMovement(previous, current);
+    const sent = movement.steps[0]!;
+
+    expect(sent.delta).toBe(-5);
+    // ⚠️ NO JUDGEMENT FIELD ANYWHERE. A `direction`, `trend`, `improved` or
+    // `severity` on this object would push the reading into the type, and every
+    // component downstream would inherit a verdict the data cannot support: a
+    // drop can mean the sheet shrank, not that anybody un-replied.
+    expect(Object.keys(sent).sort()).toEqual(["current", "delta", "label", "previous", "source"]);
+  });
+
+  it("carries NO RATE, PERCENTAGE, GROWTH, SCORE OR RANK — anywhere in the shape", () => {
+    const movement = outreachMovement(current, previous);
+    const banned = /rate|percent|pct|share|growth|score|rank|grade|benchmark|target|goal/i;
+
+    const keys: string[] = [];
+    const walk = (value: unknown) => {
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (value === null || typeof value !== "object") return;
+      for (const [key, child] of Object.entries(value)) {
+        keys.push(key);
+        walk(child);
+      }
+    };
+    walk(movement);
+
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys.filter((k) => banned.test(k))).toEqual([]);
+    // Nor may a delta be expressed as a fraction of anything.
+    for (const s of movement.steps) expect(Number.isInteger(s.delta)).toBe(true);
+  });
+
+  it("PINS THE SOURCE COLUMN PER STEP, identical on both sides of the comparison", () => {
+    const movement = outreachMovement(current, previous);
+
+    movement.steps.forEach((step, i) => {
+      expect(step.source, step.label).toBe(current.funnel[i]!.source);
+      expect(step.source, step.label).toBe(previous.funnel[i]!.source);
+      expect(step.label).toBe(current.funnel[i]!.label);
+      expect(step.label).toBe(previous.funnel[i]!.label);
+
+      // ⚠️ AND THE COUNTS ARE BOUND TO THAT SOURCE, NOT MERELY LABELLED WITH IT.
+      // `source` is carried through from the current snapshot, so asserting it
+      // alone cannot see a zip that slipped by one: the step would still be
+      // labelled "Date Sent" while subtracting a Connection Status count from
+      // it. Looking each figure up BY SOURCE on its own side is what makes this
+      // test fail when the pairing is wrong.
+      expect(step.previous, step.source).toBe(
+        previous.funnel.find((f) => f.source === step.source)!.count,
+      );
+      expect(step.current, step.source).toBe(
+        current.funnel.find((f) => f.source === step.source)!.count,
+      );
+    });
+    // The funnel's own source labels, unchanged — so a rename there cannot drift
+    // out of the movement panel unnoticed.
+    expect(movement.steps.map((s) => s.source)).toEqual([
+      "Date Sent",
+      "Connection Status",
+      "Reply Status",
+      "Meeting Booked (date)",
+    ]);
+  });
+
+  it("REFUSES to compare two differently-defined steps", () => {
+    const skewed = {
+      ...previous,
+      funnel: [previous.funnel[1]!, previous.funnel[0]!, previous.funnel[2]!, previous.funnel[3]!],
+    };
+
+    expect(() => outreachMovement(current, skewed)).toThrow(/step/i);
+  });
+
+  it("compares a snapshot with ITSELF as all-zero movement, not as an error", () => {
+    const movement = outreachMovement(current, current);
+    expect(movement.steps.map((s) => s.delta)).toEqual([0, 0, 0, 0]);
+    expect(movement.prospects.delta).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE FUNNEL RULE LIVES IN TWO LANGUAGES AND CANNOT BE DEDUPLICATED.
+//
+// The staff page computes it in TypeScript from rows it already holds. The
+// CLIENT's figure must be computed in SQL, inside the SECURITY DEFINER read,
+// because shipping prospect rows out to compute it is precisely what ADR 0012
+// forbids. So one rule now has two implementations that can drift — and a Client
+// reading 41 replies while staff read 39 would go unnoticed for months, because
+// nobody looks at both screens at once.
+//
+// This suite is the guard. It cannot run Postgres, so it does the next-best
+// thing: it reads the SQL as text and pins each predicate against the TypeScript
+// rule it mirrors. It CANNOT prove the two agree at runtime — see the note in
+// the handoff — but it does fail loudly the moment either side is edited alone.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OUTREACH_SQL = normaliseSql(
+  readFileSync(join(process.cwd(), "supabase", "outreach-report-link.sql"), "utf8"),
+);
+
+/** Collapse whitespace so a reformat of the SQL doesn't fail these on layout. */
+function normaliseSql(sql: string): string {
+  return sql.replace(/\s+/g, " ");
+}
+
+describe("⚠️ the funnel rule is DUPLICATED in supabase/outreach-report-link.sql — change one, change the other", () => {
+  it("SENT: the SQL counts a non-blank date_sent, exactly as buildOutreachAnalytics does", () => {
+    // TS: prospects.filter((p) => !isBlank(p.dateSent))
+    expect(OUTREACH_SQL).toContain(
+      "count(*) filter (where op.date_sent is not null and btrim(op.date_sent) <> '')",
+    );
+  });
+
+  it("CONNECTED: the SQL matches the VALUE case-insensitively, not the Stage of the same name", () => {
+    // TS: (p.connectionStatus ?? "").trim().toLowerCase() === "connected"
+    expect(OUTREACH_SQL).toContain(
+      "count(*) filter (where lower(btrim(op.connection_status)) = 'connected')",
+    );
+  });
+
+  it("REPLIED: the SQL excludes BOTH a blank status AND 'no reply' — a blank is not a reply", () => {
+    // TS: canonicalReply(p.replyStatus) is neither "no-reply" nor "not-recorded".
+    // ⚠️ THE BLANK CLAUSE IS THE ONE THAT GOES MISSING. Simplifying this to
+    // `<> 'no reply'` would count every blank cell as somebody having answered,
+    // at the narrowest and most-scrutinised end of the funnel.
+    expect(OUTREACH_SQL).toContain("op.reply_status is not null");
+    expect(OUTREACH_SQL).toContain("btrim(op.reply_status) <> ''");
+    expect(OUTREACH_SQL).toContain(
+      "lower(regexp_replace(btrim(op.reply_status), '\\s+', ' ', 'g')) <> 'no reply'",
+    );
+  });
+
+  it("MEETINGS BOOKED: the SQL counts a non-blank meeting_booked_date", () => {
+    // TS: prospects.filter((p) => !isBlank(p.meetingBookedDate))
+    expect(OUTREACH_SQL).toContain(
+      "count(*) filter (where op.meeting_booked_date is not null and btrim(op.meeting_booked_date) <> '')",
+    );
+  });
+
+  it("names buildOutreachAnalytics in the SQL, so the obligation is readable from the other side", () => {
+    expect(OUTREACH_SQL).toContain("buildOutreachAnalytics");
+  });
+
+  it("names supabase/outreach-report-link.sql in outreach-analytics.ts, so it is readable from THIS side", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src", "services", "outreach-analytics.ts"),
+      "utf8",
+    );
+    expect(source).toContain("supabase/outreach-report-link.sql");
+  });
+
+  it("picks the latest snapshot with an id tie-break, so two same-second uploads resolve the same way twice", () => {
+    expect(OUTREACH_SQL).toContain("order by ou.created_at desc, ou.id desc limit 1");
+  });
+
+  it("returns COUNTS ONLY — no prospect string column appears in the aggregate", () => {
+    // The privacy boundary, asserted on the text of the boundary itself.
+    const aggregate = OUTREACH_SQL.slice(
+      OUTREACH_SQL.indexOf("'snapshot_at'"),
+      OUTREACH_SQL.indexOf("into v_outreach"),
+    );
+    expect(aggregate.length).toBeGreaterThan(0);
+    for (const column of [
+      "full_name",
+      "title",
+      "company",
+      "linkedin_url",
+      "location",
+      "linkedin_message",
+      "notes",
+      "rationale",
+      "owner",
+      "stage",
+    ]) {
+      expect(aggregate).not.toContain(column);
     }
   });
 });

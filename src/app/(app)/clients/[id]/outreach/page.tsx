@@ -8,27 +8,44 @@ import { OutreachBreakdownChart } from "@/components/dashboard/outreach/outreach
 import { OutreachDisclosure } from "@/components/dashboard/outreach/outreach-disclosure";
 import { OutreachFunnel } from "@/components/dashboard/outreach/outreach-funnel";
 import { OutreachKpis } from "@/components/dashboard/outreach/outreach-kpis";
+import { OutreachMovementPanel } from "@/components/dashboard/outreach/outreach-movement";
+import { OutreachSentChart } from "@/components/dashboard/outreach/outreach-sent-chart";
 import {
   OutreachNoSnapshot,
   OutreachTruncated,
   OutreachUnavailable,
 } from "@/components/dashboard/outreach/outreach-states";
+import { ProspectTable } from "@/components/dashboard/outreach/prospect-table";
 import { getClient } from "@/services/clients";
-import { latestSnapshot } from "@/services/outreach";
-import { buildOutreachAnalytics } from "@/services/outreach-analytics";
+import { latestSnapshot, listOutreachUploads, snapshotById } from "@/services/outreach";
+import { buildOutreachAnalytics, outreachMovement, sentTrend } from "@/services/outreach-analytics";
+import type {
+  LatestSnapshot,
+  OutreachAnalytics,
+  OutreachMovementState,
+  OutreachUpload,
+} from "@/services/types";
 
 export const metadata: Metadata = { title: "Client outreach" };
 
 /**
  * The Outreach tab: this Client's most recent prospect snapshot.
  *
- * ⚠️ STAFF-ONLY, AND STRUCTURALLY SO. Everything below is third-party personal
- * data — prospect names, LinkedIn URLs, locations, drafted messages, and email
- * addresses inside Notes. ADR 0012 draws the line explicitly: a Client sees
- * outreach only as aggregate counts, through the Report Link's SECURITY DEFINER
- * path. No component on this page may be reused by a print view, the public
- * `/r/[token]` route, or anything a Client can reach — which is also why this
- * page renders no prospect rows at all, only tallies.
+ * ⚠️ STAFF-ONLY, AND MORE LOAD-BEARING THAN IT WAS. This page now renders the
+ * PROSPECT ROWS THEMSELVES, not only tallies: every full name, every LinkedIn
+ * URL, every location, the drafted personal messages, and the email addresses
+ * embedded in Notes — third-party personal data about people who never agreed to
+ * be in ArcBase. Until the table landed, the worst a leak could expose was a set
+ * of counts; now it is a contact list.
+ *
+ * ADR 0012 draws the line explicitly: a Client sees outreach ONLY as aggregate
+ * counts, produced inside the Report Link's SECURITY DEFINER function so the
+ * rows never leave the database on that path. So: no component on this page —
+ * and least of all `ProspectTable`, `prospectColumns` or the pills — may be
+ * reused by a print view, by the public `/r/[token]` route, or by anything a
+ * Client can reach. There is deliberately no export, download, or copy-all
+ * control anywhere in this subtree, and adding one is a decision for ADR 0012,
+ * not for a component.
  *
  * ⚠️ THREE READ STATES, THREE RENDERINGS. `latestSnapshot` distinguishes a read
  * that BROKE from a Client who has never had an upload, and only the second may
@@ -41,10 +58,22 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
   // Independent reads — `latestSnapshot` takes the id, not the client — so they
   // go out together. Reading a snapshot for a client that turns out not to exist
   // is harmless: the result is discarded by the notFound() below.
-  const [client, snapshot] = await Promise.all([getClient(id), latestSnapshot(id)]);
+  //
+  // The upload history rides along even though only the movement panel wants it:
+  // it depends on nothing above, so issuing it here costs no wall clock, and
+  // waiting for the snapshot first would put a second round-trip in series.
+  const [client, snapshot, uploads] = await Promise.all([
+    getClient(id),
+    latestSnapshot(id),
+    listOutreachUploads(id),
+  ]);
   if (!client) notFound();
 
   const analytics = snapshot.status === "ok" ? buildOutreachAnalytics(snapshot.prospects) : null;
+  const movement =
+    snapshot.status === "ok" && analytics
+      ? await readMovement(id, snapshot, analytics, uploads)
+      : null;
 
   return (
     <div className="space-y-8">
@@ -136,11 +165,108 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
             />
           </div>
 
+          <OutreachSentChart points={sentTrend(analytics.sentOverTime)} />
+
+          {/* ⚠️ ITS OWN FOUR-STATE READ, NOT A DERIVATIVE OF THE ONE ABOVE. The
+              figures on this page describe ONE snapshot and are complete without
+              a second; movement needs two, and every way that can fail — an
+              unreadable history, a single upload, an unreadable predecessor, a
+              partial read — is a different sentence rather than a missing panel.
+              `null` here means the current snapshot itself never rendered. */}
+          {movement ? <OutreachMovementPanel state={movement} /> : null}
+
           <OutreachDisclosure analytics={analytics} />
+
+          {/* ⚠️ THE SAME ARRAY THE AGGREGATES WERE BUILT FROM — NO SECOND READ.
+              `latestSnapshot` already fetched every row, paged past the 1,000-row
+              cap, to compute everything above; the table is a view of data
+              already in memory.
+
+              ⚠️ AND THE AGGREGATES ABOVE DO NOT RESCOPE TO ITS FILTERS. Every
+              funnel step is captioned with the column and rule that produced it
+              ("a date is recorded in Date Sent"); recomputing those over a
+              filtered subset would make each caption a false statement about a
+              number beside it. The KPIs, funnel and charts describe the WHOLE
+              snapshot, always. That is structural rather than a convention: the
+              filter state lives inside the client component below and there is
+              no channel by which it could reach this server render. */}
+          <section className="space-y-4">
+            <div>
+              <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
+                <span className="text-primary">—</span>
+                Prospects
+              </div>
+              <p className="mt-2 font-mono text-xs text-muted-foreground">
+                {/* When the read was capped, "N of M shown" below counts what was
+                    READ, not what exists — the banner at the top of the page says
+                    so, and this repeats the qualifier where the number is. */}
+                {snapshot.truncated
+                  ? "Every prospect ArcBase could read from this snapshot. The read was capped, so the totals below are lower bounds."
+                  : "Every prospect in this snapshot. Filters and search here do not change the figures above."}
+              </p>
+            </div>
+            <ProspectTable prospects={snapshot.prospects} />
+          </section>
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Which of the movement panel's states this Client is actually in.
+ *
+ * ⚠️ THE PREVIOUS SNAPSHOT IS FOUND RELATIVE TO THE ONE ON SCREEN, NOT AS
+ * `uploads[1]`. The history and the snapshot are two separate reads: if an
+ * upload lands between them, `uploads[0]` is a snapshot the page is not showing
+ * and `uploads[1]` is the one it IS — so a positional guess would compare the
+ * displayed snapshot against itself and print a row of zeros. Locating the
+ * displayed upload in the list makes the pairing exact; failing to find it means
+ * the two reads disagree, and the honest answer then is that we cannot name a
+ * predecessor, not that there isn't one.
+ *
+ * ⚠️ A TRUNCATED READ ON EITHER SIDE SHOWS NO DELTAS AT ALL. Truncated counts
+ * are floors, and a floor subtracted from a total manufactures movement: a
+ * previous snapshot short by 435 rows reads as "−435 requests sent", which looks
+ * exactly like a real collapse. This is the fifth state — the brief named four —
+ * and it exists because the alternative is a confident, fabricated number.
+ */
+async function readMovement(
+  clientId: string,
+  snapshot: Extract<LatestSnapshot, { status: "ok" }>,
+  analytics: OutreachAnalytics,
+  uploads: OutreachUpload[] | null,
+): Promise<OutreachMovementState> {
+  // `listOutreachUploads` nulls a FAILED read and a TRUNCATED one alike — a
+  // partial history cannot say what the previous snapshot was.
+  if (uploads === null) return { status: "history-unavailable" };
+
+  const index = uploads.findIndex((u) => u.id === snapshot.upload.id);
+  if (index === -1) return { status: "history-unavailable" };
+
+  const previous = uploads[index + 1];
+  if (previous === undefined) return { status: "single" };
+
+  // Checked before the read is issued: there is nothing to learn from fetching
+  // rows we have already decided we cannot compare.
+  if (snapshot.truncated) return { status: "partial-read" };
+
+  const before = await snapshotById(clientId, previous.id);
+  if (before.status === "unavailable") {
+    return { status: "previous-unavailable", previousAt: previous.createdAt };
+  }
+  if (before.truncated) return { status: "partial-read" };
+
+  return {
+    status: "ok",
+    // ⚠️ RECOMPUTED FROM THE PREVIOUS SNAPSHOT'S RAW ROWS, through the SAME
+    // function that produced the figures above. No per-snapshot count is stored
+    // (ADR 0009), so a corrected reading moves every historical figure with it —
+    // and both sides of every comparison are defined identically by construction.
+    movement: outreachMovement(analytics, buildOutreachAnalytics(before.prospects)),
+    previousAt: previous.createdAt,
+    currentAt: snapshot.upload.createdAt,
+  };
 }
 
 /** The reply chart's caveat, present only when something was actually unreadable. */

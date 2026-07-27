@@ -79,7 +79,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
-import { ingestOutreach, latestSnapshot, listOutreachUploads } from "./outreach";
+import { ingestOutreach, latestSnapshot, listOutreachUploads, snapshotById } from "./outreach";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
 
@@ -510,5 +510,103 @@ describe("latestSnapshot — the three states stay apart", () => {
     ]) {
       expect(selected, `${column} must be selected`).toContain(column);
     }
+  });
+});
+
+describe("snapshotById — a NAMED snapshot, for comparison", () => {
+  it("reads the snapshot ASKED FOR, not the newest one", async () => {
+    // ⚠️ THE DISCRIMINATING CASE. `up2` is newer and holds two rows; `up1` holds
+    // one. An implementation that quietly resolved "latest" would return two.
+    state.tables.outreach_uploads = [
+      uploadRow("up2", "2026-07-27T09:00:00.000Z"),
+      uploadRow("up1", "2026-07-20T09:00:00.000Z"),
+    ];
+    state.tables.outreach_prospects = [
+      prospectRow("1", "up2"),
+      prospectRow("2", "up2", { row_index: 1 }),
+      prospectRow("3", "up1", { full_name: "Sam Okafor" }),
+    ];
+
+    const snapshot = await snapshotById(CLIENT, "up1");
+
+    if (snapshot.status !== "ok") throw new Error("expected ok");
+    expect(snapshot.prospects).toHaveLength(1);
+    expect(snapshot.prospects[0]!.fullName).toBe("Sam Okafor");
+    expect(state.eqCalls).toContainEqual(["outreach_upload_id", "up1"]);
+  });
+
+  it("SCOPES BY CLIENT TOO, not by upload id alone", async () => {
+    // Defence in depth: the upload id is a uuid the caller supplies, and a read
+    // keyed on it alone would happily return another Client's prospects.
+    state.tables.outreach_uploads = [uploadRow("up1", "2026-07-20T09:00:00.000Z")];
+    state.tables.outreach_prospects = [prospectRow("1", "up1")];
+
+    await snapshotById(CLIENT, "up1");
+
+    expect(state.eqCalls).toContainEqual(["client_id", CLIENT]);
+  });
+
+  it("reports UNAVAILABLE when the read fails — never an ok with no rows", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    state.tables.outreach_prospects = [];
+    state.errors.outreach_prospects = { message: "boom" };
+
+    expect(await snapshotById(CLIENT, "up1")).toEqual({ status: "unavailable" });
+    error.mockRestore();
+  });
+
+  it("returns an OK WITH NO ROWS when the snapshot genuinely carried none", async () => {
+    // A real answer, not a failure: an upload of an empty file is a snapshot of
+    // zero prospects, and it must not read as an outage.
+    state.tables.outreach_prospects = [prospectRow("1", "up2")];
+
+    const snapshot = await snapshotById(CLIENT, "up1");
+
+    expect(snapshot.status).toBe("ok");
+    if (snapshot.status !== "ok") throw new Error("unreachable");
+    expect(snapshot.prospects).toEqual([]);
+    expect(snapshot.truncated).toBe(false);
+  });
+
+  it("REPORTS truncation rather than returning a silently short snapshot", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.tables.outreach_prospects = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) => ({
+      id: `p${i}`,
+      outreach_upload_id: "up1",
+      client_id: CLIENT,
+      row_index: i,
+    }));
+
+    const snapshot = await snapshotById(CLIENT, "up1");
+
+    if (snapshot.status !== "ok") throw new Error("expected ok");
+    // ⚠️ THE CALLER MUST NOT SUBTRACT A TRUNCATED COUNT FROM A WHOLE ONE. These
+    // rows are a PREFIX, so every figure drawn from them is a floor — and a
+    // floor minus a total manufactures movement that never happened.
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.prospects.length).toBeLessThan(MAX_PAGES * PAGE_SIZE + 1);
+    warn.mockRestore();
+  });
+
+  it("reads past the 1000-row response cap, like every other whole-table read", async () => {
+    state.tables.outreach_prospects = Array.from({ length: 1435 }, (_, i) => ({
+      id: `p${String(i).padStart(5, "0")}`,
+      outreach_upload_id: "up1",
+      client_id: CLIENT,
+      row_index: i,
+    }));
+
+    const snapshot = await snapshotById(CLIENT, "up1");
+
+    if (snapshot.status !== "ok") throw new Error("expected ok");
+    expect(snapshot.prospects).toHaveLength(1435);
+  });
+
+  it("orders by a UNIQUE key so concurrent pages cannot overlap or skip", async () => {
+    state.tables.outreach_prospects = [prospectRow("1", "up1")];
+
+    await snapshotById(CLIENT, "up1");
+
+    expect(state.orderCalls).toContainEqual(["id", { ascending: true }]);
   });
 });

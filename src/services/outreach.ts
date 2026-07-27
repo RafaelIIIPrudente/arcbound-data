@@ -5,6 +5,7 @@ import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import type {
   LatestSnapshot,
+  NamedSnapshot,
   OutreachProspect,
   OutreachRow,
   OutreachUpload,
@@ -305,4 +306,31 @@ export async function latestSnapshot(clientId: string): Promise<LatestSnapshot> 
     truncated,
     total,
   };
+}
+
+/**
+ * ONE NAMED SNAPSHOT's prospects — the read that makes comparison possible.
+ *
+ * ⚠️ RECOMPUTED FROM RAW ROWS, DELIBERATELY, AND NOT READ FROM STORED COUNTS.
+ * ADR 0009: values are stored exactly as they arrived and interpreted at read
+ * time, so a corrected reading fixes every past snapshot at once. Freezing
+ * per-snapshot counts into `outreach_uploads` at ingest would be cheaper and
+ * would leave old snapshots asserting arithmetic the app no longer believes —
+ * the reply vocabulary has already changed once, and every historical figure
+ * moved with it, which is the behaviour we want.
+ *
+ * ⚠️ FILTERED BY CLIENT **AND** UPLOAD. The upload id arrives as a parameter, so
+ * a read keyed on it alone would return another Client's prospects if one were
+ * ever passed by mistake; the client filter makes that impossible rather than
+ * unlikely. It also lets this share `prospectPageReader` with `latestSnapshot`,
+ * so both reads page identically and cannot drift apart.
+ */
+export async function snapshotById(clientId: string, uploadId: string): Promise<NamedSnapshot> {
+  const { rows, unavailable, truncated, total } = await readAllPages(
+    prospectPageReader(clientId, uploadId),
+    "public.outreach_prospects",
+  );
+  if (unavailable) return { status: "unavailable" };
+
+  return { status: "ok", prospects: rows.map(toProspect), truncated, total };
 }
