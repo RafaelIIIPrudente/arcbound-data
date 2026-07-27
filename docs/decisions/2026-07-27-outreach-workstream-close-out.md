@@ -90,6 +90,27 @@ Beyond re-running the gate:
 5. **Service→Dataset discriminator** and **export/download** — both parked by
    decision, revisitable under ADR 0012.
 
+## Known limitation: deletions are invisible
+
+Carried forward because it is the one gap that can silently _reduce_ a figure, and
+Bryan asked about it directly. `ingest_outreach` has no `on conflict`, no update,
+and no unique key on any source column; `latestSnapshot` reads only the newest
+upload. On a re-upload: unchanged rows are stored again, updated rows are stored
+in their new form while the old form survives in the previous snapshot, new rows
+are added — and **a prospect deleted from the sheet simply vanishes, with no
+tombstone**. Tidy 40 stale rows out of the sheet and the funnel drops by up to 40,
+with nothing on screen saying rows were removed rather than never sent.
+
+S5's movement panel is the mitigation: it states both readings and refuses to name
+a cause. The deletion itself stays invisible. Nothing guards an accidental
+duplicate upload either — a row-count or content-hash warning at upload is
+unbuilt and cheap.
+
+**Per-prospect diffing is not answerable**, so this cannot be fixed by comparing
+rows: `linkedin_url` is 1,419 distinct across 1,435 rows (1,408 normalised), so
+~27 rows carry no identity. Only aggregate movement is sound, which is why S5 was
+scoped to counts and no row-level diff exists.
+
 ## Residual risk, stated plainly
 
 The funnel rule now exists in **TypeScript and in SQL and cannot be

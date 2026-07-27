@@ -15,6 +15,11 @@ snapshot-over-snapshot. Values are stored raw and canonicalised only at read.
 **Decisions:** [ADR 0012](../adr/0012-outreach-system-per-client-snapshots.md).
 **Shaping:** [decision doc](../decisions/2026-07-27-multi-service-dashboard-and-connection-count.md).
 
+> **Status (2026-07-27): S1–S6 all landed and green** — planner-verified on the
+> combined tree at 90 files / 1,289 tests, with all three migrations applied.
+> Delivery state, open items and residual risks:
+> [close-out](../decisions/2026-07-27-outreach-workstream-close-out.md).
+
 ## Global Constraints
 
 - **ADR 0009 — raw values are never rewritten.** Every CSV value is stored
