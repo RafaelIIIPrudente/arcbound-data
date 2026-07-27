@@ -4,12 +4,15 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
-import { FollowerTrendPanel } from "@/components/dashboard/client/follower-trend";
+import {
+  ConnectionsTrendPanel,
+  FollowerTrendPanel,
+} from "@/components/dashboard/client/follower-trend";
 import { ReportLinkCard } from "@/components/dashboard/client/report-link-card";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
-import { followerTrend } from "@/lib/follower-trend";
+import { connectionsTrend, followerTrend } from "@/lib/follower-trend";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
-import { followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
+import { connectionsDelta, followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
 import { paths } from "@/paths";
 import { getClient } from "@/services/clients";
 import { getReportLink } from "@/services/report-links";
@@ -116,6 +119,15 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const followers =
     latest && latest.followerCount != null ? latest.followerCount.toLocaleString() : "—";
 
+  // Connections = the connection count captured with the most recent upload.
+  //
+  // ⚠️ THE EM DASH IS THE COMMON CASE HERE, AND IT IS CORRECT. The count is
+  // OPTIONAL at capture and no upload predating the column carries one, so most
+  // clients legitimately show `—`. It must never soften into a `0`: that would
+  // report a measured zero for a number nobody supplied.
+  const connections =
+    latest && latest.connectionsCount != null ? latest.connectionsCount.toLocaleString() : "—";
+
   return (
     <div className="space-y-8">
       <Link
@@ -160,6 +172,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             delta={followersDelta(uploads)}
             deltaNoun="followers"
           />
+          <KpiCard
+            label="Connections"
+            value={connections}
+            delta={connectionsDelta(uploads)}
+            deltaNoun="connections"
+          />
         </div>
       </div>
 
@@ -172,10 +190,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           ReportLinkStatus). See components/report-link + supabase/report-links.sql. */}
       <ReportLinkCard clientId={client.id} status={reportLink} />
 
-      {/* Derived from the SAME `uploads` array the Followers card above reads,
-          with no second query — so the series cannot end on a different figure
-          than the card shows. */}
-      <FollowerTrendPanel trend={followerTrend(uploads)} />
+      {/* Both derived from the SAME `uploads` array the cards above read, with no
+          second query — so neither series can end on a different figure than its
+          card shows. Side by side from `xl`, stacked below it: they are the two
+          halves of one audience picture and invite comparison. */}
+      <div className="grid gap-3.5 xl:grid-cols-2">
+        <FollowerTrendPanel trend={followerTrend(uploads)} />
+        <ConnectionsTrendPanel trend={connectionsTrend(uploads)} />
+      </div>
 
       <UploadHistory uploads={uploads} />
     </div>

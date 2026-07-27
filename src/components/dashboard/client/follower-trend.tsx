@@ -8,10 +8,10 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { FollowerPoint, FollowerTrend } from "@/lib/follower-trend";
+import type { CountPoint, CountTrend } from "@/lib/follower-trend";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Follower movement on the Client detail page.
+// Audience movement on the Client detail page — followers AND connections.
 //
 // ⚠️ FOUR STATES, FOUR TREATMENTS. "Could not be read", "nothing recorded", "one
 // reading" and "a trend" are four different facts. Collapsing any of them into
@@ -19,16 +19,46 @@ import type { FollowerPoint, FollowerTrend } from "@/lib/follower-trend";
 // `@/lib/follower-trend`, which keeps them apart as four distinct shapes so this
 // component cannot accidentally read movement off a level.
 //
-// ⚠️ IT DOES NOT DUPLICATE THE FOLLOWERS KPI CARD ABOVE IT. That card shows the
-// newest upload's count; this shows how that figure got there. The series ends
-// on the same number by construction, so the two cannot contradict each other.
+// ⚠️ IT DOES NOT DUPLICATE THE KPI CARD ABOVE IT. That card shows the newest
+// upload's count; this shows how that figure got there. The series ends on the
+// same number by construction, so the two cannot contradict each other.
+//
+// ⚠️ ONE PANEL, TWO METRICS, AND THE WORDS ALWAYS SAY WHICH. Two of these sit on
+// the same page reading the same audit, so every visible and spoken string comes
+// from `CountTrendLabels`. A shared panel that kept the follower wording would
+// leave a reader unable to tell the two charts apart.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const config = {
-  followers: { label: "Followers", color: "var(--primary)" },
-} satisfies ChartConfig;
+/** Every string that differs between the follower and connection panels. */
+interface CountTrendLabels {
+  /** Section heading, e.g. "Follower trend". */
+  title: string;
+  /** Plural noun for spoken text, e.g. "followers". */
+  noun: string;
+  /** Chart legend label, e.g. "Followers". */
+  seriesLabel: string;
+  /** Shown when no upload ever recorded this count. */
+  emptyMessage: string;
+}
 
-export interface FollowerChartPoint {
+const FOLLOWER_LABELS: CountTrendLabels = {
+  title: "Follower trend",
+  noun: "followers",
+  seriesLabel: "Followers",
+  emptyMessage: "No follower count has been recorded yet.",
+};
+
+const CONNECTION_LABELS: CountTrendLabels = {
+  title: "Connection trend",
+  noun: "connections",
+  seriesLabel: "Connections",
+  // ⚠️ THE ORDINARY STATE, NOT AN ERROR. The connection count is optional at
+  // capture and no upload predating the column carries one, so this is what most
+  // clients show today — an honest gap, never a zero.
+  emptyMessage: "No connection count has been recorded yet.",
+};
+
+export interface CountChartPoint {
   /**
    * Epoch milliseconds.
    *
@@ -38,11 +68,11 @@ export interface FollowerChartPoint {
    * is the most common way a trend chart lies.
    */
   t: number;
-  followers: number;
+  count: number;
 }
 
-export function toChartPoints(series: FollowerPoint[]): FollowerChartPoint[] {
-  return series.map((p) => ({ t: Date.parse(p.at), followers: p.followers }));
+export function toChartPoints(series: CountPoint[]): CountChartPoint[] {
+  return series.map((p) => ({ t: Date.parse(p.at), count: p.count }));
 }
 
 /** Matches `upload-history.tsx`, including its unparseable-date guard. */
@@ -124,29 +154,33 @@ function Figure({ label, children }: { label: string; children: React.ReactNode 
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-4 rounded-lg border bg-card p-5">
       <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
-        Follower trend
+        {title}
       </div>
       {children}
     </section>
   );
 }
 
-export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
+function CountTrendPanel({ trend, labels }: { trend: CountTrend; labels: CountTrendLabels }) {
+  const config = {
+    count: { label: labels.seriesLabel, color: "var(--primary)" },
+  } satisfies ChartConfig;
+
   // 1 — the read FAILED. Nothing is known, which is not "no growth". Matches how
   // the page already renders `uploadsUnavailable`.
   if (trend.kind === "unavailable") {
     return (
-      <Shell>
+      <Shell title={labels.title}>
         <div className="font-display text-2xl leading-none font-extrabold tracking-tight">
           <span aria-hidden>—</span>
-          <span className="sr-only">Follower trend could not be read</span>
+          <span className="sr-only">{labels.title} could not be read</span>
         </div>
         <p className="text-sm text-muted-foreground">
-          The upload history could not be read, so there is no follower trend to show.
+          The upload history could not be read, so there is no {labels.title.toLowerCase()} to show.
         </p>
       </Shell>
     );
@@ -155,10 +189,8 @@ export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
   // 2 — read fine, but nothing was ever written down.
   if (trend.kind === "none") {
     return (
-      <Shell>
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          No follower count has been recorded yet.
-        </p>
+      <Shell title={labels.title}>
+        <p className="py-6 text-center text-sm text-muted-foreground">{labels.emptyMessage}</p>
       </Shell>
     );
   }
@@ -168,9 +200,9 @@ export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
   // a 0% change asserts a measurement that was never taken.
   if (trend.kind === "single") {
     return (
-      <Shell>
+      <Shell title={labels.title}>
         <div className="font-display text-3xl leading-none font-extrabold tracking-tight tabular-nums">
-          {trend.latest.followers.toLocaleString("en-US")}
+          {trend.latest.count.toLocaleString("en-US")}
         </div>
         <p className="text-sm text-muted-foreground">
           One reading so far, recorded {formatDate(trend.latest.at)}. A trend needs a second upload.
@@ -183,7 +215,7 @@ export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
   const points = toChartPoints(trend.series);
 
   return (
-    <Shell>
+    <Shell title={labels.title}>
       <ChartContainer config={config} className="aspect-auto h-[220px] w-full">
         <LineChart data={points} margin={{ left: 4, right: 12, top: 12, bottom: 0 }}>
           <CartesianGrid vertical={false} />
@@ -220,9 +252,9 @@ export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
             }
           />
           <Line
-            dataKey="followers"
+            dataKey="count"
             type="monotone"
-            stroke="var(--color-followers)"
+            stroke="var(--color-count)"
             strokeWidth={2}
             dot={{ r: 3 }}
           />
@@ -233,7 +265,7 @@ export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
         <Figure label="Net change">
           <Direction value={trend.net} />
           {signed(trend.net)}
-          <span className="sr-only"> followers</span>
+          <span className="sr-only"> {labels.noun}</span>
         </Figure>
         <Figure label="Percent change">
           {trend.percent === null ? (
@@ -259,4 +291,21 @@ export function FollowerTrendPanel({ trend }: { trend: FollowerTrend }) {
       </p>
     </Shell>
   );
+}
+
+/** Follower movement, from the uploads the page already fetched. */
+export function FollowerTrendPanel({ trend }: { trend: CountTrend }) {
+  return <CountTrendPanel trend={trend} labels={FOLLOWER_LABELS} />;
+}
+
+/**
+ * Connection movement, from the SAME uploads.
+ *
+ * ⚠️ IT DOES NOT FALL BACK TO FOLLOWERS. `connectionsTrend` reads only
+ * `connectionsCount`, so a client with a full follower history and no connection
+ * counts lands on the empty state rather than borrowing a series that would look
+ * entirely plausible and be entirely wrong.
+ */
+export function ConnectionsTrendPanel({ trend }: { trend: CountTrend }) {
+  return <CountTrendPanel trend={trend} labels={CONNECTION_LABELS} />;
 }

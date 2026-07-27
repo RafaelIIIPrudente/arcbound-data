@@ -1,9 +1,9 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import type { FollowerTrend } from "@/lib/follower-trend";
+import type { CountTrend } from "@/lib/follower-trend";
 
-import { FollowerTrendPanel, toChartPoints } from "./follower-trend";
+import { ConnectionsTrendPanel, FollowerTrendPanel, toChartPoints } from "./follower-trend";
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
@@ -13,12 +13,12 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-const TREND: FollowerTrend = {
+const TREND: CountTrend = {
   kind: "trend",
   series: [
-    { followers: 1000, at: "2026-04-01T00:00:00.000Z" },
-    { followers: 1200, at: "2026-06-01T00:00:00.000Z" },
-    { followers: 1400, at: "2026-07-01T00:00:00.000Z" },
+    { count: 1000, at: "2026-04-01T00:00:00.000Z" },
+    { count: 1200, at: "2026-06-01T00:00:00.000Z" },
+    { count: 1400, at: "2026-07-01T00:00:00.000Z" },
   ],
   net: 400,
   percent: 40,
@@ -60,7 +60,7 @@ describe("FollowerTrendPanel — the states stay apart on screen", () => {
   it("shows a single reading as a level, and says a trend needs a second upload", () => {
     render(
       <FollowerTrendPanel
-        trend={{ kind: "single", latest: { followers: 1200, at: "2026-07-01T00:00:00.000Z" } }}
+        trend={{ kind: "single", latest: { count: 1200, at: "2026-07-01T00:00:00.000Z" } }}
       />,
     );
 
@@ -71,7 +71,7 @@ describe("FollowerTrendPanel — the states stay apart on screen", () => {
   it("prints no percentage and no net change for a single reading", () => {
     render(
       <FollowerTrendPanel
-        trend={{ kind: "single", latest: { followers: 1200, at: "2026-07-01T00:00:00.000Z" } }}
+        trend={{ kind: "single", latest: { count: 1200, at: "2026-07-01T00:00:00.000Z" } }}
       />,
     );
 
@@ -108,8 +108,8 @@ describe("FollowerTrendPanel — a trend", () => {
         trend={{
           kind: "trend",
           series: [
-            { followers: 1000, at: "2026-06-01T00:00:00.000Z" },
-            { followers: 800, at: "2026-07-01T00:00:00.000Z" },
+            { count: 1000, at: "2026-06-01T00:00:00.000Z" },
+            { count: 800, at: "2026-07-01T00:00:00.000Z" },
           ],
           net: -200,
           percent: -20,
@@ -141,8 +141,8 @@ describe("FollowerTrendPanel — a trend", () => {
         trend={{
           kind: "trend",
           series: [
-            { followers: 0, at: "2026-06-01T00:00:00.000Z" },
-            { followers: 500, at: "2026-07-01T00:00:00.000Z" },
+            { count: 0, at: "2026-06-01T00:00:00.000Z" },
+            { count: 500, at: "2026-07-01T00:00:00.000Z" },
           ],
           net: 500,
           percent: null,
@@ -185,11 +185,73 @@ describe("toChartPoints — the x-axis is time, not position", () => {
     expect((b!.t - a!.t) / (c!.t - b!.t)).toBeCloseTo(61 / 30, 5);
   });
 
-  it("keeps the follower value alongside its time", () => {
+  it("keeps the recorded value alongside its time", () => {
     expect(toChartPoints(TREND.series)).toEqual([
-      { t: Date.parse("2026-04-01T00:00:00.000Z"), followers: 1000 },
-      { t: Date.parse("2026-06-01T00:00:00.000Z"), followers: 1200 },
-      { t: Date.parse("2026-07-01T00:00:00.000Z"), followers: 1400 },
+      { t: Date.parse("2026-04-01T00:00:00.000Z"), count: 1000 },
+      { t: Date.parse("2026-06-01T00:00:00.000Z"), count: 1200 },
+      { t: Date.parse("2026-07-01T00:00:00.000Z"), count: 1400 },
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE SAME PANEL, A DIFFERENT METRIC — AND IT MUST SAY SO. Two charts sit on
+// the client detail page reading the same upload audit. If the connections panel
+// borrowed the follower panel's words, a reader would have no way to tell which
+// number they were looking at.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("ConnectionsTrendPanel — labelled for its own metric", () => {
+  it("titles itself Connection trend, not Follower trend", () => {
+    render(<ConnectionsTrendPanel trend={TREND} />);
+
+    expect(screen.getByText(/connection trend/i)).toBeInTheDocument();
+    expect(screen.queryByText(/follower trend/i)).not.toBeInTheDocument();
+  });
+
+  it("says NO CONNECTION COUNT HAS BEEN RECORDED — never a zero — when none was captured", () => {
+    // ⚠️ THE DEFAULT STATE FOR EVERY EXISTING CLIENT. The count is optional and
+    // no historical upload carries one, so this empty state is what most users
+    // will see first. Rendering it as "0" would report a measurement nobody took
+    // across the entire book at once.
+    render(<ConnectionsTrendPanel trend={{ kind: "none" }} />);
+
+    expect(screen.getByText(/no connection count has been recorded yet/i)).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a FAILED READ from nothing recorded", () => {
+    render(<ConnectionsTrendPanel trend={{ kind: "unavailable" }} />);
+
+    expect(screen.getByText("—")).toHaveAttribute("aria-hidden");
+    expect(screen.getByText(/connection trend could not be read/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no connection count has been recorded/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a single reading as a level, with no movement invented", () => {
+    render(
+      <ConnectionsTrendPanel
+        trend={{ kind: "single", latest: { count: 4820, at: "2026-07-01T00:00:00.000Z" } }}
+      />,
+    );
+
+    expect(screen.getByText("4,820")).toBeInTheDocument();
+    expect(screen.getByText(/needs a second upload/i)).toBeInTheDocument();
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+  });
+
+  it("reports net and percent change over the observed span, exactly as followers do", () => {
+    render(<ConnectionsTrendPanel trend={TREND} />);
+
+    expect(within(figure("Net change")).getByText(/\+400/)).toBeInTheDocument();
+    expect(within(figure("Percent change")).getByText(/\+40\.0%/)).toBeInTheDocument();
+    expect(screen.getByText(/91 days/i)).toBeInTheDocument();
+  });
+
+  it("speaks the net change as CONNECTIONS, so the two panels never sound alike", () => {
+    render(<ConnectionsTrendPanel trend={TREND} />);
+
+    expect(within(figure("Net change")).getByText(/connections/i)).toBeInTheDocument();
+    expect(within(figure("Net change")).queryByText(/followers/i)).not.toBeInTheDocument();
   });
 });

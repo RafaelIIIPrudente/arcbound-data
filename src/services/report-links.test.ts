@@ -212,8 +212,8 @@ describe("readReportLinkSource (token + grant → the report source, fails close
     client_name: "Acme Corp",
     posts: [{ linkedin_post_id: "p1", client_id: CLIENT, impressions: 100 }],
     uploads: [
-      { created_at: "2026-07-10T00:00:00.000Z", follower_count: 400 },
-      { created_at: "2026-07-20T00:00:00.000Z", follower_count: 500 },
+      { created_at: "2026-07-10T00:00:00.000Z", follower_count: 400, connections_count: 4820 },
+      { created_at: "2026-07-20T00:00:00.000Z", follower_count: 500, connections_count: null },
     ],
     attributes: [
       {
@@ -238,8 +238,8 @@ describe("readReportLinkSource (token + grant → the report source, fails close
       clientName: "Acme Corp",
       posts: bundle.posts,
       uploads: [
-        { createdAt: "2026-07-10T00:00:00.000Z", followerCount: 400 },
-        { createdAt: "2026-07-20T00:00:00.000Z", followerCount: 500 },
+        { createdAt: "2026-07-10T00:00:00.000Z", followerCount: 400, connectionsCount: 4820 },
+        { createdAt: "2026-07-20T00:00:00.000Z", followerCount: 500, connectionsCount: null },
       ],
       attributes: bundle.attributes,
     });
@@ -260,5 +260,49 @@ describe("readReportLinkSource (token + grant → the report source, fails close
   it("fails closed to null when the RPC throws", async () => {
     rpcMock.mockRejectedValueOnce(new Error("network down"));
     expect(await readReportLinkSource("tok", "grant")).toBeNull();
+  });
+});
+
+describe("readReportLinkSource — the connection count reaches the public report", () => {
+  it("maps connections_count on every upload, keeping an absent one null", async () => {
+    // ⚠️ THE DEFINER READ RETURNS WHOLE UPLOAD ROWS (`to_jsonb(u)`), so the new
+    // column arrives with no SQL change — but it still has to be MAPPED here, or
+    // the public report silently reports every client as having no connections.
+    rpcMock.mockResolvedValueOnce({
+      data: {
+        client_id: CLIENT,
+        client_name: "Acme Corp",
+        posts: [],
+        uploads: [
+          { created_at: "2026-07-10T00:00:00.000Z", follower_count: 400, connections_count: 4820 },
+          { created_at: "2026-07-20T00:00:00.000Z", follower_count: 500, connections_count: null },
+        ],
+        attributes: [],
+      },
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.uploads[0]!.connectionsCount).toBe(4820);
+    expect(src!.uploads[1]!.connectionsCount).toBeNull();
+  });
+
+  it("maps a MISSING connections_count key to null — never 0", async () => {
+    // Rows written before the column existed carry no key at all.
+    rpcMock.mockResolvedValueOnce({
+      data: {
+        client_id: CLIENT,
+        posts: [],
+        uploads: [{ created_at: "2026-07-10T00:00:00.000Z", follower_count: 400 }],
+        attributes: [],
+      },
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.uploads[0]!.connectionsCount).toBeNull();
+    expect(src!.uploads[0]!.connectionsCount).not.toBe(0);
   });
 });

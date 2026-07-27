@@ -41,10 +41,22 @@ function computeFreshness(uploads: ReportLinkSource["uploads"]): ReportFreshness
   return { currentAsOf: dates[dates.length - 1]!, trackedSince: dates[0]! };
 }
 
-/** The newest recorded follower count across the client's uploads, or null. */
-function latestFollowerCount(uploads: ReportLinkSource["uploads"]): number | null {
+/**
+ * The newest recorded value of one audience count across the client's uploads,
+ * or null when no upload recorded it.
+ *
+ * ⚠️ IT WALKS BACKWARDS PAST THE GAPS. Uploads arrive oldest-first here, and an
+ * upload that recorded nothing is skipped rather than read as a zero — which
+ * matters most for connections, where the count is optional and gaps are the
+ * norm. The two counts are searched INDEPENDENTLY: neither ever stands in for
+ * the other.
+ */
+function latestCount(
+  uploads: ReportLinkSource["uploads"],
+  pick: (upload: ReportLinkSource["uploads"][number]) => number | null,
+): number | null {
   for (let i = uploads.length - 1; i >= 0; i -= 1) {
-    const count = uploads[i]!.followerCount;
+    const count = pick(uploads[i]!);
     if (count != null) return count;
   }
   return null;
@@ -60,7 +72,8 @@ function buildReportFromSource(
   return buildClientReport(rows, toFormatMap(source.attributes), {
     period: parseReportPeriod(periodParam, periods),
     now: new Date(),
-    followers: latestFollowerCount(source.uploads),
+    followers: latestCount(source.uploads, (u) => u.followerCount),
+    connections: latestCount(source.uploads, (u) => u.connectionsCount),
     availablePeriods: periods,
   });
 }

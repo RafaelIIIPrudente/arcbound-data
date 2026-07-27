@@ -80,8 +80,11 @@ export function UploadHistory({ uploads }: { uploads: Upload[] | null }) {
                 <TableHead scope="col" className={`${HEAD} text-right whitespace-nowrap`}>
                   Unchanged
                 </TableHead>
-                <TableHead scope="col" className={`${HEAD} pr-5 text-right`}>
+                <TableHead scope="col" className={`${HEAD} text-right`}>
                   Followers
+                </TableHead>
+                <TableHead scope="col" className={`${HEAD} pr-5 text-right`}>
+                  Connections
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -115,8 +118,18 @@ export function UploadHistory({ uploads }: { uploads: Upload[] | null }) {
                   <TableCell className="text-right font-mono text-[13px] text-muted-foreground/60 tabular-nums">
                     {upload.rowsUnchanged.toLocaleString()}
                   </TableCell>
-                  <TableCell className="pr-5 text-right font-mono text-[13px] text-muted-foreground tabular-nums">
+                  <TableCell className="text-right font-mono text-[13px] text-muted-foreground tabular-nums">
                     {upload.followerCount != null ? upload.followerCount.toLocaleString() : "—"}
+                  </TableCell>
+                  {/* ⚠️ `!= null`, SO A RECORDED 0 STILL PRINTS AS 0. The dash is
+                      reserved for "this scrape carried no connection count" —
+                      which is every upload made before the field existed, and any
+                      upload where staff left it blank. A `0` there would report a
+                      measurement nobody took. */}
+                  <TableCell className="pr-5 text-right font-mono text-[13px] text-muted-foreground tabular-nums">
+                    {upload.connectionsCount != null
+                      ? upload.connectionsCount.toLocaleString()
+                      : "—"}
                   </TableCell>
                 </TableRow>
               ))}

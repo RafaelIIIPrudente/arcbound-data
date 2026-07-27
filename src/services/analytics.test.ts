@@ -719,7 +719,12 @@ describe("the client comparison", () => {
   const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
   const outOfWindow = new Date(Date.now() - 200 * 86_400_000).toISOString().slice(0, 10);
 
-  const upload = (clientId: string, createdAt: string, followerCount: number | null) => ({
+  const upload = (
+    clientId: string,
+    createdAt: string,
+    followerCount: number | null,
+    connectionsCount: number | null = null,
+  ) => ({
     id: `u-${clientId}-${createdAt}`,
     clientId,
     sourceType: "csv" as const,
@@ -727,6 +732,7 @@ describe("the client comparison", () => {
     rowsUpdated: 0,
     rowsUnchanged: 0,
     followerCount,
+    connectionsCount,
     createdAt,
   });
 
@@ -877,7 +883,12 @@ describe("the client comparison", () => {
 
 describe("the comparison's follower-normalised figure", () => {
   const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
-  const upload = (clientId: string, createdAt: string, followerCount: number | null) => ({
+  const upload = (
+    clientId: string,
+    createdAt: string,
+    followerCount: number | null,
+    connectionsCount: number | null = null,
+  ) => ({
     id: `u-${clientId}-${createdAt}`,
     clientId,
     sourceType: "csv" as const,
@@ -885,6 +896,7 @@ describe("the comparison's follower-normalised figure", () => {
     rowsUpdated: 0,
     rowsUnchanged: 0,
     followerCount,
+    connectionsCount,
     createdAt,
   });
 
@@ -940,6 +952,155 @@ describe("the comparison's follower-normalised figure", () => {
     expect(c.rows[0]!.followers).toBe(0);
     expect(c.rows[0]!.interactionsPer1K).toBeNull();
     expect(Number.isFinite(c.rows[0]!.interactionsPer1K as number)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ A RAW COUNT, NOT A NORMALISED RATE. Connections carries NO per-1,000 figure:
+// the derived column was removed deliberately, and the follower/connection
+// asymmetry that leaves behind is intentional. What survives is the count itself
+// — optional at capture, so "no figure" is the ordinary state, and a Client whose
+// count was never recorded must read as unmeasured rather than as a zero.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the comparison's raw connection count", () => {
+  const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+  const upload = (
+    clientId: string,
+    createdAt: string,
+    followerCount: number | null,
+    connectionsCount: number | null = null,
+  ) => ({
+    id: `u-${clientId}-${createdAt}`,
+    clientId,
+    sourceType: "csv" as const,
+    rowsInserted: 0,
+    rowsUpdated: 0,
+    rowsUnchanged: 0,
+    followerCount,
+    connectionsCount,
+    createdAt,
+  });
+
+  beforeEach(() => {
+    biState.rows = [
+      biRow({
+        linkedin_post_id: "a",
+        client_id: "c1",
+        estimated_post_date: inWindow,
+        interactions: 500,
+        impressions: 1000,
+      }),
+    ];
+    biState.error = null;
+    biState.orderCalls = [];
+    biState.registryCalls = 0;
+    biState.uploadsCalls = 0;
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = [];
+  });
+
+  it("takes the MOST RECENT recorded connection count, skipping uploads that recorded none", async () => {
+    biState.uploads = [
+      // Newest, but carried no connection count — skipped, never a drop to zero.
+      upload("c1", "2026-07-22T00:00:00.000Z", 1_000, null),
+      upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000),
+      upload("c1", "2026-06-01T00:00:00.000Z", 1_000, 2_000),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.connections).toBe(5_000);
+  });
+
+  it("reports connections as null when nothing was ever recorded", async () => {
+    // The DEFAULT for every client today: a full follower history, no connections.
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.connections).toBeNull();
+    // ⚠️ AND THE FOLLOWER COLUMNS ARE UNTOUCHED — INCLUDING ITS PER-1K RATE. Only
+    // the CONNECTION side lost its derived figure; followers keep theirs.
+    expect(c.rows[0]!.followers).toBe(10_000);
+    expect(c.rows[0]!.interactionsPer1K).toBeCloseTo(50, 5);
+  });
+
+  it("never lets a follower count stand in for a missing connection count", async () => {
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.connections).not.toBe(10_000);
+    expect(c.rows[0]!.connections).toBeNull();
+  });
+
+  it("keeps a recorded 0 as 0 — a measured zero is a fact, not a gap", async () => {
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 0)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.connections).toBe(0);
+    expect(c.rows[0]!.connections).not.toBeNull();
+  });
+
+  it("reports the count for a Client that posted nothing — it does not depend on posting", async () => {
+    // ⚠️ WHY THE RAW COUNT SURVIVES WHERE THE RATE DID NOT. A rate needs a
+    // numerator and a sample size; a captured count needs neither, so a silent
+    // Client still has a real, reportable connection figure.
+    biState.rows = [];
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 5_000)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.rows[0]!.posts).toBe(0);
+    expect(c.rows[0]!.connections).toBe(5_000);
+  });
+
+  it("exposes EXACTLY these figures — connections is raw, with no derived twin", async () => {
+    // ⚠️ THE SUBTRACTION, PINNED AS A WHITELIST RATHER THAN A BLACKLIST. Naming
+    // every key that may exist catches ANY derived figure someone adds back —
+    // not just the per-1,000-connections one that was deliberately removed —
+    // while leaving the FOLLOWER rate in place, because that asymmetry is intended.
+    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000)];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(Object.keys(c.rows[0]!).sort()).toEqual([
+      "avgImpressions",
+      "clientId",
+      "clientName",
+      "connections",
+      "engagementRate",
+      "followers",
+      "interactionsPer1K",
+      "posts",
+    ]);
+    expect(Object.keys(c.medians).sort()).toEqual([
+      "avgImpressions",
+      "connections",
+      "engagementRate",
+      "followers",
+      "interactionsPer1K",
+    ]);
+  });
+
+  it("carries a connections median with its own sample size", async () => {
+    biState.registry = [
+      { id: "c1", name: "A" },
+      { id: "c2", name: "B" },
+    ];
+    biState.uploads = [
+      upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000),
+      // c2 recorded a follower count but no connections — it contributes to the
+      // followers median and NOT to the connections one.
+      upload("c2", "2026-07-20T00:00:00.000Z", 2_000, null),
+    ];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.medians.connections.value).toBe(5_000);
+    expect(c.medians.connections.clients).toBe(1);
+    expect(c.medians.followers.clients).toBe(2);
   });
 });
 
@@ -1111,6 +1272,12 @@ describe("the comparison is only built where it is meaningful", () => {
     // can tell a failed upload read from a client that simply has no follower
     // figure — the two would otherwise render identically.
     expect(c.followersUnavailable).toBe(true);
+    // ⚠️ THE CONNECTIONS COLUMN DEGRADES THE SAME WAY, AND SAYS SO SEPARATELY. It
+    // comes from the same failed read, but "could not be read" has to be sayable
+    // per column — otherwise a blank Connections column is indistinguishable from
+    // the (very common) case where nobody recorded one.
+    expect(clientRow.connections).toBeNull();
+    expect(c.connectionsUnavailable).toBe(true);
   });
 
   it("does not claim followers are unavailable when the uploads read SUCCEEDED", async () => {
@@ -1122,6 +1289,18 @@ describe("the comparison is only built where it is meaningful", () => {
     // Every row still em-dashes followers, but that is "no follower figure", NOT
     // an outage — the flag must stay false so the panel does not cry wolf.
     expect(c.followersUnavailable).toBe(false);
+  });
+
+  it("does not claim connections are unavailable when the uploads read SUCCEEDED", async () => {
+    // ⚠️ THE CRY-WOLF CASE THAT MATTERS MOST. Connections is optional, so an
+    // all-blank column is the NORMAL state. Flagging it as an outage would put a
+    // permanent false alarm on the dashboard.
+    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    biState.uploads = [];
+
+    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+
+    expect(c.connectionsUnavailable).toBe(false);
   });
 
   it("is available and empty — not unavailable — when the registry is genuinely empty", async () => {

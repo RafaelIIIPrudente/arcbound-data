@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Upload } from "@/services/types";
 
-import { followerTrend } from "./follower-trend";
+import { connectionsTrend, followerTrend } from "./follower-trend";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ⚠️ FOUR STATES THAT MUST NOT COLLAPSE INTO EACH OTHER: a failed read, a
@@ -22,6 +22,7 @@ function upload(over: Partial<Upload> = {}): Upload {
     rowsUpdated: 0,
     rowsUnchanged: 0,
     followerCount: null,
+    connectionsCount: null,
     createdAt: "2026-07-01T00:00:00.000Z",
     ...over,
   };
@@ -59,7 +60,7 @@ describe("followerTrend — the states stay apart", () => {
 
     expect(result).toEqual({
       kind: "single",
-      latest: { followers: 1200, at: "2026-07-01T00:00:00.000Z" },
+      latest: { count: 1200, at: "2026-07-01T00:00:00.000Z" },
     });
     // Not a trend under any reading of the result.
     expect(result).not.toHaveProperty("net");
@@ -93,9 +94,9 @@ describe("followerTrend — the series", () => {
     expect(result).toMatchObject({
       kind: "trend",
       series: [
-        { followers: 1000, at: "2026-05-01T00:00:00.000Z" },
-        { followers: 1200, at: "2026-06-01T00:00:00.000Z" },
-        { followers: 1400, at: "2026-07-01T00:00:00.000Z" },
+        { count: 1000, at: "2026-05-01T00:00:00.000Z" },
+        { count: 1200, at: "2026-06-01T00:00:00.000Z" },
+        { count: 1400, at: "2026-07-01T00:00:00.000Z" },
       ],
     });
   });
@@ -127,8 +128,8 @@ describe("followerTrend — the series", () => {
     expect(result).toMatchObject({
       kind: "trend",
       series: [
-        { followers: 1000, at: "2026-05-01T00:00:00.000Z" },
-        { followers: 1200, at: "2026-06-01T00:00:00.000Z" },
+        { count: 1000, at: "2026-05-01T00:00:00.000Z" },
+        { count: 1200, at: "2026-06-01T00:00:00.000Z" },
       ],
       net: 200,
     });
@@ -210,6 +211,117 @@ describe("followerTrend agrees with the Followers KPI card", () => {
     const result = followerTrend(uploads);
 
     expect(result.kind).toBe("trend");
-    expect(result.kind === "trend" && result.series.at(-1)!.followers).toBe(cardValue);
+    expect(result.kind === "trend" && result.series.at(-1)!.count).toBe(cardValue);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE SAME FOUR STATES, OVER AN OPTIONAL COUNT. Connections is not required
+// at capture and no upload predating the column carries one, so "nothing
+// recorded" and sparse histories are the ORDINARY case here rather than an edge.
+// That makes the four-state discipline load-bearing: a client with one blank
+// week must not read as a collapse, and a client with none must not read as 0.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("connectionsTrend — the states stay apart", () => {
+  it("reports a FAILED READ as its own state, never as no growth", () => {
+    expect(connectionsTrend(null)).toEqual({ kind: "unavailable" });
+  });
+
+  it("reports a history with no recorded count as NOTHING RECORDED, not as zero", () => {
+    // The expected shape for every client until someone starts filling the field
+    // in — and the one that must never render as "0 connections".
+    const result = connectionsTrend([
+      upload({ id: "a", createdAt: "2026-07-01T00:00:00.000Z", followerCount: 1200 }),
+      upload({ id: "b", createdAt: "2026-06-01T00:00:00.000Z", followerCount: 1000 }),
+    ]);
+
+    expect(result).toEqual({ kind: "none" });
+  });
+
+  it("reports a single recorded count as a LEVEL, carrying no movement at all", () => {
+    const result = connectionsTrend([
+      upload({ id: "a", createdAt: "2026-07-01T00:00:00.000Z", connectionsCount: 4820 }),
+      upload({ id: "b", createdAt: "2026-06-01T00:00:00.000Z" }),
+    ]);
+
+    expect(result).toEqual({
+      kind: "single",
+      latest: { count: 4820, at: "2026-07-01T00:00:00.000Z" },
+    });
+    expect(result).not.toHaveProperty("net");
+    expect(result).not.toHaveProperty("percent");
+  });
+
+  it("orders recorded points OLDEST FIRST and skips the blank weeks between them", () => {
+    const result = connectionsTrend([
+      upload({ id: "d", createdAt: "2026-07-01T00:00:00.000Z", connectionsCount: 4900 }),
+      upload({ id: "c", createdAt: "2026-06-15T00:00:00.000Z" }), // blank week
+      upload({ id: "b", createdAt: "2026-06-01T00:00:00.000Z", connectionsCount: 4820 }),
+      upload({ id: "a", createdAt: "2026-05-01T00:00:00.000Z" }), // blank week
+    ]);
+
+    expect(result).toMatchObject({
+      kind: "trend",
+      series: [
+        { count: 4820, at: "2026-06-01T00:00:00.000Z" },
+        { count: 4900, at: "2026-07-01T00:00:00.000Z" },
+      ],
+      net: 80,
+    });
+    // Measured between the two RECORDED points (1 Jun → 1 Jul), not 1 May → 1 Jul.
+    expect(result.kind === "trend" && result.spanDays).toBe(30);
+  });
+
+  it("reports a decline as a NEGATIVE net change and a negative percentage", () => {
+    const result = connectionsTrend([
+      upload({ id: "b", createdAt: "2026-07-01T00:00:00.000Z", connectionsCount: 800 }),
+      upload({ id: "a", createdAt: "2026-06-01T00:00:00.000Z", connectionsCount: 1000 }),
+    ]);
+
+    expect(result).toMatchObject({ kind: "trend", net: -200 });
+    expect(result.kind === "trend" && result.percent).toBeCloseTo(-20, 10);
+  });
+
+  it("reports percent as NULL when the oldest recorded count is 0", () => {
+    const result = connectionsTrend([
+      upload({ id: "b", createdAt: "2026-07-01T00:00:00.000Z", connectionsCount: 500 }),
+      upload({ id: "a", createdAt: "2026-06-01T00:00:00.000Z", connectionsCount: 0 }),
+    ]);
+
+    expect(result).toMatchObject({ kind: "trend", net: 500, percent: null });
+  });
+
+  it("reads connections ONLY — a rich follower history never fills the gap", () => {
+    // ⚠️ THE TWO SERIES ARE INDEPENDENT. Falling back to followers would draw a
+    // connections chart out of follower data: every value plausible, every value
+    // wrong, and nothing on screen to reveal it.
+    const result = connectionsTrend([
+      upload({ id: "b", createdAt: "2026-07-01T00:00:00.000Z", followerCount: 1400 }),
+      upload({ id: "a", createdAt: "2026-06-01T00:00:00.000Z", followerCount: 1000 }),
+    ]);
+
+    expect(result).toEqual({ kind: "none" });
+  });
+
+  it("does not disturb the follower trend read off the same uploads", () => {
+    // Both series come from ONE `Upload[]`; picking the wrong field for either
+    // would be invisible until the two charts disagreed with their KPI cards.
+    const uploads = [
+      upload({
+        id: "b",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        followerCount: 1400,
+        connectionsCount: 4900,
+      }),
+      upload({
+        id: "a",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        followerCount: 1000,
+        connectionsCount: 4820,
+      }),
+    ];
+
+    expect(followerTrend(uploads)).toMatchObject({ kind: "trend", net: 400 });
+    expect(connectionsTrend(uploads)).toMatchObject({ kind: "trend", net: 80 });
   });
 });

@@ -46,6 +46,10 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
   const [csvFileName, setCsvFileName] = React.useState("");
   const [jsonText, setJsonText] = React.useState("");
   const [follower, setFollower] = React.useState("");
+  // ⚠️ SEPARATE STATE, AND IT STAYS A STRING. Empty means "not captured on this
+  // scrape" and must travel to the action as an empty string, not as 0 — the
+  // action is the one place that decides what blank means.
+  const [connections, setConnections] = React.useState("");
 
   const errors = state?.status === "error" ? state.errors : undefined;
 
@@ -55,6 +59,7 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
     formData.set("sourceType", sourceType);
     formData.set("rawText", sourceType === "csv" ? csvText : jsonText);
     formData.set("followerCount", follower);
+    formData.set("connectionsCount", connections);
     if (extra?.skipReview) formData.set("skipReview", "true");
     if (extra?.resolvedFormatTypes) {
       formData.set("resolvedFormatTypes", JSON.stringify(extra.resolvedFormatTypes));
@@ -161,20 +166,50 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
 
       <Separator />
 
+      {/* ⚠️ ONE STEP, TWO COUNTS, AND ONLY ONE OF THEM IS REQUIRED. Both are
+          audience figures captured with the same scrape, so they belong side by
+          side rather than in a separate step. The optional one says so on the
+          label: leaving it blank records the scrape with NO connection count,
+          which the history shows as a gap — never as zero. */}
       <Step
         n="03"
-        title="Follower count"
+        title="Follower & connection counts"
         description="Stored with this scrape, at time of capture."
       >
-        <Input
-          value={follower}
-          onChange={(e) => setFollower(e.target.value)}
-          inputMode="numeric"
-          placeholder="e.g. 18420"
-          className="w-52 font-mono"
-          aria-label="Follower count"
-        />
-        <FieldError message={errors?.followerCount?.[0]} />
+        <div className="flex flex-wrap gap-4">
+          <div>
+            <Input
+              value={follower}
+              onChange={(e) => setFollower(e.target.value)}
+              inputMode="numeric"
+              placeholder="e.g. 18420"
+              className="w-52 font-mono"
+              aria-label="Follower count"
+            />
+            <p className="mt-1.5 font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+              Followers
+            </p>
+            <FieldError message={errors?.followerCount?.[0]} />
+          </div>
+          <div>
+            <Input
+              value={connections}
+              onChange={(e) => setConnections(e.target.value)}
+              inputMode="numeric"
+              placeholder="e.g. 4820"
+              className="w-52 font-mono"
+              aria-label="Connection count"
+            />
+            <p className="mt-1.5 font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+              Connections · optional
+            </p>
+            <FieldError message={errors?.connectionsCount?.[0]} />
+          </div>
+        </div>
+        <p className="mt-2.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground/80">
+          Leave connections blank if you don&rsquo;t have it — the scrape still uploads, and that
+          week shows no connection figure rather than a zero.
+        </p>
       </Step>
 
       <Separator />

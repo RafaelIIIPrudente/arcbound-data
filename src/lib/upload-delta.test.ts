@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Upload } from "@/services/types";
 
-import { followersDelta, postsDelta } from "./upload-delta";
+import { connectionsDelta, followersDelta, postsDelta } from "./upload-delta";
 
 /** Uploads arrive newest-first, as `listUploads` returns them. */
 function upload(over: Partial<Upload> & { id: string }): Upload {
@@ -13,6 +13,7 @@ function upload(over: Partial<Upload> & { id: string }): Upload {
     rowsUpdated: 0,
     rowsUnchanged: 0,
     followerCount: null,
+    connectionsCount: null,
     createdAt: "2026-07-22T10:00:00.000Z",
     ...over,
   };
@@ -113,5 +114,84 @@ describe("followersDelta", () => {
   it("returns null for no uploads and for a failed read", () => {
     expect(followersDelta([])).toBeNull();
     expect(followersDelta(null)).toBeNull();
+  });
+});
+
+describe("connectionsDelta — the same rules, applied to an OPTIONAL count", () => {
+  it("subtracts the previous recorded count from the latest", () => {
+    const delta = connectionsDelta([
+      upload({ id: "u2", connectionsCount: 4860 }),
+      upload({ id: "u1", connectionsCount: 4820 }),
+    ]);
+
+    expect(delta).toEqual({ value: 40, direction: "up" });
+  });
+
+  it("reports a DECLINE as down, with a negative value", () => {
+    const delta = connectionsDelta([
+      upload({ id: "u2", connectionsCount: 4800 }),
+      upload({ id: "u1", connectionsCount: 4860 }),
+    ]);
+
+    expect(delta).toEqual({ value: -60, direction: "down" });
+  });
+
+  it("SKIPS older uploads that recorded no count rather than treating them as zero", () => {
+    // ⚠️ THE COMMON CASE FOR CONNECTIONS, NOT AN EDGE CASE. The field is optional
+    // and no historical upload carries one, so gaps are everywhere. Reading a gap
+    // as 0 would print a plausible-looking −4,820 then +4,860.
+    const delta = connectionsDelta([
+      upload({ id: "u3", connectionsCount: 4860 }),
+      upload({ id: "u2", connectionsCount: null }),
+      upload({ id: "u1", connectionsCount: 4820 }),
+    ]);
+
+    expect(delta).toEqual({ value: 40, direction: "up" });
+  });
+
+  it("reports NOTHING when the newest upload recorded no count", () => {
+    const delta = connectionsDelta([
+      upload({ id: "u3", connectionsCount: null }),
+      upload({ id: "u2", connectionsCount: 4860 }),
+      upload({ id: "u1", connectionsCount: 4820 }),
+    ]);
+
+    // The card shows the newest upload's count — an em dash here — so there is
+    // nothing on screen for a delta to describe.
+    expect(delta).toBeNull();
+  });
+
+  it("returns null when only ONE upload recorded a count", () => {
+    expect(
+      connectionsDelta([
+        upload({ id: "u2", connectionsCount: 4860 }),
+        upload({ id: "u1", connectionsCount: null }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("reports an unchanged connection count as FLAT, not absent", () => {
+    const delta = connectionsDelta([
+      upload({ id: "u2", connectionsCount: 4860 }),
+      upload({ id: "u1", connectionsCount: 4860 }),
+    ]);
+
+    expect(delta).toEqual({ value: 0, direction: "flat" });
+  });
+
+  it("returns null for no uploads and for a failed read", () => {
+    expect(connectionsDelta([])).toBeNull();
+    expect(connectionsDelta(null)).toBeNull();
+  });
+
+  it("reads connections ONLY — a follower count never stands in for a missing one", () => {
+    // The two figures share a row but are independent readings; borrowing one
+    // for the other would invent a connections history out of follower data.
+    const delta = connectionsDelta([
+      upload({ id: "u2", followerCount: 24460, connectionsCount: null }),
+      upload({ id: "u1", followerCount: 24417, connectionsCount: null }),
+    ]);
+
+    expect(delta).toBeNull();
   });
 });

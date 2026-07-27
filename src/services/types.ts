@@ -194,6 +194,15 @@ export interface ClientComparisonRow {
    * not infinite, and not zero.
    */
   interactionsPer1K: number | null;
+  /**
+   * The most recent recorded CONNECTION count from the upload audit, skipping
+   * uploads that recorded none. `null` when none was ever recorded.
+   *
+   * ⚠️ `null` IS THE ORDINARY ANSWER, NOT AN ANOMALY. The count is optional at
+   * capture and no upload predating the column carries one, so most rows are
+   * legitimately blank. It is never filled in from `followers`.
+   */
+  connections: number | null;
 }
 
 /**
@@ -213,6 +222,7 @@ export interface ClientComparisonMedians {
   engagementRate: ComparisonMedian;
   followers: ComparisonMedian;
   interactionsPer1K: ComparisonMedian;
+  connections: ComparisonMedian;
 }
 
 export interface ClientComparison {
@@ -248,6 +258,17 @@ export interface ClientComparison {
    * reported"). This flag lets the table say which, instead of collapsing them.
    */
   followersUnavailable: boolean;
+  /**
+   * The connection/upload read FAILED, so `connections` is `null` for EVERY row.
+   *
+   * ⚠️ IT TRACKS THE SAME READ AS `followersUnavailable` AND IS STILL ITS OWN
+   * FLAG. The columns need to be describable separately, because an all-em-dash
+   * CONNECTIONS column is the NORMAL state (the count is optional and mostly
+   * unrecorded) while an all-em-dash FOLLOWERS column is not. Folding them into
+   * one flag would either cry wolf over the ordinary case or leave a genuine
+   * outage in the connections column unexplained.
+   */
+  connectionsUnavailable: boolean;
 }
 
 // ── Ingestion ────────────────────────────────────────────────────────────────
@@ -343,6 +364,17 @@ export interface Upload {
   rowsUpdated: number;
   rowsUnchanged: number;
   followerCount: number | null;
+  /**
+   * The Client's total LinkedIn connection count at the time of this scrape.
+   *
+   * ⚠️ OPTIONAL AT CAPTURE, SO `null` IS THE COMMON CASE AND IT MEANS "NOT
+   * RECORDED". Unlike `followerCount` the upload form does not require it, and
+   * every upload written before the column existed carries none — there is no
+   * historical source to backfill from, so gaps in the history are legitimate.
+   * A missing count is NEVER a zero: read it as absent, render it as an em dash,
+   * and skip it rather than folding it into any average, delta or trend.
+   */
+  connectionsCount: number | null;
   /** ISO 8601 date string. */
   createdAt: string;
 }
@@ -659,6 +691,22 @@ export interface ClientReport {
      * maxima was invisible as nine loose cards and wrong in a labelled matrix.
      */
     perThousandFollowers: ReportFigure;
+    /**
+     * The Client's RAW connection count, as captured — the newest upload that
+     * recorded one.
+     *
+     * ⚠️ A POINT-IN-TIME COUNT, NOT AN AVERAGE AND NOT A RATE. It has no
+     * per-1,000 twin (the asymmetry with `perThousandFollowers` is deliberate),
+     * it is NEVER `approximate` — a captured count is exact — and it must not be
+     * rendered under an "all time" qualifier: it describes one moment, not the
+     * reporting window. The upload that carries it may be OLDER than the latest
+     * scrape, so the label must not imply "right now" either.
+     *
+     * ⚠️ `value: null` IS THE ORDINARY ANSWER TODAY, AND IT MUST RENDER AS AN EM
+     * DASH — never a 0. The count is optional at capture and no upload predating
+     * the column carries one. It is never derived from the follower count.
+     */
+    connections: ReportFigure;
   };
   interactionsComparison: InteractionsRow[];
   /**

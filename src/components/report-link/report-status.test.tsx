@@ -51,6 +51,7 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
       selected: [],
       matrix: [],
       perThousandFollowers: { label: "x", value: null, approximate: true },
+      connections: { label: "Connections", value: null },
     },
     interactionsComparison: [],
     impressionsSeries: series(100, 150, 220),

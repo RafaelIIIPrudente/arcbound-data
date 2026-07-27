@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import type { BiPostRow } from "@/services/analytics";
 import type { ClientReport, PostingCadence } from "@/services/types";
@@ -51,6 +51,7 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
       ],
       matrix: [],
       perThousandFollowers: { label: "x", value: null, approximate: true },
+      connections: { label: "Connections", value: null },
     },
     interactionsComparison: [
       {
@@ -190,8 +191,8 @@ const SOURCE = {
   clientName: "Acme Corp",
   posts: [post()],
   uploads: [
-    { createdAt: "2026-07-05T00:00:00.000Z", followerCount: 400 },
-    { createdAt: "2026-07-20T00:00:00.000Z", followerCount: 500 },
+    { createdAt: "2026-07-05T00:00:00.000Z", followerCount: 400, connectionsCount: 4820 },
+    { createdAt: "2026-07-20T00:00:00.000Z", followerCount: 500, connectionsCount: null },
   ],
   attributes: [
     { linkedin_post_id: "p1", post_format_type: "IMAGE", recorded_at: "2026-07-20T00:00:00.000Z" },
@@ -241,5 +242,101 @@ describe("PublicReport — fetches through the token + grant (async)", () => {
     expect(screen.getByText(/not available right now|check back/i)).toBeInTheDocument();
     expect(screen.queryByText(/key performance/i)).toBeNull();
     expect(container.querySelectorAll('a[href*="/clients"]').length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE CLIENT-FACING SURFACE IS WHERE A FABRICATED NUMBER COSTS MOST. Nobody
+// on staff sees this page before the client does, and the connection count is
+// optional at capture — so an unrecorded count must arrive here as UNKNOWN and
+// render as an em dash, never as a zero and never as the follower figure. What
+// the client sees is a RAW COUNT: no per-1,000 rate, no "all time", no
+// approximation mark.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PublicReport — the connection count", () => {
+  beforeEach(() => {
+    grantMock.mockReset();
+    sourceMock.mockReset();
+  });
+
+  /** The footer row carrying `label`, so a claim can be scoped to one line. */
+  function lineFor(label: RegExp) {
+    return screen.getByText(label).closest("div")!.parentElement!;
+  }
+
+  it("shows the RAW count from the newest upload that recorded one", async () => {
+    grantMock.mockResolvedValueOnce("valid-grant");
+    // The newest upload carried none, so the figure falls back to the 5 Jul
+    // reading (4,820) rather than reporting nothing.
+    sourceMock.mockResolvedValueOnce(SOURCE);
+
+    const ui = await PublicReport({ token: "abc123", period: undefined });
+    render(ui);
+
+    expect(screen.getByText(/^connections/i)).toBeInTheDocument();
+    expect(screen.getByText("4,820")).toBeInTheDocument();
+  });
+
+  it("mentions connections EXACTLY ONCE to the client — the raw line, no rate", async () => {
+    // Any reinstated connection-derived figure makes this two, whatever it is
+    // named. The client sees one connections figure: the count.
+    grantMock.mockResolvedValueOnce("valid-grant");
+    sourceMock.mockResolvedValueOnce(SOURCE);
+
+    const ui = await PublicReport({ token: "abc123", period: undefined });
+    const { container } = render(ui);
+
+    expect(container.textContent!.match(/connections/gi)).toHaveLength(1);
+  });
+
+  it("labels the count neither 'all time' nor approximate", async () => {
+    // ⚠️ IT IS A SNAPSHOT FROM ONE SCRAPE. Either qualifier would describe it
+    // wrongly to the one audience that cannot ask a follow-up question.
+    grantMock.mockResolvedValueOnce("valid-grant");
+    sourceMock.mockResolvedValueOnce(SOURCE);
+
+    const ui = await PublicReport({ token: "abc123", period: undefined });
+    render(ui);
+
+    const line = lineFor(/^connections/i);
+    expect(line).not.toHaveTextContent(/all time/i);
+    expect(line).not.toHaveTextContent(/approx/i);
+  });
+
+  it("renders an em dash — never 0 — when NO upload carried a connection count, and KEEPS the line", async () => {
+    grantMock.mockResolvedValueOnce("valid-grant");
+    sourceMock.mockResolvedValueOnce({
+      ...SOURCE,
+      uploads: SOURCE.uploads.map((u) => ({ ...u, connectionsCount: null })),
+    });
+
+    const ui = await PublicReport({ token: "abc123", period: undefined });
+    render(ui);
+
+    const line = lineFor(/^connections/i);
+    expect(line).toBeInTheDocument();
+    expect(within(line).getByText("—")).toBeInTheDocument();
+    expect(within(line).queryByText("0")).not.toBeInTheDocument();
+  });
+
+  it("never substitutes the follower count for a missing connection count", async () => {
+    grantMock.mockResolvedValueOnce("valid-grant");
+    sourceMock.mockResolvedValueOnce({
+      ...SOURCE,
+      uploads: [
+        { createdAt: "2026-07-20T00:00:00.000Z", followerCount: 500, connectionsCount: null },
+      ],
+    });
+
+    const ui = await PublicReport({ token: "abc123", period: undefined });
+    render(ui);
+
+    // The FOLLOWER average is computable (500 followers); the connection count is
+    // simply absent, and 500 must not leak across into it.
+    const followerLine = lineFor(/avg interactions per 1k followers/i);
+    const connectionLine = lineFor(/^connections/i);
+    expect(within(followerLine).queryByText("—")).not.toBeInTheDocument();
+    expect(within(connectionLine).getByText("—")).toBeInTheDocument();
+    expect(within(connectionLine).queryByText("500")).not.toBeInTheDocument();
   });
 });

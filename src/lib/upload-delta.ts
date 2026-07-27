@@ -37,23 +37,48 @@ export function postsDelta(uploads: Upload[] | null): UploadDelta | null {
 }
 
 /**
- * Follower change measured from the NEWEST upload back to the previous one that
- * recorded a count.
+ * Change in one per-Upload audience count, measured from the NEWEST upload back
+ * to the previous one that recorded a value.
  *
  * ⚠️ ANCHORED ON THE NEWEST UPLOAD, deliberately. The card shows that upload's
- * follower count, so if it recorded none the card shows an em dash and there is
- * nothing for a delta to describe. Measuring between two older uploads instead
- * would print a change next to a figure that is not on screen.
+ * count, so if it recorded none the card shows an em dash and there is nothing
+ * for a delta to describe. Measuring between two older uploads instead would
+ * print a change next to a figure that is not on screen.
  *
  * Older uploads with no count are skipped rather than read as zero — a missing
- * count is not a drop to nothing.
+ * count is not a drop to nothing. A recorded `0` IS a reading and is used.
  */
-export function followersDelta(uploads: Upload[] | null): UploadDelta | null {
+function countDelta(
+  uploads: Upload[] | null,
+  pick: (upload: Upload) => number | null,
+): UploadDelta | null {
   const latest = uploads?.[0];
-  if (!latest || latest.followerCount == null) return null;
+  const latestCount = latest ? pick(latest) : null;
+  if (latestCount == null) return null;
 
-  const previous = uploads!.slice(1).find((u) => u.followerCount != null);
-  if (!previous) return null;
+  const previous = uploads!
+    .slice(1)
+    .map(pick)
+    .find((count) => count != null);
+  if (previous == null) return null;
 
-  return toDelta(latest.followerCount - previous.followerCount!);
+  return toDelta(latestCount - previous);
+}
+
+/** Follower change between the two most recent uploads that recorded a count. */
+export function followersDelta(uploads: Upload[] | null): UploadDelta | null {
+  return countDelta(uploads, (u) => u.followerCount);
+}
+
+/**
+ * Connection change between the two most recent uploads that recorded a count.
+ *
+ * ⚠️ GAPS ARE THE NORM HERE, NOT THE EXCEPTION. The connection count is optional
+ * at capture and no upload predating the column carries one, so most histories
+ * are sparse. `countDelta` skips those uploads rather than reading them as zero,
+ * which is the only thing keeping this from printing a fabricated collapse and
+ * recovery every time a staffer leaves the field blank for a week.
+ */
+export function connectionsDelta(uploads: Upload[] | null): UploadDelta | null {
+  return countDelta(uploads, (u) => u.connectionsCount);
 }

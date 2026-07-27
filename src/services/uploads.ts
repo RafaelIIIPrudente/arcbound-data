@@ -20,11 +20,15 @@ interface UploadRow {
   rows_updated: number;
   rows_unchanged: number;
   follower_count: number | null;
+  connections_count: number | null;
   created_at: string;
 }
 
+// ⚠️ AN OMITTED COLUMN IS A SILENT, PERMANENT GAP. PostgREST returns exactly the
+// columns asked for, so leaving one out here maps it to `undefined` on every row
+// — a whole figure reading as "never recorded" with no error to explain it.
 const UPLOAD_COLUMNS =
-  "id, client_id, source_type, rows_inserted, rows_updated, rows_unchanged, follower_count, created_at";
+  "id, client_id, source_type, rows_inserted, rows_updated, rows_unchanged, follower_count, connections_count, created_at";
 
 function toUpload(row: UploadRow): Upload {
   return {
@@ -36,6 +40,11 @@ function toUpload(row: UploadRow): Upload {
     rowsUpdated: row.rows_updated,
     rowsUnchanged: row.rows_unchanged,
     followerCount: row.follower_count,
+    // ⚠️ `?? null`, NEVER `?? 0`. The column is nullable and optional: null means
+    // this scrape carried no connection count, which is not a Client with zero
+    // connections. Coercing here would turn every historical upload into a
+    // measured zero and quietly discredit the whole connections history.
+    connectionsCount: row.connections_count ?? null,
     createdAt: row.created_at,
   };
 }

@@ -158,12 +158,21 @@ export interface ReportLinkSource {
   attributes: PostAttributes[];
 }
 
-/** One upload row, reduced to the two facts the public report uses. */
+/** One upload row, reduced to the facts the public report uses. */
 export interface ReportLinkUpload {
   /** ISO 8601 — the ingest/scrape timestamp; drives freshness. */
   createdAt: string;
   /** Recorded follower count, or null when the upload carried none. */
   followerCount: number | null;
+  /**
+   * Recorded connection count, or null when the upload carried none.
+   *
+   * ⚠️ NULL IS THE ORDINARY VALUE. The count is optional at capture and every
+   * upload predating the column has no such key at all, so the mapping below
+   * defaults to null — never 0, which a client-facing report would present as a
+   * measured audience of nobody.
+   */
+  connectionsCount: number | null;
 }
 
 /**
@@ -194,7 +203,14 @@ export async function readReportLinkSource(
       client_id?: string;
       client_name?: string | null;
       posts?: BiPostRow[];
-      uploads?: { created_at: string; follower_count: number | null }[];
+      // ⚠️ THE DEFINER READ SENDS WHOLE `public.uploads` ROWS (`to_jsonb(u)`), so
+      // a new column arrives here with NO SQL change — but only the fields named
+      // below are mapped, so each one still has to be added deliberately.
+      uploads?: {
+        created_at: string;
+        follower_count: number | null;
+        connections_count?: number | null;
+      }[];
       attributes?: PostAttributes[];
     };
     if (typeof bundle.client_id !== "string") return null;
@@ -205,6 +221,7 @@ export async function readReportLinkSource(
       uploads: (bundle.uploads ?? []).map((u) => ({
         createdAt: u.created_at,
         followerCount: u.follower_count ?? null,
+        connectionsCount: u.connections_count ?? null,
       })),
       attributes: bundle.attributes ?? [],
     };

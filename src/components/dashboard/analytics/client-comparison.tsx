@@ -73,7 +73,7 @@ function Unknown({ what }: { what: string }) {
  * convention, matched here deliberately.
  */
 function metric(
-  id: "avgImpressions" | "engagementRate" | "followers" | "interactionsPer1K",
+  id: "avgImpressions" | "engagementRate" | "followers" | "interactionsPer1K" | "connections",
   header: string,
   sortLabel: string,
   format: (v: number) => string,
@@ -142,6 +142,18 @@ const columns: ColumnDef<ClientComparisonRow>[] = [
     "interactions per 1,000 followers",
     (v) => v.toLocaleString("en-US", { maximumFractionDigits: 1 }),
     "Interactions per 1,000 followers",
+  ),
+  // ⚠️ A RAW COUNT, AND DELIBERATELY THE LAST COLUMN. Connections carries NO
+  // per-1,000 rate — that derived column was removed, and the asymmetry with
+  // Followers beside it is intended rather than an oversight. Keeping the bare
+  // count at the end means the normalised figures stay grouped together and a
+  // reader is never invited to read this one as a rate.
+  metric(
+    "connections",
+    "Connections",
+    "connections",
+    (v) => v.toLocaleString("en-US"),
+    "Connections",
   ),
 ];
 
@@ -311,6 +323,13 @@ export function ClientComparisonTable({ comparison }: { comparison: ClientCompar
                   noun="interactions-per-1,000 figure"
                 />
               </TableCell>
+              <TableCell className="text-right whitespace-nowrap">
+                <MedianCell
+                  median={comparison.medians.connections}
+                  format={(v) => v.toLocaleString("en-US")}
+                  noun="connection count"
+                />
+              </TableCell>
             </TableRow>
           </TableFooter>
         </Table>
@@ -340,6 +359,19 @@ export function ClientComparisonTable({ comparison }: { comparison: ClientCompar
           Follower figures could not be read for this range, so the Followers and Per 1K followers
           columns are blank for every client. This is a read that failed, not an absence of
           followers &mdash; the other columns are unaffected.
+        </p>
+      ) : null}
+
+      {/* ⚠️ ITS OWN NOTE, NOT A CLAUSE IN THE ONE ABOVE. A blank Connections
+          column is the ORDINARY state — the count is optional at capture and
+          most uploads carry none — so this note fires ONLY on a failed read.
+          Sharing wording with the follower note would either leave a real outage
+          in this column unexplained, or turn the everyday gap into a false
+          alarm. It names ONE column, because there is now only one. */}
+      {comparison.connectionsUnavailable ? (
+        <p className="text-sm text-muted-foreground">
+          Connection figures could not be read for this range, so the Connections column is blank
+          for every client. This is a read that failed, not an absence of connections.
         </p>
       ) : null}
     </Shell>

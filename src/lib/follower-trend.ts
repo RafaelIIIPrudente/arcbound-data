@@ -1,7 +1,15 @@
 import type { Upload } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Follower movement over time, derived from the app-owned upload audit.
+// AUDIENCE movement over time — followers AND connections — derived from the
+// app-owned upload audit.
+//
+// ⚠️ ONE IMPLEMENTATION, TWO METRICS, DELIBERATELY. Both counts are captured per
+// Upload and both obey identical rules, so they share `countTrend` rather than
+// running as two hand-maintained copies that could drift into telling different
+// stories about the same audit. Only the field read differs — and the metrics
+// NEVER substitute for each other: a client with a full follower history and no
+// connection counts reports `none` for connections, not a borrowed series.
 //
 // Pure and synchronous, exactly like its sibling `upload-delta.ts`: everything
 // here reads the `Upload[]` the client detail page already fetched. No extra
@@ -26,9 +34,17 @@ import type { Upload } from "@/services/types";
 /** Milliseconds in a day. A unit conversion, not a threshold. */
 const DAY_MS = 86_400_000;
 
-export interface FollowerPoint {
-  /** The follower count recorded by that upload. */
-  followers: number;
+export interface CountPoint {
+  /**
+   * The count recorded by that upload — followers or connections, depending on
+   * which series this point belongs to.
+   *
+   * ⚠️ DELIBERATELY UNNAMED FOR ITS METRIC. A point is only ever created inside
+   * one series, and the series names itself; a field called `followers` holding
+   * a connection count is exactly the kind of quiet mislabelling this codebase
+   * spends its comments preventing.
+   */
+  count: number;
   /** ISO 8601 timestamp of the upload that recorded it. */
   at: string;
 }
@@ -38,7 +54,7 @@ export interface FollowerPoint {
  * a caller cannot read `net` off a single reading, or a percentage off a failed
  * read — the compiler stops it rather than a convention asking nicely.
  */
-export type FollowerTrend =
+export type CountTrend =
   /** The uploads read FAILED. Nothing is known — not "no growth". */
   | { kind: "unavailable" }
   /** Read fine, but no upload ever recorded a follower count. */
@@ -50,11 +66,11 @@ export type FollowerTrend =
    * point has no direction; a flat line, a 0%, or a single-dot chart would each
    * imply a stability that was never observed. A trend needs a second reading.
    */
-  | { kind: "single"; latest: FollowerPoint }
+  | { kind: "single"; latest: CountPoint }
   | {
       kind: "trend";
       /** Every recorded point, OLDEST FIRST. Never de-duplicated. Length >= 2. */
-      series: FollowerPoint[];
+      series: CountPoint[];
       /** Newest recorded count minus oldest. Signed — a decline keeps its sign. */
       net: number;
       /**
@@ -76,14 +92,15 @@ export type FollowerTrend =
     };
 
 /**
- * Follower readings over time, or the honest reason there is no trend.
+ * Readings of ONE per-Upload count over time, or the honest reason there is no
+ * trend.
  *
- * Uploads with no follower count are SKIPPED, never read as zero — a missing
- * count is not a drop to nothing. `followersDelta` already establishes that
- * rule and this agrees with it, so the KPI card and the chart cannot tell two
- * different stories.
+ * Uploads with no count are SKIPPED, never read as zero — a missing count is not
+ * a drop to nothing. `countDelta` in `upload-delta.ts` establishes that rule and
+ * this agrees with it, so the KPI card and the chart cannot tell two different
+ * stories.
  */
-export function followerTrend(uploads: Upload[] | null): FollowerTrend {
+function countTrend(uploads: Upload[] | null, pick: (upload: Upload) => number | null): CountTrend {
   if (uploads === null) return { kind: "unavailable" };
 
   const points = uploads
@@ -92,8 +109,8 @@ export function followerTrend(uploads: Upload[] | null): FollowerTrend {
     // real reading at the epoch — the same class of lie as reading a missing
     // count as zero. Guarded the way `publishDate` and `severityRank` already
     // guard their dates.
-    .filter((u) => u.followerCount != null && !Number.isNaN(Date.parse(u.createdAt)))
-    .map((u) => ({ followers: u.followerCount!, at: u.createdAt }))
+    .filter((u) => pick(u) != null && !Number.isNaN(Date.parse(u.createdAt)))
+    .map((u) => ({ count: pick(u)!, at: u.createdAt }))
     // ⚠️ ORDERED BY TIME, NOT BY ARRAY POSITION. `listUploads` returns newest
     // first, but a time series is defined by its clock, so this sorts rather
     // than reversing — the ordering stays right even if a caller hands over a
@@ -105,13 +122,31 @@ export function followerTrend(uploads: Upload[] | null): FollowerTrend {
 
   const oldest = points[0]!;
   const newest = points[points.length - 1]!;
-  const net = newest.followers - oldest.followers;
+  const net = newest.count - oldest.count;
 
   return {
     kind: "trend",
     series: points,
     net,
-    percent: oldest.followers === 0 ? null : (net / oldest.followers) * 100,
+    percent: oldest.count === 0 ? null : (net / oldest.count) * 100,
     spanDays: Math.round((Date.parse(newest.at) - Date.parse(oldest.at)) / DAY_MS),
   };
+}
+
+/** Follower readings over time, or the honest reason there is no trend. */
+export function followerTrend(uploads: Upload[] | null): CountTrend {
+  return countTrend(uploads, (u) => u.followerCount);
+}
+
+/**
+ * Connection readings over time, or the honest reason there is no trend.
+ *
+ * ⚠️ `none` IS THE EXPECTED ANSWER FOR MOST CLIENTS TODAY, AND IT IS AN HONEST
+ * ONE. The connection count is optional at capture and no upload predating the
+ * column carries one, so a sparse or empty series is the normal state — not a
+ * fault, and never a zero. The panel renders `none` as "no connection count has
+ * been recorded yet" rather than as a flat line at the bottom of an axis.
+ */
+export function connectionsTrend(uploads: Upload[] | null): CountTrend {
+  return countTrend(uploads, (u) => u.connectionsCount);
 }
