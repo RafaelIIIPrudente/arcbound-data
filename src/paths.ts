@@ -10,6 +10,15 @@ export const paths = {
     report: (id: string) => `/clients/${id}/report`,
     /** Per-post drill-down: the individual posts behind the report's figures. */
     posts: (id: string) => `/clients/${id}/posts`,
+    // The Outreach System tab: the latest prospect snapshot for this Client.
+    //
+    // ⚠️ STAFF-ONLY, AND IT MUST STAY THAT WAY. Unlike the LinkedIn report, this
+    // route shows THIRD-PARTY PERSONAL DATA — prospect names, LinkedIn URLs,
+    // locations, drafted messages, and email addresses inside Notes. ADR 0012
+    // draws the line explicitly: a Client may see outreach only as aggregate
+    // counts, through the Report Link's SECURITY DEFINER path. Nothing here may
+    // be reused by a print view, a public component, or `/r/[token]`.
+    outreach: (id: string) => `/clients/${id}/outreach`,
     // The print-optimised export of the report above. `(print)` is a route
     // GROUP, so it never appears in the URL — this path is auth-gated by the
     // same default-deny rule as every other app route (see lib/route-access).

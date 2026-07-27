@@ -999,3 +999,227 @@ export interface ClientPosts {
    */
   truncation?: ReadTruncation | null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OUTREACH SYSTEM (ADR 0012) — a second service, in its own tables.
+//
+// A snapshot is the WHOLE "Master Database" export, stored again on every
+// upload. Rows are never matched, merged, or deduplicated: the source contains
+// genuine duplicate prospects, and re-storing everything is what makes funnel
+// movement observable despite the absent `Date Connected` / `Date Replied`
+// columns.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One parsed row of the source CSV, on its way to the database.
+ *
+ * ⚠️ snake_case ON PURPOSE — these keys are read straight out of the JSON by
+ * `ingest_outreach` with `->>`, so they must match the column names in
+ * `public.outreach_prospects` exactly. Renaming one here silently writes a null
+ * into that column; the SQL cannot complain, because a missing JSON key is
+ * indistinguishable from a null one.
+ *
+ * ⚠️ EVERY FIELD IS `string`, INCLUDING `follow_up_count` AND THE DATES. Values
+ * are stored exactly as they arrive (ADR 0009) and interpreted only at read
+ * time. Coercing here would force the boundary to decide what an unparseable
+ * value means, and the source already contains values no coercion survives
+ * honestly — eight rows carry a date inside the reply status.
+ *
+ * ⚠️ `null` MEANS THE CELL WAS BLANK, AND IS NEVER `""` OR `0`. Only `full_name`
+ * and `linkedin_url` are guaranteed present; `next_touch_date` is filled on 2
+ * rows of 1,435 and `meeting_booked_date` on 8, so absence is the norm here, not
+ * an anomaly to be tidied into a zero.
+ */
+export interface OutreachRow {
+  full_name: string;
+  title: string | null;
+  company: string | null;
+  icp_seg: string | null;
+  why_they_fit: string | null;
+  what_they_lack: string | null;
+  what_arcbound_offers: string | null;
+  matching_client_archetype: string | null;
+  linkedin_url: string;
+  location: string | null;
+  source_citation: string | null;
+  rationale: string | null;
+  linkedin_message: string | null;
+  connection_status: string | null;
+  date_sent: string | null;
+  reply_status: string | null;
+  follow_up_count: string | null;
+  last_follow_up_date: string | null;
+  next_touch_date: string | null;
+  meeting_booked_date: string | null;
+  stage: string | null;
+  owner: string | null;
+  notes: string | null;
+  qualified_icp: string | null;
+}
+
+/** The header of one Outreach Snapshot — immutable, one per upload. */
+export interface OutreachUpload {
+  id: string;
+  clientId: string;
+  /**
+   * How many rows this upload carried, recorded AT WRITE TIME.
+   *
+   * ⚠️ NOT the same as `prospects.length` on a read. If the prospect read is
+   * truncated, this still states what was submitted — which is how "could not be
+   * read in full" stays distinguishable from "the file was that small".
+   */
+  rowCount: number;
+  createdAt: string;
+}
+
+/** One prospect as stored in a snapshot — the camelCase mirror of the 24 columns. */
+export interface OutreachProspect {
+  id: string;
+  outreachUploadId: string;
+  clientId: string;
+  /** 0-based position in the source file, so a snapshot replays in export order. */
+  rowIndex: number;
+  fullName: string | null;
+  title: string | null;
+  company: string | null;
+  icpSeg: string | null;
+  whyTheyFit: string | null;
+  whatTheyLack: string | null;
+  whatArcboundOffers: string | null;
+  matchingClientArchetype: string | null;
+  linkedinUrl: string | null;
+  location: string | null;
+  sourceCitation: string | null;
+  rationale: string | null;
+  linkedinMessage: string | null;
+  connectionStatus: string | null;
+  dateSent: string | null;
+  replyStatus: string | null;
+  followUpCount: string | null;
+  lastFollowUpDate: string | null;
+  nextTouchDate: string | null;
+  meetingBookedDate: string | null;
+  stage: string | null;
+  owner: string | null;
+  notes: string | null;
+  qualifiedIcp: string | null;
+}
+
+/**
+ * The result of reading a Client's most recent snapshot.
+ *
+ * ⚠️ THREE STATES, AND THEY MUST NOT COLLAPSE INTO TWO. "the read broke",
+ * "this Client has never had an outreach upload", and "here is the snapshot"
+ * license three different sentences on screen, and the middle one is the only
+ * one that may render as an empty dashboard. A nullable return would fuse the
+ * first two and let a failed read display as a Client with no outreach — the
+ * same defect `listUploads` and `postsCount` were both fixed for.
+ */
+export type LatestSnapshot =
+  | {
+      status: "ok";
+      upload: OutreachUpload;
+      prospects: OutreachProspect[];
+      /**
+       * The prospect read hit the pager's cap — `prospects` is a PREFIX, so any
+       * count derived from it is short. Compare against `upload.rowCount` and
+       * `total` to say by how much.
+       */
+      truncated: boolean;
+      /**
+       * How many prospect rows the snapshot actually has, per the database.
+       * `null` means "not known" and never 0 — see `PagedRead.total`.
+       */
+      total: number | null;
+    }
+  | { status: "empty" }
+  | { status: "unavailable" };
+
+/** One row of a breakdown: a label and how many prospects carry it. */
+export interface OutreachCount {
+  label: string;
+  count: number;
+}
+
+/**
+ * One step of the outreach funnel.
+ *
+ * ⚠️ EVERY STEP NAMES THE COLUMN IT WAS COUNTED FROM, AND THAT IS NOT DECORATION.
+ * The four steps come from four DIFFERENT columns, and two of them disagree with
+ * the `Stage` breakdown on the same page by design: Stage says 25 prospects are
+ * at "Replied", while the reply-status step says 39 have replied. Both are
+ * correct — Stage records the furthest point a prospect REACHED, so someone who
+ * replied and then booked a meeting is no longer counted at "Replied". Without
+ * `source` and `rule` on screen, that gap reads as a bug and somebody
+ * "reconciles" it.
+ */
+export interface OutreachFunnelStep {
+  label: string;
+  count: number;
+  /** The source column, spelled as the export spells it. */
+  source: string;
+  /** The counting rule, in one plain sentence. */
+  rule: string;
+}
+
+/**
+ * Everything the Outreach tab renders, computed from ONE snapshot.
+ *
+ * ⚠️ COUNTS ONLY — NO RATES, PERCENTAGES, SCORES, RANKINGS OR BENCHMARKS. There
+ * is deliberately no "conversion rate" anywhere in this type, and adding one
+ * would not be a small change. Meetings booked is ~8 of ~1,220 sent: any
+ * percentage computed from that reads as a verdict on a Client's performance
+ * that a sample this size cannot support, and the same no-score discipline
+ * already binds cadence and the cross-client comparison.
+ */
+export interface OutreachAnalytics {
+  totalProspects: number;
+  funnel: OutreachFunnelStep[];
+  /** Current standing, NOT funnel stages — see {@link OutreachFunnelStep}. */
+  stage: OutreachCount[];
+  connectionStatus: OutreachCount[];
+  replyStatus: OutreachCount[];
+  /**
+   * Follow-up counts as read from a TEXT column (ADR 0009), grouped by value.
+   * Rows whose text could not be read as a number are NOT here — they are
+   * counted in `unreadableFollowUpCounts` so an unreadable cell never lands in
+   * the "0" bucket.
+   */
+  followUps: OutreachCount[];
+  /** Rows whose `Follow-up Count` text is not a number. Never folded into `0`. */
+  unreadableFollowUpCounts: number;
+  /**
+   * Reply Status values ArcBase has not been taught to read, VERBATIM and
+   * de-duplicated. Shown on screen exactly as typed; never bucketed into
+   * "other", never dropped.
+   */
+  unrecognisedReplyValues: string[];
+  /** The same, for Stage. */
+  unrecognisedStageValues: string[];
+  /**
+   * Requests sent per calendar month, ascending, keyed `YYYY-MM`.
+   *
+   * ⚠️ NOTHING IS FILTERED OUT OF THIS SERIES, INCLUDING THE 2020 OUTLIER. See
+   * `sentDateRange` — the range is published beside it precisely so a reader
+   * sees the odd date rather than having it quietly removed.
+   */
+  sentOverTime: { date: string; count: number }[];
+  /** Rows with NO `Date Sent`: counted here, excluded from the series. */
+  undatedSent: number;
+  /**
+   * Rows whose `Date Sent` text could not be read as a date, VERBATIM.
+   * Counted-but-excluded like `undatedSent`, and disclosed rather than dropped —
+   * "unreadable" and "not recorded" are different facts.
+   */
+  unreadableSentValues: string[];
+  /**
+   * The earliest and latest readable `Date Sent`, exactly as stored.
+   *
+   * ⚠️ THIS IS HOW THE `2020-12-04` OUTLIER STAYS VISIBLE. It is one row against
+   * an otherwise-2026 range, and it is deliberately NOT filtered: any cutoff
+   * that would remove it is a judgement the data does not support. Publishing
+   * the range instead means a reader meets the odd date immediately, on screen,
+   * and can act on it. `null` when no row carries a readable date.
+   */
+  sentDateRange: { earliest: string; latest: string } | null;
+}

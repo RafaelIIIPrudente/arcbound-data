@@ -165,3 +165,83 @@ not yet built. They graduate to the glossary when the reshape ships.
     **built but NOT applied** — uploads fail until staff paste
     `supabase/uploads-connections-count.sql` into the Supabase SQL editor.
   - Revision handoff: `docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md`.
+
+- **2026-07-27 — v3: the Outreach System, shaped against REAL data.** Bryan
+  supplied the actual export (`Arcbound_LinkedIn_Master_Database - Master DB.csv`,
+  1,435 rows) and his static `Arcbound_Master_DB_Viewer.html`.
+  - **⚠️ THE EARLIER OUTREACH ASSUMPTION WAS WRONG.** This doc's v1 recorded
+    Outreach as "a per-client period summary (counts)" — chosen from a
+    hypothetical menu before any file existed. The real data is **row-level**: one
+    row per **Prospect**, 24 CRM columns. The count-summary shape is retired.
+  - **Contradiction surfaced and resolved.** The file reads like Arcbound's OWN
+    business development (`Owner`="Bryan" on all 1,432 filled rows; "What Arcbound
+    Offers"; `Matching Client Archetype` = 750 distinct free-text values naming
+    real clients). Planner flagged that this breaks decision 3
+    (Client-is-universal). **Bryan confirmed the opposite: outreach is run FOR
+    Clients** — so it IS per-Client, and this file is the first instance.
+    Decision 3 therefore STANDS.
+  - **Decisions (all Bryan's):** per-Client, as a 4th client tab (`Overview ·
+Posts · LinkedIn Report · Outreach`); attribution = **staff select the Client
+    at upload** → `client_id` FK (no name-matching); re-upload = **immutable full
+    snapshot** (current = latest, trends = snapshot-over-snapshot — the only way
+    to see funnel movement, since no `Date Connected`/`Date Replied` exists);
+    client exposure = **aggregate counts only**, aggregated INSIDE the SECURITY
+    DEFINER function; vocabulary = **store raw, canonicalise at read**, unmapped
+    values disclosed; sidebar renamed **"Add Data"** with `[LinkedIn Metrics]
+[Outreach System]` tabs; dashboard v1 = KPIs + funnel + 3 breakdowns + trends
+    (prospect table deferred).
+  - **Naming rationale:** "Uploads" was rejected for the sidebar because `Upload`
+    is already a `CONTEXT.md` noun surfaced as "Upload History" — it would read as
+    a list of past uploads, not the page where you add data.
+  - **Planner's schema call (unchallenged):** separate `outreach_uploads` +
+    `outreach_prospects` tables; the LinkedIn `uploads` table is left untouched
+    because its columns are LinkedIn-shaped and don't fit a snapshot. A unified
+    Service→Dataset discriminator remains the deferred north star.
+  - **Observed data facts that drove the design:** `LinkedIn URL` is NOT unique
+    (1,419/1,435 raw, 1,408 normalised → ~27 genuine duplicate prospects, so
+    snapshots must never dedup); `Reply Status` has 15 dirty variants including 8
+    rows with a date typed into the status; `Stage` and `Connection Status` are
+    consistent, not contradictory (furthest-stage vs binary flag); low-N
+    everywhere (7 meetings of 1,230 sent; `Next Touch Date` on 2 rows); a
+    `Date Sent` outlier at `2020-12-04`; PII throughout (emails in `Notes`,
+    drafted messages in `LinkedIn Message`).
+  - **Artifacts:** [ADR 0012](../adr/0012-outreach-system-per-client-snapshots.md);
+    [spec](../specs/2026-07-27-outreach-system-dashboard.md) (S1–S5); `CONTEXT.md`
+    terms (Outreach System, Prospect, Outreach Snapshot, Stage);
+    handoff `docs/handoffs/2026-07-27-outreach-s1-data-model.md`.
+
+- **2026-07-27 — v4: the prospect table is UN-deferred and becomes S4.** With S3
+  live on `localhost:3000/clients/…/outreach`, Bryan judged the aggregate view
+  "a good view for the client" and asked for the staff view to be formatted like
+  his `Arcbound_Master_DB_Viewer.html`. That splits exactly along ADR 0012's own
+  line — **aggregates for the Client, row-level detail for staff** — so the
+  "prospect table deferred" note in v3 is **superseded**. Spec renumbered:
+  new **S4** (prospect table), Trends → **S5**, Report Link aggregate → **S6**.
+  - **Eight decisions, all as recommended:** ArcBase's visual language rather
+    than the viewer's palette, **but adopt its status pills**; table sits **below
+    the aggregates on the same tab** (the viewer's own shape); **all rows filtered
+    and sorted client-side** (~2.10 MB measured as objects / 1.51 MB as arrays —
+    accepted for an internal desktop tool, and the rows are already fetched);
+    **all 24 columns**, viewer parity, clamped with full text on hover; Reply
+    filter offers **canonical buckets while cells show the raw value**;
+    **aggregates never rescope to the filter**; the table lands **next**, before
+    Trends; **no export** in this slice (the rows carry third-party PII and a
+    download button is a new exfiltration surface, to be decided deliberately).
+  - **⚠️ A BUG IN THE SOURCE VIEWER, found while reading it, that must not be
+    ported.** Its pill logic is
+    `/Positive|Interested/.test(v) ? 'p-pos' : /Negative|Not Interested/.test(v) ? 'p-neg' : 'p-none'`.
+    The first branch matches the substring "Interested", so **`Not Interested`
+    renders as a GREEN POSITIVE pill** and the negative branch never runs;
+    `Replied - Interested` goes green the same way. Those are precisely the two
+    values S3 refused to classify. The viewer is a live demonstration of why that
+    refusal was right, and copying its regex would silently undo it.
+  - **Also settled as planner's calls (vetoable):** rendering paginates at a
+    generous page size (the DOM would otherwise carry ~34,000 cells) while filter
+    and sort still run over the whole set, matching `posts-table.tsx`; and the
+    Outreach page's ⚠️ comment claiming it "renders no prospect rows at all, only
+    tallies" becomes false and must be rewritten, not deleted.
+  - **Fact that made this cheap:** `latestSnapshot()` already returns all 24
+    columns for every row (paged past the 1,000-row cap), and
+    `@tanstack/react-table` is already a dependency with a worked precedent in
+    `src/components/dashboard/posts/posts-table.tsx`.
+  - **Artifact:** handoff `docs/handoffs/2026-07-27-outreach-s4-prospect-table.md`.

@@ -10,7 +10,7 @@ describe("SideNav", () => {
   it("renders exactly the five ArcBase nav items", () => {
     render(<SideNav />);
 
-    const labels = ["Dashboard", "Client List", "Add LI Post Metrics", "Resources", "Data Quality"];
+    const labels = ["Dashboard", "Client List", "Add Data", "Resources", "Data Quality"];
     for (const label of labels) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
