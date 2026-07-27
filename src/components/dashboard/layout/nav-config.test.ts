@@ -9,7 +9,10 @@ describe("navItems", () => {
     expect(navItems.map((i) => i.title)).toEqual([
       "Dashboard",
       "Client List",
-      "Add LI Post Metrics",
+      // ⚠️ SERVICE-AGNOSTIC ON PURPOSE (ADR 0012). The screen now hosts two
+      // upload shapes — LinkedIn post metrics and Outreach snapshots — so a
+      // label naming either one would misdescribe half of what lives there.
+      "Add Data",
       "Resources",
       "Data Quality",
     ]);
@@ -53,6 +56,18 @@ describe("isNavItemActive", () => {
 });
 
 describe("resolvePageTitle", () => {
+  it("matches the OUTREACH route before the generic client-detail rule", () => {
+    // ⚠️ AN ORDERING TRAP, NOT A LOOKUP. `startsWith(paths.clients.list + "/")`
+    // returns "Client detail" and swallows every nested client route, so a case
+    // added AFTER it is dead code that silently never runs — exactly the trap the
+    // /report case is already positioned around. This asserts the outcome, so it
+    // fails if the branch is ever moved below the generic one.
+    expect(resolvePageTitle(paths.clients.outreach("abc123"))).not.toEqual({
+      lead: "Client",
+      accent: "detail",
+    });
+  });
+
   it("returns the design's italic-accent titles per route", () => {
     expect(resolvePageTitle("/")).toEqual({ lead: "Post", accent: "analytics" });
     expect(resolvePageTitle("/clients")).toEqual({ lead: "Client", accent: "list" });
@@ -61,7 +76,12 @@ describe("resolvePageTitle", () => {
       lead: "LinkedIn",
       accent: "report",
     });
-    expect(resolvePageTitle("/upload")).toEqual({ lead: "Add post", accent: "metrics" });
+    // Same lead/accent shape as before, renamed with the nav item above.
+    expect(resolvePageTitle("/upload")).toEqual({ lead: "Add", accent: "data" });
+    expect(resolvePageTitle(paths.clients.outreach("abc123"))).toEqual({
+      lead: "Outreach",
+      accent: "system",
+    });
     expect(resolvePageTitle("/resources")).toEqual({ lead: "", accent: "Resources" });
     expect(resolvePageTitle(paths.dataQuality)).toEqual({ lead: "Data", accent: "quality" });
   });

@@ -156,14 +156,78 @@ export interface ReportLinkSource {
   posts: BiPostRow[];
   uploads: ReportLinkUpload[];
   attributes: PostAttributes[];
+  /**
+   * This Client's outreach as AGGREGATE COUNTS, or null when they have no
+   * snapshot (or the S6 SQL is not yet applied). Never a partial, never zeros.
+   */
+  outreach: ReportLinkOutreach | null;
 }
 
-/** One upload row, reduced to the two facts the public report uses. */
+/**
+ * The Client-facing outreach aggregate: five counts and the date they describe.
+ *
+ * ⚠️ COUNTS ONLY, BY CONSTRUCTION AT THE DATABASE BOUNDARY. ADR 0012: prospect
+ * rows never leave the database on the public path, so the aggregation happens
+ * inside `report_link_read` (supabase/outreach-report-link.sql) and what arrives
+ * here is already six scalars. No name, company, URL, message, note or stage
+ * value exists to map — and nothing may be added to this interface that would
+ * change that.
+ */
+export interface ReportLinkOutreach {
+  /** ISO 8601 — when the snapshot these figures describe was uploaded. */
+  snapshotAt: string;
+  totalProspects: number;
+  sent: number;
+  connected: number;
+  replied: number;
+  meetingsBooked: number;
+}
+
+/**
+ * Map the outreach aggregate, or null.
+ *
+ * ⚠️ AN ABSENT OR MALFORMED KEY IS `null`, NEVER ZEROS. Until staff apply
+ * supabase/outreach-report-link.sql the key does not exist at all, and a report
+ * telling a Client with 1,230 requests sent that they sent 0 is worse than one
+ * that shows nothing. Every field is therefore required to be present and of the
+ * right type; one missing count fails the whole object rather than defaulting.
+ */
+function mapOutreach(raw: unknown): ReportLinkOutreach | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.snapshot_at !== "string") return null;
+
+  const counts = ["total_prospects", "sent", "connected", "replied", "meetings_booked"] as const;
+  for (const key of counts) {
+    // `typeof "0" === "string"` — a coerced count would be a fabricated figure.
+    if (typeof o[key] !== "number" || !Number.isFinite(o[key])) return null;
+  }
+
+  return {
+    snapshotAt: o.snapshot_at,
+    totalProspects: o.total_prospects as number,
+    sent: o.sent as number,
+    connected: o.connected as number,
+    replied: o.replied as number,
+    meetingsBooked: o.meetings_booked as number,
+  };
+}
+
+/** One upload row, reduced to the facts the public report uses. */
 export interface ReportLinkUpload {
   /** ISO 8601 — the ingest/scrape timestamp; drives freshness. */
   createdAt: string;
   /** Recorded follower count, or null when the upload carried none. */
   followerCount: number | null;
+  /**
+   * Recorded connection count, or null when the upload carried none.
+   *
+   * ⚠️ NULL IS THE ORDINARY VALUE. The count is optional at capture and every
+   * upload predating the column has no such key at all, so the mapping below
+   * defaults to null — never 0, which a client-facing report would present as a
+   * measured audience of nobody.
+   */
+  connectionsCount: number | null;
 }
 
 /**
@@ -194,8 +258,18 @@ export async function readReportLinkSource(
       client_id?: string;
       client_name?: string | null;
       posts?: BiPostRow[];
-      uploads?: { created_at: string; follower_count: number | null }[];
+      // ⚠️ THE DEFINER READ SENDS WHOLE `public.uploads` ROWS (`to_jsonb(u)`), so
+      // a new column arrives here with NO SQL change — but only the fields named
+      // below are mapped, so each one still has to be added deliberately.
+      uploads?: {
+        created_at: string;
+        follower_count: number | null;
+        connections_count?: number | null;
+      }[];
       attributes?: PostAttributes[];
+      // Aggregated INSIDE the definer function (ADR 0012) — six scalars, never
+      // rows. Absent entirely until staff apply supabase/outreach-report-link.sql.
+      outreach?: unknown;
     };
     if (typeof bundle.client_id !== "string") return null;
     return {
@@ -205,8 +279,10 @@ export async function readReportLinkSource(
       uploads: (bundle.uploads ?? []).map((u) => ({
         createdAt: u.created_at,
         followerCount: u.follower_count ?? null,
+        connectionsCount: u.connections_count ?? null,
       })),
       attributes: bundle.attributes ?? [],
+      outreach: mapOutreach(bundle.outreach ?? null),
     };
   } catch (err) {
     console.warn(`report_link_read threw: ${err instanceof Error ? err.message : String(err)}`);

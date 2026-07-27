@@ -15,6 +15,7 @@ function row(over: Partial<ClientComparisonRow>): ClientComparisonRow {
     engagementRate: 5,
     followers: 10_000,
     interactionsPer1K: 20,
+    connections: 5_000,
     ...over,
   };
 }
@@ -28,10 +29,12 @@ function comparison(over: Partial<ClientComparison> = {}): ClientComparison {
       engagementRate: { value: 5, clients: rows.length },
       followers: { value: 10_000, clients: rows.length },
       interactionsPer1K: { value: 20, clients: rows.length },
+      connections: { value: 5_000, clients: rows.length },
     },
     unattributedPosts: 0,
     unavailable: false,
     followersUnavailable: false,
+    connectionsUnavailable: false,
     ...over,
   };
 }
@@ -78,6 +81,7 @@ describe("ClientComparisonTable — absence never renders as zero", () => {
     engagementRate: null,
     followers: null,
     interactionsPer1K: null,
+    connections: null,
   });
 
   it("shows a Client with no posts as a genuine 0 with em dashes across the rest", () => {
@@ -143,6 +147,7 @@ describe("ClientComparisonTable — the sample size stays visible", () => {
             engagementRate: { value: 5, clients: 2 },
             followers: { value: 10_000, clients: 1 },
             interactionsPer1K: { value: 20, clients: 2 },
+            connections: { value: 5_000, clients: 2 },
           },
         })}
       />,
@@ -163,6 +168,7 @@ describe("ClientComparisonTable — the sample size stays visible", () => {
             engagementRate: { value: 5, clients: 1 },
             followers: { value: null, clients: 0 },
             interactionsPer1K: { value: null, clients: 0 },
+            connections: { value: null, clients: 0 },
           },
         })}
       />,
@@ -265,5 +271,143 @@ describe("ClientComparisonTable — sorting matches the per-post table's convent
 
     await user.click(header); // asc
     expect(namesInOrder().at(-1)).toBe("Unknown");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE CONNECTION COLUMNS OBEY THE SAME DENOMINATOR RULES — AND CARRY AN EXTRA
+// BURDEN. The count is OPTIONAL at capture and no upload predating the column
+// carries one, so an all-em-dash Connections column is the ORDINARY state.
+// Rendering those gaps as 0 would rank the entire book bottom of a normalised
+// column for a measurement nobody took.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("ClientComparisonTable — the connection columns", () => {
+  it("gives connections a RAW column and NO derived per-1,000 column", () => {
+    // ⚠️ THE SUBTRACTION, PINNED AT THE SCREEN. The derived column was removed on
+    // purpose; a reinstated one would restore a symmetry that was rejected.
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent ?? "");
+    expect(headers.some((h) => /^connections$/i.test(h.trim()))).toBe(true);
+    expect(headers.some((h) => /per 1k connections/i.test(h))).toBe(false);
+    // Followers KEEPS its rate — the asymmetry is deliberate.
+    expect(headers.some((h) => /per 1k followers/i.test(h))).toBe(true);
+    // Client · Posts · Avg impressions · Engagement · Followers · Per 1K followers
+    // · Connections = 7 header cells.
+    expect(headers).toHaveLength(7);
+  });
+
+  it("prints a recorded connection count", () => {
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    const line = screen.getByRole("link", { name: "Bryan Wish" }).closest("tr")!;
+    expect(within(line).getByText("5,000")).toBeInTheDocument();
+  });
+
+  it("renders an unrecorded connection count as a SPOKEN em dash, never 0", () => {
+    render(
+      <ClientComparisonTable
+        comparison={comparison({
+          rows: [row({ connections: null })],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Connections not reported")).toBeInTheDocument();
+  });
+
+  it("keeps a measured 0 connections as 0 — a fact, not an absence", () => {
+    render(
+      <ClientComparisonTable
+        comparison={comparison({
+          rows: [row({ posts: 3, connections: 0 })],
+        })}
+      />,
+    );
+
+    const line = screen.getByRole("link", { name: "Bryan Wish" }).closest("tr")!;
+    expect(within(line).getByText("0")).toBeInTheDocument();
+    expect(screen.queryByText("Connections not reported")).not.toBeInTheDocument();
+  });
+
+  it("states its OWN median with its OWN sample size", () => {
+    render(
+      <ClientComparisonTable
+        comparison={comparison({
+          medians: {
+            avgImpressions: { value: 1000, clients: 4 },
+            engagementRate: { value: 5, clients: 4 },
+            followers: { value: 10_000, clients: 4 },
+            interactionsPer1K: { value: 20, clients: 4 },
+            // Far fewer clients report connections — the table must not imply
+            // this median is as well-supported as the follower one beside it.
+            connections: { value: 5_000, clients: 1 },
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText(/of 1 client/i)).toHaveLength(1);
+    expect(screen.getAllByText(/of 4 clients/i)).toHaveLength(4);
+  });
+
+  it("shows a spoken em dash for a connections median nobody could contribute to", () => {
+    render(
+      <ClientComparisonTable
+        comparison={comparison({
+          medians: {
+            avgImpressions: { value: 1000, clients: 1 },
+            engagementRate: { value: 5, clients: 1 },
+            followers: { value: 10_000, clients: 1 },
+            interactionsPer1K: { value: 20, clients: 1 },
+            connections: { value: null, clients: 0 },
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/no client has a connection count/i)).toBeInTheDocument();
+  });
+});
+
+describe("ClientComparisonTable — a failed connection read is stated separately", () => {
+  it("notes that connection figures could not be read when the upload read failed", () => {
+    render(<ClientComparisonTable comparison={comparison({ connectionsUnavailable: true })} />);
+
+    expect(screen.getByText(/connection figures could not be read/i)).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("describes ONLY the Connections column — there is no per-1K column left to blank", () => {
+    // ⚠️ A NOTICE THAT NAMES A COLUMN THAT NO LONGER EXISTS IS A LIE ON SCREEN.
+    // The wording has to shrink with the table.
+    render(<ClientComparisonTable comparison={comparison({ connectionsUnavailable: true })} />);
+
+    const note = screen.getByText(/connection figures could not be read/i);
+    expect(note).toHaveTextContent(/Connections column/i);
+    // It must not name a derived column, because none is left to blank.
+    expect(note).not.toHaveTextContent(/per 1k/i);
+  });
+
+  it("stays silent when the read SUCCEEDED and the column is simply unrecorded", () => {
+    // ⚠️ THE CRY-WOLF CASE. Blank connections is the normal state; calling it an
+    // outage would put a permanent false alarm under the table.
+    render(
+      <ClientComparisonTable
+        comparison={comparison({
+          rows: [row({ connections: null })],
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument();
+  });
+
+  it("names no raw database column in the connection-unavailable note", () => {
+    render(<ClientComparisonTable comparison={comparison({ connectionsUnavailable: true })} />);
+
+    for (const token of ["uploads", "connections_count", "connectionsUnavailable"]) {
+      expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
+    }
   });
 });

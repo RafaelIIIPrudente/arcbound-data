@@ -8,6 +8,7 @@ const { state } = vi.hoisted(() => ({
     fromCalls: [] as string[],
     eqCalls: [] as unknown[][],
     orderCalls: [] as unknown[][],
+    selectColumns: [] as string[],
   },
 }));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
@@ -26,7 +27,8 @@ vi.mock("@/lib/supabase/server", () => ({
       // no error and no signal that anything was left behind.
       let to = PAGE_SIZE - 1;
       let wantsCount = false;
-      chain.select = (_columns?: unknown, opts?: { count?: string }) => {
+      chain.select = (columns?: unknown, opts?: { count?: string }) => {
+        if (typeof columns === "string") state.selectColumns.push(columns);
         if (opts?.count === "exact") wantsCount = true;
         return chain;
       };
@@ -68,6 +70,7 @@ const dbRow = (id: string, createdAt: string, over: Record<string, unknown> = {}
   rows_updated: 2,
   rows_unchanged: 1,
   follower_count: 18420,
+  connections_count: 3120,
   created_at: createdAt,
   ...over,
 });
@@ -78,13 +81,18 @@ beforeEach(() => {
   state.fromCalls = [];
   state.eqCalls = [];
   state.orderCalls = [];
+  state.selectColumns = [];
 });
 
 describe("listUploads", () => {
   it("reads public.uploads for the client, newest-first, mapped snake→camel", async () => {
     state.data = [
       dbRow("u1", "2026-07-16T09:12:00.000Z"),
-      dbRow("u2", "2026-07-10T08:00:00.000Z", { source_type: "json", follower_count: null }),
+      dbRow("u2", "2026-07-10T08:00:00.000Z", {
+        source_type: "json",
+        follower_count: null,
+        connections_count: null,
+      }),
     ];
 
     const uploads = await listUploads("c1");
@@ -104,10 +112,44 @@ describe("listUploads", () => {
       rowsUpdated: 2,
       rowsUnchanged: 1,
       followerCount: 18420,
+      connectionsCount: 3120,
       createdAt: "2026-07-16T09:12:00.000Z",
     });
     expect(uploads![1]!.sourceType).toBe("json");
     expect(uploads![1]!.followerCount).toBeNull();
+    expect(uploads![1]!.connectionsCount).toBeNull();
+  });
+
+  it("ASKS THE DATABASE for connections_count — a column left out of the select is a permanent gap", async () => {
+    // ⚠️ THE COLUMN LIST IS THE CONTRACT. PostgREST returns exactly what it is
+    // asked for, so a `connections_count` missing from UPLOAD_COLUMNS would map
+    // to `undefined` → null on every row: an entire feature reading as "never
+    // recorded" with no error anywhere to explain it.
+    state.data = [dbRow("u1", "2026-07-16T09:12:00.000Z")];
+
+    await listUploads("c1");
+
+    expect(state.selectColumns.join(" ")).toContain("connections_count");
+  });
+
+  it("keeps a MISSING connections count absent — never 0", async () => {
+    // A scrape that carried no connection count is not a Client with zero
+    // connections. The seam preserves that distinction; every display path
+    // downstream depends on it.
+    state.data = [dbRow("u1", "2026-07-16T09:12:00.000Z", { connections_count: null })];
+
+    const uploads = await listUploads("c1");
+
+    expect(uploads![0]!.connectionsCount).toBeNull();
+    expect(uploads![0]!.connectionsCount).not.toBe(0);
+  });
+
+  it("keeps a GENUINE zero connections count as 0 — it is a measurement, not a gap", async () => {
+    state.data = [dbRow("u1", "2026-07-16T09:12:00.000Z", { connections_count: 0 })];
+
+    const uploads = await listUploads("c1");
+
+    expect(uploads![0]!.connectionsCount).toBe(0);
   });
 
   it("returns an EMPTY ARRAY when the client genuinely has no uploads", async () => {

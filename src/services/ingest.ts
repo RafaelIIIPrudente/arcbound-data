@@ -22,6 +22,15 @@ export interface IngestInput {
   sourceType: SourceType;
   rows: PostRow[];
   followerCount: number;
+  /**
+   * The Client's LinkedIn connection count at capture — OPTIONAL, unlike
+   * `followerCount`.
+   *
+   * ⚠️ ABSENT IS NOT ZERO. Undefined/null both mean the scrape carried no count
+   * and are written to the audit row as SQL null; a `0` would record a
+   * measurement nobody took into an immutable row that can never be corrected.
+   */
+  connectionsCount?: number | null;
   /** linkedin_post_id → chosen format, from the review step. */
   resolvedFormatTypes?: Record<string, string>;
   /** Trust the scraper: write unknown formats as-is instead of reviewing. */
@@ -81,7 +90,15 @@ const summarySchema = z.object({
 });
 
 export async function ingestMetrics(input: IngestInput): Promise<SeamResult> {
-  const { clientId, sourceType, rows, followerCount, resolvedFormatTypes, skipReview } = input;
+  const {
+    clientId,
+    sourceType,
+    rows,
+    followerCount,
+    connectionsCount,
+    resolvedFormatTypes,
+    skipReview,
+  } = input;
 
   // Review gate — no write happens on this branch (invariant #4).
   const reviewPosts = computeReviewPosts(rows, resolvedFormatTypes, skipReview);
@@ -97,6 +114,10 @@ export async function ingestMetrics(input: IngestInput): Promise<SeamResult> {
     p_source_type: sourceType,
     p_rows: preparedRows,
     p_follower_count: followerCount,
+    // ⚠️ ALWAYS SENT, AND `?? null` RATHER THAN `?? 0`. Explicitly null tells the
+    // RPC "no count was captured"; omitting the key would leave the parameter
+    // unbound, and a 0 would fabricate a reading.
+    p_connections_count: connectionsCount ?? null,
   });
   if (error) {
     throw new Error(`Ingest failed: ${error.message}`);

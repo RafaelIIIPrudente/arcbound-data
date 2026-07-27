@@ -132,6 +132,38 @@ describe("ingestMetrics (seam → RPC)", () => {
     expect(args.p_rows.map((r: PostRow) => r.post_format_type)).toEqual(["video", undefined]);
   });
 
+  it("passes the connection count through as p_connections_count", async () => {
+    rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
+
+    await ingestMetrics({ ...base, rows: [makeRow("a")], connectionsCount: 4820 });
+
+    expect(rpcMock.mock.calls[0]![1].p_connections_count).toBe(4820);
+  });
+
+  it("sends p_connections_count as NULL when the scrape carried none — never 0", async () => {
+    // ⚠️ THE COUNT IS OPTIONAL, AND ABSENT IS NOT ZERO. A `0` here would write a
+    // measured zero into an immutable audit row for a number nobody supplied,
+    // and every trend, delta and table downstream would then read it as a real
+    // reading. The RPC parameter must be explicitly present and null — omitting
+    // it entirely would leave the argument unbound at the database.
+    rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
+
+    await ingestMetrics({ ...base, rows: [makeRow("a")] });
+
+    const args = rpcMock.mock.calls[0]![1];
+    expect(args).toHaveProperty("p_connections_count");
+    expect(args.p_connections_count).toBeNull();
+    expect(args.p_connections_count).not.toBe(0);
+  });
+
+  it("keeps a GENUINE zero connection count as 0", async () => {
+    rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
+
+    await ingestMetrics({ ...base, rows: [makeRow("a")], connectionsCount: 0 });
+
+    expect(rpcMock.mock.calls[0]![1].p_connections_count).toBe(0);
+  });
+
   it("applies resolvedFormatTypes to the rows before the RPC", async () => {
     rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
     const rows = [makeRow("b", { post_format_type: "" })];

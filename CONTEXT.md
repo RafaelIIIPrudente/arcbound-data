@@ -56,6 +56,12 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Follower Count** — a Client's follower total captured with a Scrape. Stored
   per-Upload, which gives a follower history over time.
 
+- **Connections** — a Client's total LinkedIn connection count captured with a
+  Scrape, stored per-Upload alongside Follower Count, which gives a connection
+  history over time. Optional at capture: a Scrape may arrive without it, and a
+  missing value is recorded as absent — never zero — so it reads as a gap in the
+  history rather than a real count.
+
 - **Shares** — a repost of a Client's Post. The Scrape and the BI views call this
   `reposts`; staff always see "Shares". The raw field name is never shown.
 
@@ -69,6 +75,24 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
   Posts that arrived without a usable one. Staff may instead trust the Scrape and
   skip, which leaves the value as it arrived. No Post is written until review is
   resolved or skipped.
+
+- **Outreach System** — the Arcbound service that contacts people on a Client's
+  behalf on LinkedIn, tracked as a pipeline of Prospects. It is the second
+  service ArcBase reports on, alongside LinkedIn post metrics.
+
+- **Prospect** — a person the Outreach System has contacted or intends to contact
+  on behalf of one Client. A Prospect is never an ArcBase user and never a
+  Client; they are a third party, and their details are staff-only.
+
+- **Outreach Snapshot** — one immutable capture of a Client's entire Prospect
+  pipeline at a point in time, ingested as a single Upload. The current pipeline
+  is the latest Snapshot; movement over time is read by comparing Snapshots.
+  Snapshots are never merged, deduplicated, or rewritten.
+
+- **Stage** — how far a Prospect has progressed in the pipeline, as reported by
+  the Outreach System: the furthest point reached (e.g. Requested, Connected,
+  Replied, Meeting Booked, or a closed outcome). Distinct from **Connection
+  Status**, which only records whether the connection request was accepted.
 
 - **Resource** — a team reference link (a title and a URL) shown on the Resources
   screen.

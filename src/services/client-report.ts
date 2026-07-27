@@ -81,6 +81,18 @@ function mean(values: number[]): number {
   return values.length === 0 ? 0 : round1(values.reduce((s, v) => s + v, 0) / values.length);
 }
 
+/**
+ * A per-post average expressed per 1,000 of an audience count.
+ *
+ * ⚠️ `null` WHEN THE AUDIENCE IS UNKNOWN OR ZERO. A rate per nothing is
+ * undefined — not infinite, and not zero — and this report leaves the building
+ * as a PDF, so a fabricated figure here is unrecallable.
+ */
+function perThousandOf(avgPerPost: number, audience: number | null): number | null {
+  if (audience === null || audience <= 0) return null;
+  return round1((avgPerPost / audience) * 1000);
+}
+
 function monthKey(year: number, month: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
@@ -266,6 +278,14 @@ export interface BuildOptions {
   /** Newest recorded follower count, or null when no upload carries one. */
   followers: number | null;
   /**
+   * Newest recorded CONNECTION count, or null when no upload carries one.
+   *
+   * ⚠️ NULL IS THE COMMON CASE, NOT AN ERROR. Optional at capture, and absent
+   * from every upload predating the column — so the ratio below is usually
+   * genuinely unknown. Never substituted with `followers`.
+   */
+  connections: number | null;
+  /**
    * The periods the data supports — PASSED IN, not derived here.
    *
    * Every caller has already computed this to resolve `period`, and recomputing
@@ -282,7 +302,7 @@ export interface BuildOptions {
 export function buildClientReport(
   rows: BiPostRow[],
   formatMap: Map<string, string>,
-  { period, now, followers, availablePeriods }: BuildOptions,
+  { period, now, followers, connections, availablePeriods }: BuildOptions,
 ): ClientReport {
   const placeable = withDates(rows).filter((d): d is PlacedRow => d.ms !== null);
 
@@ -468,14 +488,27 @@ export function buildClientReport(
     // per-post average with a single point-in-time follower count. Marked
     // approximate so the UI can say so rather than implying precision.
     //
-    // It stands apart from the matrix because it is an AVERAGE: it used to sit
-    // in the maxima row, which nobody could see when the figures were nine
-    // detached cards and which reads as an error once the rows are labelled.
+    // It stands apart from the matrix because it is an AVERAGE: it used to sit in
+    // the maxima row, which nobody could see when the figures were nine detached
+    // cards and which reads as an error once the rows are labelled.
     perThousandFollowers: {
       label: "Avg interactions per 1K followers",
-      value:
-        followers && followers > 0 ? round1((avgInteractionsPerPost / followers) * 1000) : null,
+      value: perThousandOf(avgInteractionsPerPost, followers),
       approximate: true,
+    } satisfies ReportFigure,
+    // ⚠️ PASSED THROUGH, NOT COMPUTED — AND NOT APPROXIMATE. This is the count a
+    // person read off the scrape and typed in, so it is exact; it is deliberately
+    // NOT divided into anything (connections has no per-1,000 twin, and the
+    // asymmetry with followers above is intended). A recorded 0 stays 0; `null`
+    // means no upload ever carried one, which is the ordinary case and renders as
+    // an em dash. Never sourced from `followers`.
+    //
+    // ⚠️ IT IS POINT-IN-TIME, SO IT MUST NOT BE LABELLED "ALL TIME". The upload
+    // carrying it may predate the latest scrape, which is also why the label
+    // stays a plain noun rather than claiming a moment it cannot prove.
+    connections: {
+      label: "Connections",
+      value: connections,
     } satisfies ReportFigure,
   };
 
@@ -572,6 +605,7 @@ export async function getClientReport({
       now,
       availablePeriods: periods,
       followers: null,
+      connections: null,
     });
   };
 
@@ -593,6 +627,12 @@ export async function getClientReport({
   // follower count to report, and `followers: null` already renders as absent —
   // so an unreadable uploads table behaves exactly as it did before.
   const latestWithFollowers = uploads?.find((u) => u.followerCount != null);
+  // ⚠️ A SEPARATE SEARCH, NOT THE SAME UPLOAD. The two counts are captured
+  // independently — a scrape can record followers and no connections — so the
+  // newest upload carrying a connection count may be an older one entirely.
+  // Reading both off `latestWithFollowers` would report `null` for clients that
+  // do have a connection count, just not on their most recent follower upload.
+  const latestWithConnections = uploads?.find((u) => u.connectionsCount != null);
   const periods = availablePeriods(rows);
 
   return {
@@ -601,6 +641,7 @@ export async function getClientReport({
       now,
       availablePeriods: periods,
       followers: latestWithFollowers?.followerCount ?? null,
+      connections: latestWithConnections?.connectionsCount ?? null,
     }),
     // ⚠️ A READ CAP, NOT AN EMPTY HISTORY. `unavailable` above means nothing was
     // read; this means the pager stopped at its page cap, so every figure below —

@@ -68,6 +68,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods([]),
     });
 
@@ -103,6 +104,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: 5000,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -121,6 +123,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -144,6 +147,7 @@ describe("the printable document", () => {
         period: ALL_TIME,
         now: NOW,
         followers: null,
+        connections: null,
         availablePeriods: availablePeriods(rows),
       }),
       // The pager stopped at its cap: 50,000 read of 137,412 that match.
@@ -166,6 +170,7 @@ describe("the printable document", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 

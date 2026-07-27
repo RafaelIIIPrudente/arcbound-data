@@ -96,7 +96,7 @@ export function KeyPerformance({
     );
   }
 
-  const { selected, matrix, perThousandFollowers } = keyPerformance;
+  const { selected, matrix, perThousandFollowers, connections } = keyPerformance;
 
   return (
     <div>
@@ -141,17 +141,53 @@ export function KeyPerformance({
 
       {/* An AVERAGE, so it stands outside the matrix rather than sitting in the
           maxima row where it used to hide. */}
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t py-3">
-        <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
-          {perThousandFollowers.label}
-          <span className="ml-1.5 opacity-70">· all time</span>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="font-display text-base leading-none font-semibold tracking-tight tabular-nums sm:text-lg">
-            {format(perThousandFollowers)}
-          </span>
-          <ApproxMark figure={perThousandFollowers} />
-        </div>
+      <FooterLine figure={perThousandFollowers} qualifier="· all time" approximate />
+
+      {/* ⚠️ A DIFFERENT KIND OF FIGURE, SO DIFFERENT CHROME. This is a count read
+          off one scrape — exact, and about a single moment. Routing it through
+          the average's rendering would stamp it "· all time" (it is not a total
+          over the window) and "(approx.)" (it is not an estimate): two false
+          claims, on a document that gets printed and handed to a client. It also
+          carries no window qualifier at all, because the upload that recorded it
+          may be OLDER than the latest scrape and the page cannot honestly say
+          when without plumbing that upload's date through.
+
+          ⚠️ AND THE LINE IS ALWAYS PRESENT, EVEN WHEN IT IS AN EM DASH. Hiding it
+          when no connection count was captured would leave a reader unable to
+          tell "we don't measure this" from "this report happens not to show it" —
+          the labelled em dash says which. */}
+      <FooterLine figure={connections} />
+    </div>
+  );
+}
+
+/**
+ * One figure in the footer beneath the matrix.
+ *
+ * `qualifier` and `approximate` are opt-in per figure rather than assumed: they
+ * are true of the follower AVERAGE and false of the connection COUNT, and the
+ * two sit one above the other.
+ */
+function FooterLine({
+  figure,
+  qualifier,
+  approximate = false,
+}: {
+  figure: ReportFigure;
+  qualifier?: string;
+  approximate?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t py-3">
+      <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+        {figure.label}
+        {qualifier ? <span className="ml-1.5 opacity-70">{qualifier}</span> : null}
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-display text-base leading-none font-semibold tracking-tight tabular-nums sm:text-lg">
+          {format(figure)}
+        </span>
+        {approximate ? <ApproxMark figure={figure} /> : null}
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ function activeTab(): string | undefined {
 }
 
 describe("ClientTabs", () => {
-  it("offers all three client sections as real links", () => {
+  it("offers all four client sections as real links", () => {
     renderAt(paths.clients.details("c1"));
 
     // Real links, not a stateful <Tabs>: each section is a separate SERVER route
@@ -36,13 +36,18 @@ describe("ClientTabs", () => {
       "href",
       "/clients/c1/report",
     );
-    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: "Outreach" })).toHaveAttribute(
+      "href",
+      "/clients/c1/outreach",
+    );
+    expect(screen.getAllByRole("link")).toHaveLength(4);
   });
 
   it.each([
     [paths.clients.details("c1"), "Overview"],
     [paths.clients.posts("c1"), "Posts"],
     [paths.clients.report("c1"), "LinkedIn Report"],
+    [paths.clients.outreach("c1"), "Outreach"],
   ])("marks exactly one tab current on %s", (path, expected) => {
     renderAt(path);
 

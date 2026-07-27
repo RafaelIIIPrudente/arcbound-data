@@ -296,6 +296,7 @@ describe("period scoping — what the picker moves, and what it deliberately doe
       period: parseReportPeriod(key, periods),
       now: NOW,
       followers: 1000,
+      connections: null,
       availablePeriods: periods,
     });
   };
@@ -373,6 +374,7 @@ describe("all-time figures are INVARIANT to the selected period", () => {
       period,
       now: NOW,
       followers: 5000,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -456,6 +458,7 @@ describe("the four charts follow the selected period", () => {
       period,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -657,6 +660,7 @@ describe("the report weekday chart dates by publish date, never scrape date", ()
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -722,6 +726,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -743,6 +748,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -761,6 +767,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -772,6 +779,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -793,6 +801,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -813,6 +822,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
     const { selected, matrix, perThousandFollowers } = report.keyPerformance;
@@ -849,6 +859,7 @@ describe("buildClientReport (pure)", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -865,6 +876,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -884,6 +896,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
     const ratio = report.keyPerformance.perThousandFollowers;
@@ -897,6 +910,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -938,6 +952,7 @@ describe("buildClientReport (pure)", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(divergent),
     });
 
@@ -959,6 +974,7 @@ describe("buildClientReport (pure)", () => {
       period: february,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(HISTORY),
     });
 
@@ -972,6 +988,7 @@ describe("buildClientReport (pure)", () => {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods([]),
     });
 
@@ -1005,6 +1022,7 @@ describe("buildClientReport (pure)", () => {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods([]),
     });
 
@@ -1026,6 +1044,7 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
       period,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -1084,6 +1103,7 @@ describe("content composition is carried on the report (period-scoped)", () => {
       period,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
@@ -1308,6 +1328,7 @@ describe("comparisonRow — saves keeps its three states apart", () => {
       period: ALL_TIME,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
   const allTimeRow = (rows: BiPostRow[]) =>
@@ -1371,11 +1392,104 @@ describe("comparisonRow — saves keeps its three states apart", () => {
       period: JULY,
       now: NOW,
       followers: null,
+      connections: null,
       availablePeriods: availablePeriods(rows),
     });
 
     const selected = report.interactionsComparison.find((r) => r.scope === "selected")!;
     expect(selected.saves).toBe(5);
     expect(report.interactionsComparison.find((r) => r.scope === "allTime")!.saves).toBe(105);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ A RAW COUNT, NOT A RATE — AND THAT DISTINCTION IS LOAD-BEARING. The report
+// reports the connection count AS CAPTURED: an exact figure from one upload, not
+// an average over the period and not an approximation. It carries no per-1,000
+// twin (the follower/connection asymmetry is deliberate), and `null` remains the
+// ordinary answer, because the count is optional at capture and no upload
+// predating the column carries one.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("buildClientReport — the raw connection count", () => {
+  const build = (connections: number | null, followers: number | null = null) =>
+    buildClientReport(HISTORY, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers,
+      connections,
+      availablePeriods: availablePeriods(HISTORY),
+    });
+
+  it("reports the supplied count VERBATIM — not scaled, averaged, or normalised", () => {
+    const figure = build(5000).keyPerformance.connections;
+
+    expect(figure.value).toBe(5000);
+    expect(figure.label).toBe("Connections");
+  });
+
+  it("is NOT marked approximate — a captured count is exact", () => {
+    // ⚠️ `approximate` WAS RIGHT FOR THE RATIO AND IS WRONG HERE. The ratio paired
+    // a per-post average with a point-in-time count, so it really was fuzzy; this
+    // number was typed in by a person off the scrape. Marking it approximate
+    // would understate a figure we actually know.
+    const figure = build(5000).keyPerformance.connections;
+
+    expect(figure.approximate).toBeFalsy();
+  });
+
+  it("exposes EXACTLY these key-performance figures — no derived connection twin", () => {
+    // ⚠️ A WHITELIST, NOT A BLACKLIST: it catches any derived figure added back,
+    // not only the per-1,000-connections one that was deliberately removed. The
+    // FOLLOWER rate stays — that asymmetry is intended.
+    const keyPerformance = build(5000, 1000).keyPerformance;
+
+    expect(Object.keys(keyPerformance).sort()).toEqual([
+      "connections",
+      "matrix",
+      "perThousandFollowers",
+      "selected",
+    ]);
+    expect(keyPerformance.perThousandFollowers.value).not.toBeNull();
+  });
+
+  it("reports null (an em dash) when no upload carries a connection count", () => {
+    const keyPerformance = build(null, 1000).keyPerformance;
+
+    expect(keyPerformance.connections.value).toBeNull();
+    // ⚠️ AND THE FOLLOWER RATIO IS UNAFFECTED. A missing connection count must
+    // not degrade a figure that WAS measured.
+    expect(keyPerformance.perThousandFollowers.value).not.toBeNull();
+  });
+
+  it("keeps a recorded 0 as 0 — a measured zero is a fact, not a gap", () => {
+    // ⚠️ WHERE THE RAW COUNT AND THE OLD RATIO PART WAYS. The ratio was null at
+    // zero (a rate per nothing is undefined); the COUNT is simply 0, and
+    // reporting it as absent would hide a real reading.
+    const figure = build(0).keyPerformance.connections;
+
+    expect(figure.value).toBe(0);
+    expect(figure.value).not.toBeNull();
+  });
+
+  it("never derives the connection count from the follower count", () => {
+    const keyPerformance = build(null, 5000).keyPerformance;
+
+    expect(keyPerformance.connections.value).toBeNull();
+    expect(keyPerformance.connections.value).not.toBe(5000);
+  });
+
+  it("does not scale with the post volume — it is point-in-time, not per-period", () => {
+    // A rate would move with the numerator; a captured count must not.
+    const busy = build(5000).keyPerformance.connections.value;
+    const quiet = buildClientReport(HISTORY.slice(0, 1), new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      connections: 5000,
+      availablePeriods: availablePeriods(HISTORY),
+    }).keyPerformance.connections.value;
+
+    expect(busy).toBe(5000);
+    expect(quiet).toBe(5000);
   });
 });

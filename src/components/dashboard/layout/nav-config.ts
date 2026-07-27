@@ -17,7 +17,11 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { title: "Dashboard", href: paths.home },
   { title: "Client List", href: paths.clients.list },
-  { title: "Add LI Post Metrics", href: paths.upload },
+  // ⚠️ SERVICE-AGNOSTIC, AND THAT IS THE POINT (ADR 0012). This screen hosts two
+  // upload shapes now — LinkedIn post metrics and Outreach snapshots — so naming
+  // either one in the sidebar would misdescribe half of what is behind it. The
+  // route stays `/upload`; only the label changed.
+  { title: "Add Data", href: paths.upload },
   { title: "Resources", href: paths.resources },
   { title: "Data Quality", href: paths.dataQuality },
 ];
@@ -52,8 +56,15 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname.startsWith(`${paths.clients.list}/`) && pathname.endsWith("/report")) {
     return { lead: "LinkedIn", accent: "report" };
   }
+  // ⚠️ ALSO BEFORE THE GENERIC RULE BELOW, FOR THE SAME REASON AS /report. The
+  // `startsWith(clients/)` case returns "Client detail" and swallows every
+  // nested client route, so a branch placed after it never runs — dead code that
+  // looks alive and fails silently rather than loudly.
+  if (pathname.startsWith(`${paths.clients.list}/`) && pathname.endsWith("/outreach")) {
+    return { lead: "Outreach", accent: "system" };
+  }
   if (pathname.startsWith(`${paths.clients.list}/`)) return { lead: "Client", accent: "detail" };
-  if (pathname === paths.upload) return { lead: "Add post", accent: "metrics" };
+  if (pathname === paths.upload) return { lead: "Add", accent: "data" };
   if (pathname === paths.resources) return { lead: "", accent: "Resources" };
   if (pathname === paths.dataQuality) return { lead: "Data", accent: "quality" };
   if (pathname.startsWith(paths.customers.list)) return { lead: "", accent: "Customers" };

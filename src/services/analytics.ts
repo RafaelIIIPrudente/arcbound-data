@@ -392,26 +392,54 @@ function medianOf(
 }
 
 /**
- * The newest recorded follower count per Client.
+ * The newest recorded value of ONE per-Upload count, per Client.
  *
  * Uploads that recorded NO count are skipped rather than read as zero — the same
  * rule `follower-trend.ts` establishes, so the dashboard and the Client detail
- * page cannot disagree about a Client's follower count.
+ * page cannot disagree about a Client's figures.
+ *
+ * ⚠️ THE `pick` IS THE ONLY DIFFERENCE BETWEEN FOLLOWERS AND CONNECTIONS, and
+ * they never substitute for each other: a Client with a follower history and no
+ * connection counts gets no connections entry at all.
  */
-function latestFollowersByClient(uploads: Upload[] | null): Map<string, number> {
-  const newest = new Map<string, { at: number; followers: number }>();
-  // A failed upload read (`null`) is an EMPTY follower history, not an error:
-  // every Client's follower figure is then unknown and the per-row gate below
-  // em-dashes it. Distinct from "read ok, nobody recorded a count" only via the
-  // `followersUnavailable` flag the caller sets — the numbers are identical.
+function latestCountByClient(
+  uploads: Upload[] | null,
+  pick: (upload: Upload) => number | null,
+): Map<string, number> {
+  const newest = new Map<string, { at: number; count: number }>();
+  // A failed upload read (`null`) is an EMPTY history, not an error: every
+  // Client's figure is then unknown and the per-row gate below em-dashes it.
+  // Distinct from "read ok, nobody recorded a count" only via the
+  // `followersUnavailable`/`connectionsUnavailable` flags the caller sets — the
+  // numbers are identical.
   for (const u of uploads ?? []) {
-    if (u.followerCount == null) continue;
+    const count = pick(u);
+    if (count == null) continue;
     const at = Date.parse(u.createdAt);
     if (Number.isNaN(at)) continue;
     const prev = newest.get(u.clientId);
-    if (!prev || at > prev.at) newest.set(u.clientId, { at, followers: u.followerCount });
+    if (!prev || at > prev.at) newest.set(u.clientId, { at, count });
   }
-  return new Map([...newest].map(([id, v]) => [id, v.followers]));
+  return new Map([...newest].map(([id, v]) => [id, v.count]));
+}
+
+/**
+ * Interactions per 1,000 of an audience count.
+ *
+ * ⚠️ THREE WAYS THIS IS NOT APPLICABLE, AND NONE OF THEM IS A ZERO:
+ *   • no posts    — nothing was measured; a 0 would rank a silent Client bottom
+ *                   of a normalised column for a reading never taken
+ *   • no audience — the denominator is unknown
+ *   • zero audience — a rate per nothing is undefined, not infinite
+ * A Client who DID post and genuinely earned nothing keeps its measured 0.
+ */
+function perThousand(
+  interactions: number,
+  audience: number | null,
+  postCount: number,
+): number | null {
+  if (postCount === 0 || audience === null || audience === 0) return null;
+  return round1((interactions / audience) * 1000);
 }
 
 /**
@@ -449,7 +477,8 @@ export function buildClientComparison(
     else byClient.set(row.client_id, [row]);
   }
 
-  const followersByClient = latestFollowersByClient(uploads);
+  const followersByClient = latestCountByClient(uploads, (u) => u.followerCount);
+  const connectionsByClient = latestCountByClient(uploads, (u) => u.connectionsCount);
 
   const rows: ClientComparisonRow[] = registry.map((client) => {
     // A Client with no posts still gets a row: publishing nothing is a finding,
@@ -458,6 +487,10 @@ export function buildClientComparison(
     const impressions = sumOf(posts, (r) => r.impressions);
     const interactions = sumOf(posts, (r) => r.interactions);
     const followers = followersByClient.get(client.id) ?? null;
+    // ⚠️ ITS OWN LOOKUP, NEVER A FALLBACK TO `followers`. Borrowing the follower
+    // figure would fill the column with numbers that look entirely plausible and
+    // are entirely wrong, with nothing on screen to reveal it.
+    const connections = connectionsByClient.get(client.id) ?? null;
 
     return {
       clientId: client.id,
@@ -468,16 +501,11 @@ export function buildClientComparison(
       // reads as "not applicable" rather than as a measured 0% engagement.
       engagementRate: impressions > 0 ? round1(weightedRate(posts)) : null,
       followers,
-      // ⚠️ THREE WAYS THIS IS NOT APPLICABLE, AND NONE OF THEM IS A ZERO:
-      //   • no posts    — nothing was measured; a 0 would rank a silent Client
-      //                   bottom of a normalised column for a reading never taken
-      //   • no followers — the denominator is unknown
-      //   • zero followers — a rate per nothing is undefined, not infinite
-      // A Client who DID post and genuinely earned nothing keeps its measured 0.
-      interactionsPer1K:
-        posts.length === 0 || followers === null || followers === 0
-          ? null
-          : round1((interactions / followers) * 1000),
+      interactionsPer1K: perThousand(interactions, followers, posts.length),
+      // ⚠️ A RAW COUNT, WITH NO DERIVED RATE BESIDE IT. Connections deliberately
+      // carries no per-1,000 figure — the asymmetry with followers is intended,
+      // not an omission to be tidied up later.
+      connections,
     };
   });
 
@@ -488,6 +516,7 @@ export function buildClientComparison(
       engagementRate: medianOf(rows, (r) => r.engagementRate),
       followers: medianOf(rows, (r) => r.followers),
       interactionsPer1K: medianOf(rows, (r) => r.interactionsPer1K),
+      connections: medianOf(rows, (r) => r.connections),
     },
     unattributedPosts,
     unavailable: false,
@@ -495,6 +524,10 @@ export function buildClientComparison(
     // read. `null` there means the read failed — the rows already em-dash both
     // follower columns, and this tells the table WHY.
     followersUnavailable: uploads === null,
+    // Same read, its own flag: the connections column is blank for most Clients
+    // by design, so the table needs to be able to say "outage" about it
+    // separately rather than treating an ordinary gap as one.
+    connectionsUnavailable: uploads === null,
   };
 }
 
@@ -506,12 +539,15 @@ const COMPARISON_UNAVAILABLE: ClientComparison = {
     engagementRate: { value: null, clients: 0 },
     followers: { value: null, clients: 0 },
     interactionsPer1K: { value: null, clients: 0 },
+    connections: { value: null, clients: 0 },
   },
   unattributedPosts: 0,
   unavailable: true,
-  // Moot here — the whole comparison is unavailable, so there is no follower
-  // column to qualify. Kept explicit so the type is satisfied without a cast.
+  // Moot here — the whole comparison is unavailable, so there is no follower or
+  // connection column to qualify. Kept explicit so the type is satisfied without
+  // a cast.
   followersUnavailable: false,
+  connectionsUnavailable: false,
 };
 
 const SELECT_COLUMNS =
