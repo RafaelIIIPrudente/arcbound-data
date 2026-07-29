@@ -1,0 +1,161 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_25_posting_cadence_handoff",
+      "label": "Handoff \u2014 Posting Cadence Report Section (feature E)",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "label": "buildCadence \u2014 pure cadence function over report rows",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_posting_cadence_no_consistency_score",
+      "label": "No consistency score",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_posting_cadence_four_state_discipline",
+      "label": "Four-state discipline (could-not-read / truncated / genuine zero / not applicable)",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_posting_cadence_print_safe_timeline",
+      "label": "Print-safe post timeline",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_posting_cadence_active_span_rate",
+      "label": "Posts-per-week measured over the active span",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_handoff",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_no_consistency_score",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_four_state_discipline",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_print_safe_timeline",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_active_span_rate",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_handoff",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_estimated_post_date_dating_rule",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "target": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "arcbase_honesty_discipline",
+      "label": "ArcBase honesty discipline \u2014 describe, never grade; absence never coerced",
+      "nodes": [
+        "docs_handoffs_2026_07_25_posting_cadence_four_state_discipline",
+        "docs_handoffs_2026_07_25_posting_cadence_no_consistency_score",
+        "docs_handoffs_2026_07_25_content_composition_compositional_only",
+        "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_measurement_not_recommendation",
+        "docs_handoffs_2026_07_27_outreach_s3_client_tab_terminal_stage_counts",
+        "docs_handoffs_2026_07_27_outreach_s5_trends_negative_delta_not_regression",
+        "docs_handoffs_2026_07_25_report_links_s4_client_view_non_graded_status"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/handoffs/2026-07-25-posting-cadence.md"
+    }
+  ]
+}

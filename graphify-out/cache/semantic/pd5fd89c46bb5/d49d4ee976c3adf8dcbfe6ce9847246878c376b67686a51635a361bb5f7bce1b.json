@@ -1,0 +1,184 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "label": "Handoff \u2014 Outreach System S1: data model + ingest",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_outreach_uploads_table",
+      "label": "public.outreach_uploads \u2014 immutable snapshot header",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_outreach_prospects_table",
+      "label": "public.outreach_prospects \u2014 24 raw text source columns",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_ingest_outreach",
+      "label": "ingest_outreach \u2014 all-or-nothing SECURITY DEFINER snapshot ingest",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_parse_outreach",
+      "label": "parse-outreach \u2014 pure papaparse + Zod parser over 24 exact headers",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_no_unique_key_rule",
+      "label": "No unique key on any prospect source column",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s1_data_model_latestsnapshot_paging",
+      "label": "latestSnapshot paging past PostgREST's silent 1000-row cap",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_outreach_uploads_table",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_outreach_prospects_table",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_ingest_outreach",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_parse_outreach",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_parse_outreach",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_ingest_outreach",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_ingest_outreach",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_outreach_prospects_table",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_no_unique_key_rule",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_outreach_prospects_table",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_latestsnapshot_paging",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_s1_data_model_sql_pair_convention",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "target": "docs_superpowers_plans_2026_07_15_shadcn_supabase_template_rebuild_service_seam",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s1-data-model.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

@@ -1,0 +1,173 @@
+{
+  "nodes": [
+    {
+      "id": "docs_decisions_2026_07_29_dashboard_date_picker_record",
+      "label": "Decision record \u2014 dashboard date picker (S1\u2013S3 complete)",
+      "file_type": "document",
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_29_dashboard_date_picker_date_range_contract",
+      "label": "src/lib/date-range.ts contract (resolveWindow / decodeRange / bucketPlan)",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_29_dashboard_date_picker_allow_custom_gate",
+      "label": "allowCustom prop gate (fails closed on the public /r/[token] route)",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_29_dashboard_date_picker_prior_window_baseline",
+      "label": "Baseline = the equal-length window immediately preceding the selection",
+      "file_type": "rationale",
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_29_dashboard_date_picker_span_derived_bucketing",
+      "label": "Span-derived bucket width (daily \u226414d, weekly \u2264120d, monthly beyond)",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_29_dashboard_date_picker_lazy_calendar_bundle",
+      "label": "Lazy-loaded calendar so the cost follows the capability",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_date_range_contract",
+      "target": "docs_decisions_2026_07_29_dashboard_date_picker_prior_window_baseline",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_date_range_contract",
+      "target": "docs_decisions_2026_07_29_dashboard_date_picker_span_derived_bucketing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_prior_window_baseline",
+      "target": "docs_decisions_2026_07_29_dashboard_date_picker_record",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_allow_custom_gate",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_aggregate_only_client_exposure",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_allow_custom_gate",
+      "target": "docs_adr_0011_client_report_links_report_link",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_lazy_calendar_bundle",
+      "target": "docs_decisions_2026_07_29_dashboard_date_picker_allow_custom_gate",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_record",
+      "target": "docs_specs_2026_07_25_full_analytics_ownership_four_state_discipline",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_record",
+      "target": "docs_adr_0010_arcbase_owns_analytics_end_to_end_post_date_resolver",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_date_range_contract",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_bi_linkedin_post_latest",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_29_dashboard_date_picker_span_derived_bucketing",
+      "target": "docs_adr_0011_client_report_links_report_status",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "docs/decisions/2026-07-29-dashboard-date-picker.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

@@ -1,0 +1,101 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_handoff",
+      "label": "Handoff \u2014 Outreach System S2: 'Add Data' reshape + Outreach upload tab",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_upload_tabs",
+      "label": "UploadTabs \u2014 shadcn Tabs host for LinkedIn + Outreach forms",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_body_size_limit",
+      "label": "serverActions.bodySizeLimit raised above the measured 1.42 MB export",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_unknown_header_warning",
+      "label": "25th-column warning \u2014 unknown headers reported, never silently dropped",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_upload_tabs",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_body_size_limit",
+      "target": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_upload_tabs",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_unknown_header_warning",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_parse_outreach",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_unknown_header_warning",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_unrecognised_disclosed_verbatim",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s2-add-data-tabs.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

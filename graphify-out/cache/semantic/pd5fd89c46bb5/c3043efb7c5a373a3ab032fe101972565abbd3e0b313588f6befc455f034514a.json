@@ -1,0 +1,131 @@
+{
+  "nodes": [
+    {
+      "id": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "label": "Outreach System \u2014 workstream close-out (S1\u2013S6 landed)",
+      "file_type": "document",
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_27_outreach_workstream_close_out_deletions_are_invisible",
+      "label": "Known limitation: prospect deletions vanish with no tombstone",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_27_outreach_workstream_close_out_sql_ts_funnel_duplication",
+      "label": "Funnel rule duplicated in TypeScript and SQL (price of the privacy boundary)",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_27_outreach_workstream_close_out_two_executers_one_worktree",
+      "label": "Process lesson: never run two executers in one worktree",
+      "file_type": "rationale",
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "target": "docs_specs_2026_07_27_outreach_system_dashboard_spec",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_deletions_are_invisible",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_outreach_snapshot",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_sql_ts_funnel_duplication",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_aggregate_only_client_exposure",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_sql_ts_funnel_duplication",
+      "target": "docs_specs_2026_07_27_outreach_system_dashboard_outreach_vocab",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "target": "docs_specs_2026_07_25_client_report_links_read_grant",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_two_executers_one_worktree",
+      "target": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_27_outreach_workstream_close_out_deletions_are_invisible",
+      "target": "docs_specs_2026_07_25_full_analytics_ownership_four_state_discipline",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "docs/decisions/2026-07-27-outreach-workstream-close-out.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

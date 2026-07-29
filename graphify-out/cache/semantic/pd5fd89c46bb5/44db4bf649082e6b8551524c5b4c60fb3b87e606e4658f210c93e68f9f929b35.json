@@ -1,0 +1,158 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "label": "ADR 0010 \u2014 ArcBase owns analytics end-to-end (Power BI retired)",
+      "file_type": "document",
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0010_arcbase_owns_analytics_end_to_end_public_posts",
+      "label": "App-owned public.posts (typed, client_id FK, unique linkedin_post_id)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0010_arcbase_owns_analytics_end_to_end_fk_attribution_at_ingest",
+      "label": "Attribution by client_id FK stamped at ingest",
+      "file_type": "rationale",
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0010_arcbase_owns_analytics_end_to_end_sequenced_cutover",
+      "label": "Sequenced cutover (dual-write \u2192 equivalence-verify \u2192 repoint \u2192 drop)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0010_arcbase_owns_analytics_end_to_end_post_date_resolver",
+      "label": "Relative-age post-date resolver (src/lib/post-date.ts)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_adr_0009",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "target": "docs_adr_0008_arcbase_owns_analytics_schema_adr_0008",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "target": "docs_adr_0010_arcbase_owns_analytics_end_to_end_public_posts",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_fk_attribution_at_ingest",
+      "target": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_sequenced_cutover",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_bi_linkedin_post_latest",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_post_date_resolver",
+      "target": "docs_adr_0010_arcbase_owns_analytics_end_to_end_public_posts",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_public_posts",
+      "target": "docs_adr_0006_app_owned_posts_table_supabase_staging_table",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0010_arcbase_owns_analytics_end_to_end_fk_attribution_at_ingest",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_name_match_attribution",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "analytics_schema_ownership_arc",
+      "label": "The analytics-schema ownership arc (0006 \u2192 0008 withdrawn \u2192 0009 \u2192 0010)",
+      "nodes": [
+        "docs_adr_0006_app_owned_posts_table_adr_0006",
+        "docs_adr_0008_arcbase_owns_analytics_schema_adr_0008",
+        "docs_adr_0009_arcbase_conforms_to_external_bi_schema_adr_0009",
+        "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+        "docs_specs_2026_07_25_full_analytics_ownership_plan"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0010-arcbase-owns-analytics-end-to-end.md"
+    }
+  ]
+}

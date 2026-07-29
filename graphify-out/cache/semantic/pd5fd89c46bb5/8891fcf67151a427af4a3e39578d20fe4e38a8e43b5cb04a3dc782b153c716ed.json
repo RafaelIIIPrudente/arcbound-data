@@ -1,0 +1,141 @@
+{
+  "nodes": [
+    {
+      "id": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "label": "Spec: ArcBase v1 \u2014 LinkedIn post-metrics dashboard on the template",
+      "file_type": "document",
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_16_arcbase_v1_t1_t6_sequence",
+      "label": "T1\u2013T6 sequenced delivery (reshape \u2192 data model \u2192 clients \u2192 ingest \u2192 analytics \u2192 resources)",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_16_arcbase_v1_linkedin_url_normalization",
+      "label": "Client identity = normalized linkedin_url (resolves OI-01)",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_16_arcbase_v1_scrape_schema_15_columns",
+      "label": "Confirmed 15-column scrape schema (RFC-4180 quoted CSV)",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "target": "docs_srs_spec_arcbase_build_spec",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "target": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "target": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_linkedin_url_normalization",
+      "target": "docs_srs_spec_open_decisions",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_linkedin_url_normalization",
+      "target": "docs_srs_spec_clients_table",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_scrape_schema_15_columns",
+      "target": "docs_srs_spec_ingestion_algorithm",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_t1_t6_sequence",
+      "target": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "target": "docs_adr_0006_app_owned_posts_table_supabase_staging_table",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_15_multi_tenancy_testing_seams",
+      "target": "docs_specs_2026_07_16_arcbase_v1_t1_t6_sequence",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "docs/specs/2026-07-16-arcbase-v1.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

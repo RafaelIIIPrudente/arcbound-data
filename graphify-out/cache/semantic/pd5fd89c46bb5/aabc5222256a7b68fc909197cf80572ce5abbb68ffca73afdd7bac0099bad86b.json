@@ -1,0 +1,28 @@
+{
+  "nodes": [
+    {
+      "id": "src_app_fonts_license_intertight_ofl",
+      "label": "Inter Tight font licence \u2014 OFL 1.1 (c) 2016 The Inter Project Authors",
+      "file_type": "document",
+      "source_file": "src/app/fonts/LICENSE-InterTight.txt",
+      "source_location": "lines 1-9",
+      "source_url": "http://scripts.sil.org/OFL",
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "src_app_fonts_license_intertight_ofl",
+      "target": "src_app_fonts_readme_sil_open_font_license",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/LICENSE-InterTight.txt",
+      "source_location": "lines 3-9",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

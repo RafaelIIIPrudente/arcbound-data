@@ -1,0 +1,424 @@
+{
+  "nodes": [
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "label": "Add Post Metrics Screen (Paste JSON state)",
+      "file_type": "image",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_paste_json_mode",
+      "label": "Paste JSON Input Mode",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_csv_upload_mode",
+      "label": "CSV Upload Input Mode",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_select_client_step",
+      "label": "Step 01 - Select Client",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_choose_input_step",
+      "label": "Step 02 - Choose Input",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_client_attribution_at_ingest",
+      "label": "Client Attribution At Ingest",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema",
+      "label": "LinkedIn Post Metrics Payload Schema",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_format_type_field",
+      "label": "post_format_type Field",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_placeholder_payload_example",
+      "label": "Inline JSON Placeholder Example",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_sidebar_nav_shell",
+      "label": "ArcBase Sidebar Navigation Shell",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_add_li_post_metrics_nav_item",
+      "label": "ADD LI POST METRICS Nav Item",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_staging_environment_badge",
+      "label": "STAGING Environment Badge",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_editorial_mono_design_language",
+      "label": "Editorial Mono-Label Design Language",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_numbered_step_wizard_pattern",
+      "label": "Numbered Step Wizard Pattern",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_theme_toggle_control",
+      "label": "Dark/Light Theme Toggle Control",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_auth_gated_session_header",
+      "label": "Auth-Gated Session Header (avatar + SIGN OUT)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_select_client_step",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_choose_input_step",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_choose_input_step",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_paste_json_mode",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_choose_input_step",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_csv_upload_mode",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_paste_json_mode",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_csv_upload_mode",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_paste_json_mode",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_csv_upload_mode",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_format_type_field",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_placeholder_payload_example",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_paste_json_mode",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_placeholder_payload_example",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_client_attribution_at_ingest",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_select_client_step",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_client_attribution_at_ingest",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_numbered_step_wizard_pattern",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_sidebar_nav_shell",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_add_li_post_metrics_nav_item",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_add_li_post_metrics_nav_item",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_staging_environment_badge",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_auth_gated_session_header",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_auth_gated_session_header",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_theme_toggle_control",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_editorial_mono_design_language",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_sidebar_nav_shell",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_editorial_mono_design_language",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_numbered_step_wizard_pattern",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_format_type_field",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_client_attribution_at_ingest",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "arcbase_manual_ingestion_flow",
+      "label": "ArcBase Manual Post-Metrics Ingestion Flow",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_select_client_step",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_choose_input_step",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_paste_json_mode",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_csv_upload_mode",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_post_metrics_payload_schema"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png"
+    },
+    {
+      "id": "arcbase_app_shell_chrome",
+      "label": "ArcBase Auth-Gated App Shell Chrome",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_sidebar_nav_shell",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_staging_environment_badge",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_theme_toggle_control",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_auth_gated_session_header",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_ingest_json_editorial_mono_design_language"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/ingest-json.png"
+    }
+  ]
+}

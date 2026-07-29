@@ -1,0 +1,132 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0011_client_report_links_adr_0011",
+      "label": "ADR 0011 \u2014 Client-facing report access via passcode-gated Report Links",
+      "file_type": "document",
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0011_client_report_links_report_link",
+      "label": "Report Link (revocable capability bound to one Client, not a user)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0011_client_report_links_access_code",
+      "label": "Access Code (bcrypt-hashed out-of-band second factor)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0011_client_report_links_resolve_report_link",
+      "label": "resolve_report_link SECURITY DEFINER function (token+code, lockout)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0011_client_report_links_report_status",
+      "label": "Report Status strip (freshness + non-graded activity line)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0011_client_report_links_adr_0011",
+      "target": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0011_client_report_links_adr_0011",
+      "target": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0011_client_report_links_report_link",
+      "target": "docs_adr_0011_client_report_links_adr_0011",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0011_client_report_links_resolve_report_link",
+      "target": "docs_adr_0011_client_report_links_access_code",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0011_client_report_links_resolve_report_link",
+      "target": "docs_adr_0011_client_report_links_report_link",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0011_client_report_links_report_status",
+      "target": "docs_adr_0011_client_report_links_report_link",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0011_client_report_links_report_link",
+      "target": "docs_adr_0007_arcbase_single_tenant_client_as_tracked_subject",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0011-client-report-links.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

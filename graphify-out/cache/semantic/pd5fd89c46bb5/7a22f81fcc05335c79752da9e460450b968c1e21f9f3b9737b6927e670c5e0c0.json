@@ -1,0 +1,414 @@
+{
+  "nodes": [
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_component",
+      "label": "ArcBase Dashboard prototype Component (DCLogic)",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 526-750",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_rendervals",
+      "label": "renderVals",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 663-749",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_buildchart",
+      "label": "buildChart",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 655-661",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_uploadmetrics",
+      "label": "uploadMetrics",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 618-637",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_confirmwrite",
+      "label": "confirmWrite",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 639",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_skipreview",
+      "label": "skipReview",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 640",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_setreviewformat",
+      "label": "setReviewFormat",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 638",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_addclient",
+      "label": "addClient",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 601-612",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_addresource",
+      "label": "addResource",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 646-651",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_dologin",
+      "label": "doLogin",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 585-592",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_showtoast",
+      "label": "showToast",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 579-583",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_toggletheme",
+      "label": "toggleTheme",
+      "file_type": "code",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 594",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_theme_token_system",
+      "label": "Light/dark CSS custom-property theme tokens",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 17-34",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_arcbase_type_system",
+      "label": "ArcBase type system (Inter Tight display, Geist body, Geist Mono labels)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 13, 38-48",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_format_type_review_step",
+      "label": "Post format-type review step",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 399-419",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_ingestion_four_step_flow",
+      "label": "Four-step ingestion flow (client, input, followers, submit)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 330-395",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_client_detail_upload_history",
+      "label": "Client detail with upload-history table",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 266-327",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_immutable_records",
+      "label": "Immutable records (no edit, no delete)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 240, 608",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_route_state_machine",
+      "label": "Single-component route state machine (dashboard/clients/client/ingest/resources)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 667-678, 715",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_kpi_grid",
+      "label": "Dashboard KPI grid with hero Impressions tile",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 148-165",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_rendervals",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_buildchart",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 694-695",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_rendervals",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_setreviewformat",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 704",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_rendervals",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_kpi_grid",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 680-685, 722-723",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_rendervals",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_route_state_machine",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 667-678, 715",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_rendervals",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_client_detail_upload_history",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 697-703",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_confirmwrite",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_showtoast",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 639",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_skipreview",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_showtoast",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 640",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_addclient",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_showtoast",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 611",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_addresource",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_showtoast",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 650",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_uploadmetrics",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_format_type_review_step",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 629-636",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_uploadmetrics",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_ingestion_four_step_flow",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 618-628",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_setreviewformat",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_format_type_review_step",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 638",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_toggletheme",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_theme_token_system",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 22-26, 594",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_immutable_records",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_addclient",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "line 608",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_theme_token_system",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_arcbase_type_system",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 13-38",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_confirmwrite",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_skipreview",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 639-640",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_buildchart",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_kpi_grid",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html",
+      "source_location": "lines 148-197",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "arcbase_ingestion_flow_prototype",
+      "label": "ArcBase ingestion flow \u2014 select client, payload, followers, format-type review, write",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_ingestion_four_step_flow",
+        "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_uploadmetrics",
+        "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_format_type_review_step",
+        "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_confirmwrite",
+        "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_skipreview",
+        "docs_arcbase_dashboard_design_brief_project_srs_notes_schema_and_updates_scrape_file_schema"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/ArcBase Dashboard.dc.html"
+    }
+  ]
+}

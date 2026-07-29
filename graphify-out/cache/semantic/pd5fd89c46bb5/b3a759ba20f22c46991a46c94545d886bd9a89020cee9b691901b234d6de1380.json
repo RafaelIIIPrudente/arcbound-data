@@ -1,0 +1,180 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "label": "Handoff \u2014 Report Links client-side public experience (S3 + S4 combined)",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_client_side_no_auth_oracle",
+      "label": "No auth oracle \u2014 fail closed with one generic error",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_client_side_gate_cookie",
+      "label": "Signed httpOnly gate cookie (report-link-session)",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_client_side_public_report_wrapper",
+      "label": "PublicReport wrapper \u2014 report sections stripped of staff chrome",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_client_side_report_status_strip",
+      "label": "Report Status strip \u2014 freshness + non-graded activity",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_client_side_anon_read_path_gap",
+      "label": "Anon read-path gap \u2014 RLS blocks the anonymous public route",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_client_side_gate_cookie",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_client_side_public_report_wrapper",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_client_side_report_status_strip",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_no_auth_oracle",
+      "target": "docs_handoffs_2026_07_25_report_links_client_side_gate_cookie",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_s3_public_gate_handoff",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_s4_client_view_handoff",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_s1_data_model_resolve_report_link",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_anon_read_path_gap",
+      "target": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_client_side_public_report_wrapper",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "report_links_workstream_slices",
+      "label": "Client Report Links workstream (S1\u2013S5 + the combined client-side pass)",
+      "nodes": [
+        "docs_handoffs_2026_07_25_report_links_s1_data_model_handoff",
+        "docs_handoffs_2026_07_25_report_links_s2_staff_management_handoff",
+        "docs_handoffs_2026_07_25_report_links_s3_public_gate_handoff",
+        "docs_handoffs_2026_07_25_report_links_s4_client_view_handoff",
+        "docs_handoffs_2026_07_25_report_links_s5_public_read_handoff",
+        "docs_handoffs_2026_07_25_report_links_client_side_handoff"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-client-side.md"
+    }
+  ]
+}

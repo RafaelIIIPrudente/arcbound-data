@@ -1,0 +1,349 @@
+{
+  "nodes": [
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_screenshot",
+      "label": "ArcBase Client List Screenshot (client-detail.png)",
+      "file_type": "image",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "label": "ArcBase App Shell (persistent sidebar + header)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_sidebar_nav",
+      "label": "Sidebar Menu: Dashboard / Client List / Add LI Post Metrics / Resources",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "label": "Client List Table (Client / LinkedIn URL / Posts)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_add_new_client_cta",
+      "label": "Add New Client Primary CTA",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_immutable_records_disclosure",
+      "label": "Immutable Records Disclosure (\"006 clients \u00b7 records are immutable\")",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_linkedin_url_identity",
+      "label": "LinkedIn Profile URL as Client Identity",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_posts_count_column",
+      "label": "Per-Client Posts Count Column",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_staging_env_badge",
+      "label": "Staging Environment Badge + Version Footer (v0.1 \u00b7 STAGING)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_auth_gated_session_controls",
+      "label": "Auth-Gated Session Controls (user avatar + Sign Out)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_dark_monospace_visual_language",
+      "label": "Dark Monospace Visual Language (near-black surfaces, red accent, uppercase mono labels)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_arcbase_brand_lockup",
+      "label": "ArcBase \"by Arcbound\" Brand Lockup",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_filename_content_mismatch",
+      "label": "Filename/Content Mismatch: client-detail.png shows the Client List page",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_screenshot",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_screenshot",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_sidebar_nav",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_auth_gated_session_controls",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_staging_env_badge",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_arcbase_brand_lockup",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_linkedin_url_identity",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_posts_count_column",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_add_new_client_cta",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_immutable_records_disclosure",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_immutable_records_disclosure",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_add_new_client_cta",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_dark_monospace_visual_language",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_dark_monospace_visual_language",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_posts_count_column",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_sidebar_nav",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_linkedin_url_identity",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_posts_count_column",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_filename_content_mismatch",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_screenshot",
+      "relation": "references",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.3,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_staging_env_badge",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_immutable_records_disclosure",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "arcbase_client_list_page_composition",
+      "label": "ArcBase Client List page composition (shell + table + create affordance + immutability disclosure)",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_app_shell",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_client_list_table",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_add_new_client_cta",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_immutable_records_disclosure"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png"
+    },
+    {
+      "id": "arcbase_internal_staff_trust_signals",
+      "label": "Internal staff-only trust signals (staging badge, sign-out session control, immutability notice, version footer)",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_staging_env_badge",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_auth_gated_session_controls",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_immutable_records_disclosure",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_client_detail_arcbase_brand_lockup"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/client-detail.png"
+    }
+  ]
+}

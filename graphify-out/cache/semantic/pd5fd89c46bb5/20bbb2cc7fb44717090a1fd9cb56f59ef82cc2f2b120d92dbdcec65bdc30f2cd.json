@@ -1,0 +1,89 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "label": "ADR 0006 \u2014 App-owned posts table with a configurable identifier",
+      "file_type": "document",
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0006_app_owned_posts_table_supabase_staging_table",
+      "label": "SUPABASE_STAGING_TABLE configurable identifier",
+      "file_type": "concept",
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "target": "docs_srs_spec_arcbase_build_spec",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "target": "docs_specs_2026_07_16_arcbase_v1_spec",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "target": "docs_adr_0003_mock_first_service_seam_adr_0003",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "target": "docs_adr_0005_multi_tenancy_adr_0005",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0006_app_owned_posts_table_supabase_staging_table",
+      "target": "docs_adr_0006_app_owned_posts_table_adr_0006",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0002_supabase_only_auth_authstrategy",
+      "target": "docs_adr_0006_app_owned_posts_table_supabase_staging_table",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/adr/0006-app-owned-posts-table.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

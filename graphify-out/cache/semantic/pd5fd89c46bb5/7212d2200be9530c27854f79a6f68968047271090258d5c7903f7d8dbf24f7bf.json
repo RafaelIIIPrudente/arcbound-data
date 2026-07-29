@@ -1,0 +1,111 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_25_report_weekday_dating_fix_handoff",
+      "label": "Handoff \u2014 Report weekday chart dating fix",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_weekday_dating_fix_weekday_dating_defect",
+      "label": "effectiveMs weekday defect \u2014 scrape weekday fabricates a posting rhythm",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_weekday_dating_fix_weekdayundatedposts",
+      "label": "weekdayUndatedPosts \u2014 excluded-and-counted undated posts",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_weekday_dating_fix_genuine_zero_vs_empty",
+      "label": "A genuine measured zero is not an empty state",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_25_report_weekday_dating_fix_handoff",
+      "target": "docs_handoffs_2026_07_25_report_weekday_dating_fix_weekdayundatedposts",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_weekday_dating_fix_weekday_dating_defect",
+      "target": "docs_handoffs_2026_07_25_report_weekday_dating_fix_handoff",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_weekday_dating_fix_genuine_zero_vs_empty",
+      "target": "docs_handoffs_2026_07_25_report_weekday_dating_fix_weekdayundatedposts",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_weekday_dating_fix_handoff",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_weekdayimpressionschart",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_weekday_dating_fix_weekday_dating_defect",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_estimated_post_date_dating_rule",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_weekday_dating_fix_genuine_zero_vs_empty",
+      "target": "docs_handoffs_2026_07_27_outreach_s5_trends_fillsentmonths",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/handoffs/2026-07-25-report-weekday-dating-fix.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

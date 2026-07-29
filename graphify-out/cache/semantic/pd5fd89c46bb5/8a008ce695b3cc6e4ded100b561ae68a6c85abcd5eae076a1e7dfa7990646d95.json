@@ -1,0 +1,143 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_25_content_composition_handoff",
+      "label": "Handoff \u2014 Content Composition Report Section (feature B)",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "label": "buildContentComposition \u2014 pure composition function over report rows",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_content_composition_compositional_only",
+      "label": "Compositional-only discipline",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_content_composition_see_more_fold_constant",
+      "label": "1,300-character 'see more' fold \u2014 the sole permitted constant",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_content_composition_hashtag_case_folding",
+      "label": "Hashtag case-folding canonicalisation",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_content_composition_intext_link_vs_post_url",
+      "label": "In-text URL vs post_url distinction",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_handoff",
+      "target": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_compositional_only",
+      "target": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_see_more_fold_constant",
+      "target": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_hashtag_case_folding",
+      "target": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_intext_link_vs_post_url",
+      "target": "docs_handoffs_2026_07_25_content_composition_buildcontentcomposition",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_handoff",
+      "target": "docs_handoffs_2026_07_25_report_weekday_dating_fix_handoff",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_content_composition_handoff",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_buildcadence",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-content-composition.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

@@ -1,0 +1,159 @@
+{
+  "nodes": [
+    {
+      "id": "src_app_fonts_readme_self_hosted_fonts",
+      "label": "Self-hosted fonts (hermetic build)",
+      "file_type": "rationale",
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 1-21",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "src_app_fonts_readme_nextfonterror_build_failure",
+      "label": "next/font/google build-time fetch fragility (NextFontError, half-written .next)",
+      "file_type": "rationale",
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 10-18",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "src_app_fonts_readme_variable_font_subset",
+      "label": "Latin-subset variable woff2 files (weights 100-900 in one file)",
+      "file_type": "concept",
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 23-36",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "src_app_fonts_readme_sil_open_font_license",
+      "label": "SIL Open Font License, Version 1.1",
+      "file_type": "concept",
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 39-48",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "src_app_fonts_readme_font_update_procedure",
+      "label": "Font update procedure (User-Agent-gated Google Fonts CSS API)",
+      "file_type": "rationale",
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 50-64",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "src_app_fonts_readme_self_hosted_fonts",
+      "target": "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_arcbase_type_system",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 3-5",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_fonts_readme_nextfonterror_build_failure",
+      "target": "src_app_fonts_readme_self_hosted_fonts",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 8-21",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_fonts_readme_self_hosted_fonts",
+      "target": "src_app_fonts_readme_variable_font_subset",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 23-36",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_fonts_readme_self_hosted_fonts",
+      "target": "src_app_fonts_readme_sil_open_font_license",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 39-48",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_fonts_readme_font_update_procedure",
+      "target": "src_app_fonts_readme_variable_font_subset",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 50-64",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_fonts_readme_self_hosted_fonts",
+      "target": "src_app_fonts_license_geist_ofl",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 44-45",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_fonts_readme_self_hosted_fonts",
+      "target": "src_app_fonts_license_intertight_ofl",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": "lines 46-47",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_readme_no_browser_screenshots",
+      "target": "src_app_fonts_readme_self_hosted_fonts",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "src/app/fonts/README.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "arcbase_self_hosted_type_system",
+      "label": "ArcBase self-hosted type system (families, variable subsets, licences)",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_arcbase_dashboard_dc_arcbase_type_system",
+        "src_app_fonts_readme_self_hosted_fonts",
+        "src_app_fonts_readme_variable_font_subset",
+        "src_app_fonts_readme_sil_open_font_license",
+        "src_app_fonts_license_geist_ofl",
+        "src_app_fonts_license_intertight_ofl"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/app/fonts/README.md"
+    }
+  ]
+}

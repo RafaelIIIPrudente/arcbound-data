@@ -1,0 +1,120 @@
+{
+  "nodes": [
+    {
+      "id": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_record",
+      "label": "Decision record \u2014 email to Bryan (boss): ArcBase state of play",
+      "file_type": "document",
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_deliberate_omissions",
+      "label": "Deliberate omissions (AI tooling; the bi.* data provenance and Shay)",
+      "file_type": "rationale",
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_adr_0010_not_implemented",
+      "label": "ADR 0010 is Accepted but NOT implemented (analytics still reads bi.*)",
+      "file_type": "concept",
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_record",
+      "target": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_record",
+      "target": "docs_decisions_2026_07_27_multi_service_dashboard_and_connection_count_record",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_adr_0010_not_implemented",
+      "target": "docs_adr_0010_arcbase_owns_analytics_end_to_end_adr_0010",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_adr_0010_not_implemented",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_bi_linkedin_post_latest",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_deliberate_omissions",
+      "target": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_record",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_deliberate_omissions",
+      "target": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_adr_0010_not_implemented",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_record",
+      "target": "docs_adr_0011_client_report_links_report_link",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions_2026_07_28_boss_email_arcbase_state_of_play_record",
+      "target": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/decisions/2026-07-28-boss-email-arcbase-state-of-play.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

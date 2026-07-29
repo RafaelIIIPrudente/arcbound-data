@@ -1,0 +1,100 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "label": "ADR 0007 \u2014 ArcBase is single-tenant",
+      "file_type": "document",
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0007_arcbase_single_tenant_authenticated_vs_not",
+      "label": "Authorization collapses to authenticated-vs-not",
+      "file_type": "rationale",
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0007_arcbase_single_tenant_client_as_tracked_subject",
+      "label": "Client = tracked LinkedIn subject, not a tenant",
+      "file_type": "concept",
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "target": "docs_adr_0005_multi_tenancy_adr_0005",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "target": "docs_adr_0003_mock_first_service_seam_adr_0003",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "target": "docs_adr_0002_supabase_only_auth_adr_0002",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0007_arcbase_single_tenant_authenticated_vs_not",
+      "target": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0007_arcbase_single_tenant_client_as_tracked_subject",
+      "target": "docs_adr_0007_arcbase_single_tenant_adr_0007",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0007_arcbase_single_tenant_authenticated_vs_not",
+      "target": "docs_adr_0005_multi_tenancy_two_tier_roles",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0007-arcbase-single-tenant.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

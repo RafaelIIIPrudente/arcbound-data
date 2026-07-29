@@ -1,0 +1,178 @@
+{
+  "nodes": [
+    {
+      "id": "docs_specs_2026_07_27_outreach_system_dashboard_spec",
+      "label": "Outreach System Dashboard \u2014 implementation spec (S1\u2013S6)",
+      "file_type": "document",
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_27_outreach_system_dashboard_outreach_vocab",
+      "label": "outreach-vocab.ts (canonicalReply / canonicalStage / parseCount)",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_27_outreach_system_dashboard_ingest_outreach_rpc",
+      "label": "ingest_outreach RPC + outreach_uploads / outreach_prospects tables",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_27_outreach_system_dashboard_viewer_pill_bug",
+      "label": "Master DB Viewer pill regex bug ('Not Interested' painted green)",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_specs_2026_07_27_outreach_system_dashboard_paged_reads",
+      "label": "Paged reads past the PostgREST 1000-row cap (src/lib/supabase/paged.ts)",
+      "file_type": "concept",
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_spec",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_spec",
+      "target": "docs_decisions_2026_07_27_multi_service_dashboard_and_connection_count_record",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_spec",
+      "target": "docs_decisions_2026_07_27_outreach_workstream_close_out_record",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_spec",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_store_raw_canonicalise_at_read",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_outreach_vocab",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_store_raw_canonicalise_at_read",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_ingest_outreach_rpc",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_outreach_snapshot",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_ingest_outreach_rpc",
+      "target": "docs_srs_spec_clients_table",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_viewer_pill_bug",
+      "target": "docs_specs_2026_07_27_outreach_system_dashboard_outreach_vocab",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_paged_reads",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_outreach_snapshot",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_specs_2026_07_27_outreach_system_dashboard_outreach_vocab",
+      "target": "docs_specs_2026_07_25_full_analytics_ownership_four_state_discipline",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "arcbase_data_honesty_discipline",
+      "label": "ArcBase data-honesty discipline (four states, raw storage, read-time canonicalisation, no scores)",
+      "nodes": [
+        "docs_specs_2026_07_25_full_analytics_ownership_four_state_discipline",
+        "docs_adr_0009_arcbase_conforms_to_external_bi_schema_store_raw_canonicalise_at_read",
+        "docs_specs_2026_07_27_outreach_system_dashboard_outreach_vocab",
+        "docs_adr_0011_client_report_links_report_status",
+        "docs_decisions_2026_07_29_dashboard_date_picker_prior_window_baseline"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/specs/2026-07-27-outreach-system-dashboard.md"
+    }
+  ]
+}
