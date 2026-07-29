@@ -161,7 +161,18 @@ export function PublicReportView({
           </h1>
           {/* KEPT: the period picker (rewrites `?period=` on THIS route). The staff
               back-link and Print/Export link that used to sit beside it are gone. */}
-          <ReportPeriodPicker periods={report.availablePeriods} value={report.period.key} />
+          {/* ⚠️ NO CUSTOM RANGE ON THE CLIENT'S OWN REPORT. `allowCustom` already
+              defaults to false, and it is passed EXPLICITLY here anyway: this is
+              the one call site where the default silently flipping would hand a
+              client a control nobody decided to give them. A client's report
+              stays on periods that can be named back to them in a conversation.
+              Stated as a prop so the decision is visible at the call site rather
+              than inferred from a default three files away. */}
+          <ReportPeriodPicker
+            periods={report.availablePeriods}
+            value={report.period.key}
+            allowCustom={false}
+          />
         </div>
       </div>
 

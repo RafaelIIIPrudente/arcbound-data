@@ -1,0 +1,101 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0005_multi_tenancy_adr_0005",
+      "label": "ADR 0005 \u2014 Multi-tenancy: organizations, memberships, and RLS",
+      "file_type": "document",
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0005_multi_tenancy_active_organization",
+      "label": "Active Organization (HTTP-only cookie selector, never the boundary)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0005_multi_tenancy_rls_isolation_boundary",
+      "label": "Isolation via RLS, not app code",
+      "file_type": "rationale",
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0005_multi_tenancy_two_tier_roles",
+      "label": "Two-tier roles: Org Role (owner/admin/member) + Platform Role (superadmin)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0005_multi_tenancy_adr_0005",
+      "target": "docs_adr_0003_mock_first_service_seam_adr_0003",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0005_multi_tenancy_adr_0005",
+      "target": "docs_adr_0002_supabase_only_auth_adr_0002",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0005_multi_tenancy_rls_isolation_boundary",
+      "target": "docs_adr_0005_multi_tenancy_adr_0005",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0005_multi_tenancy_active_organization",
+      "target": "docs_adr_0005_multi_tenancy_rls_isolation_boundary",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0005_multi_tenancy_two_tier_roles",
+      "target": "docs_adr_0005_multi_tenancy_adr_0005",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0005-multi-tenancy.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

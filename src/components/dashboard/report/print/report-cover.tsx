@@ -43,6 +43,19 @@ export function periodInWords(period: ReportPeriod): string {
     }
     case "year":
       return `Calendar year ${period.year}`;
+    case "custom": {
+      // Spelled out in full, like every other kind here: this document lands in
+      // an inbox with no picker beside it to supply the context. The days are
+      // read off the STRINGS rather than through a Date — they are calendar
+      // days, not instants, and a UTC+8 machine would shift them by one.
+      const words = (day: string) => {
+        const [y, m, d] = day.split("-") as [string, string, string];
+        return `${Number(d)} ${MONTH_NAMES[Number(m) - 1]} ${y}`;
+      };
+      return period.startDay === period.endDay
+        ? words(period.endDay)
+        : `${words(period.startDay)} – ${words(period.endDay)}`;
+    }
     case "all":
       return "All time · every post on record";
   }

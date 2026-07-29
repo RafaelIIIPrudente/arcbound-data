@@ -1,0 +1,170 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_handoff",
+      "label": "Handoff \u2014 Outreach System S6: Report Link aggregate exposure",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "label": "Aggregate-only outreach exposure inside report_link_read",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_funnel_rule_duplication",
+      "label": "Funnel rule duplicated in TypeScript and SQL \u2014 the price of the privacy boundary",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_omitted_line_hazard",
+      "label": "Omitted-line hazard of create-or-replace on a live definer function",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_replied_predicate_divergence",
+      "label": "Known replied-predicate divergence \u2014 SQL lacks the trailing-ISO-date strip",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "target": "docs_handoffs_2026_07_25_report_links_s5_public_read_report_link_read",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_buildoutreachanalytics",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_funnel_rule_duplication",
+      "target": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_omitted_line_hazard",
+      "target": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_replied_predicate_divergence",
+      "target": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_funnel_rule_duplication",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_replied_predicate_divergence",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_outreach_vocab",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_outreach_aggregate_exposure",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_staff_only_pii_boundary",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_client_side_public_report_wrapper",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "outreach_system_workstream_slices",
+      "label": "Outreach System workstream (S1 \u2192 S6, plus the S4a triage pass)",
+      "nodes": [
+        "docs_handoffs_2026_07_27_outreach_s1_data_model_handoff",
+        "docs_handoffs_2026_07_27_outreach_s2_add_data_tabs_handoff",
+        "docs_handoffs_2026_07_27_outreach_s3_client_tab_handoff",
+        "docs_handoffs_2026_07_27_outreach_s4_prospect_table_handoff",
+        "docs_handoffs_2026_07_27_outreach_s4a_column_triage_handoff",
+        "docs_handoffs_2026_07_27_outreach_s5_trends_handoff",
+        "docs_handoffs_2026_07_27_outreach_s6_report_link_aggregate_handoff"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s6-report-link-aggregate.md"
+    }
+  ]
+}

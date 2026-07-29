@@ -48,3 +48,25 @@ supabase/.temp
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# graphify
+#
+# The knowledge graph IS committed, so a fresh clone can query it immediately and
+# re-extract for free (graphify-out/cache holds the paid semantic extraction).
+# ⚠️ Do NOT ignore `graphify-out/` wholesale: git cannot re-include a file whose
+# parent directory is excluded, so the exclusions below are named individually.
+#
+# ⚠️ gitignore has NO trailing comments — a `pattern  # why` line makes the
+# comment part of the pattern and the rule silently never matches.
+#
+# 1.9M generated viewer; regenerate with: graphify export html
+/graphify-out/graph.html
+# per-machine token accounting; conflicts on every clone
+/graphify-out/cost.json
+# absolute machine paths — never portable
+/graphify-out/.graphify_python
+/graphify-out/.graphify_root
+# stray output from scanning a subfolder as its own root
+/src/graphify-out/
+# installer backups
+*.graphify-bak

@@ -223,6 +223,44 @@ describe("PARITY — the post count matches the report, for every period kind", 
     expect(all.totalInPeriod).toBe(year.totalInPeriod + 1);
   });
 
+  it("agrees with the report for a CUSTOM window too", async () => {
+    // The two screens share one period predicate precisely so they cannot
+    // disagree; a custom window is the newest way they could have.
+    const period = "custom:2026-07-01..2026-07-31";
+    const [posts, report] = await Promise.all([
+      getClientPosts({ clientId: "c1", period }),
+      getClientReport({ clientId: "c1", period }),
+    ]);
+
+    expect(posts.period.kind).toBe("custom");
+    expect(posts.period.key).toBe(period);
+    expect(posts.totalInPeriod).toBe(report.assetPostCount);
+    // July holds two datable posts — the same subset the "2026-07" month gives.
+    expect(posts.totalInPeriod).toBe(2);
+  });
+
+  it("EXCLUDES the undatable post from a custom window, as from any bounded one", async () => {
+    // ⚠️ A custom period must not inherit all-time's every-row short-circuit.
+    const custom = await getClientPosts({
+      clientId: "c1",
+      period: "custom:2026-01-01..2026-12-31",
+    });
+
+    expect(custom.rows.map((r) => r.id)).not.toContain("ghost");
+    expect(custom.totalInPeriod).toBe(4); // the four datable rows, as for "2026"
+  });
+
+  it("falls back to the report's default for a custom token it cannot decode", async () => {
+    const [posts, report] = await Promise.all([
+      getClientPosts({ clientId: "c1", period: "custom:2026-12-31..2026-01-01" }),
+      getClientReport({ clientId: "c1", period: "custom:2026-12-31..2026-01-01" }),
+    ]);
+
+    // Inverted → undecodable → the newest month with data, on BOTH screens.
+    expect(posts.period.kind).toBe("month");
+    expect(posts.period.key).toBe(report.period.key);
+  });
+
   it("offers the SAME period options as the report for the same client", async () => {
     const [posts, report] = await Promise.all([
       getClientPosts({ clientId: "c1" }),

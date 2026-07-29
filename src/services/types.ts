@@ -63,16 +63,31 @@ export interface Paginated<T> {
 // ── Dashboard analytics ──────────────────────────────────────────────────────
 // Read-model for the analytics dashboard (route `/`). Mock-derived today.
 
-export type DashboardRange = "7d" | "30d" | "90d";
+// `DashboardRange` (a "7d" | "30d" | "90d" union) is RETIRED. The dashboard now
+// takes an arbitrary window, and both it and the Client report speak the one
+// vocabulary in `@/lib/date-range` — `RangeSelection`. A second range type here
+// is how two surfaces come to disagree about what a window is.
 
 export interface Kpi {
   label: string;
   value: number;
   /** Optional unit appended to the value (e.g. "%"); most KPIs have none. */
   unit?: string;
-  /** Change magnitude vs. the prior period (percent). */
-  delta: number;
-  direction: "up" | "down";
+  /**
+   * Change magnitude vs. the prior period (percent), or `null` when THERE IS NO
+   * COMPARABLE PRIOR PERIOD — which today means all-time.
+   *
+   * ⚠️ NULL IS NOT ZERO AND MUST NOT RENDER AS AN EM DASH. A 0 would claim the
+   * figure held steady against a period that does not exist; the em dash is this
+   * repo's reserved sign for "we tried to compute this and could not", which is a
+   * different statement again. The only honest rendering is ABSENCE — no chip.
+   *
+   * ⚠️ `delta` AND `direction` ARE NULL TOGETHER, ALWAYS. A direction beside a
+   * null delta is a glyph with nothing behind it, and the pairing is what stops
+   * a render site drawing "▲" from `direction` alone.
+   */
+  delta: number | null;
+  direction: "up" | "down" | null;
 }
 
 export interface SeriesPoint {
@@ -115,7 +130,8 @@ export interface DashboardAnalytics {
   lastSync: string;
   hero: Kpi;
   kpis: Kpi[];
-  engagement: { value: number; delta: number };
+  /** `delta` is null for the same reason `Kpi.delta` is — no prior period exists. */
+  engagement: { value: number; delta: number | null };
   impressionsSeries: SeriesPoint[];
   engagementSeries: SeriesPoint[];
   /**
@@ -467,7 +483,23 @@ export type ReportPeriod =
   | { kind: "all"; key: "all"; label: string }
   | { kind: "year"; key: string; label: string; year: number }
   | { kind: "quarter"; key: string; label: string; year: number; quarter: number }
-  | { kind: "month"; key: string; label: string; year: number; month: number };
+  | { kind: "month"; key: string; label: string; year: number; month: number }
+  /**
+   * An arbitrary staff-chosen window.
+   *
+   * ⚠️ STAFF ONLY. The picker gates this behind `allowCustom`, which defaults to
+   * FALSE so the client-facing `/r/[token]` report cannot reach it — a client's
+   * report stays on periods that can be named back to them in a conversation.
+   *
+   * ⚠️ NEVER PRESENT IN `availablePeriods`. Every other member is enumerated from
+   * the data; this one is composed from the URL, so `parseReportPeriod` decodes
+   * it BEFORE the key-match against `available` (which would never hit).
+   *
+   * `startDay`/`endDay` are `YYYY-MM-DD` calendar days, not instants — the same
+   * distinction `@/lib/date-range` draws, and the reason `periodRange` has to
+   * convert this member's INCLUSIVE end into the half-open bound it returns.
+   */
+  | { kind: "custom"; key: string; label: string; startDay: string; endDay: string };
 
 /** A single figure in the Key Performance grid. `null` renders as an em dash. */
 export interface ReportFigure {

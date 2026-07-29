@@ -1,0 +1,49 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0001_shadcn_tailwind_over_mui_joy_adr_0001",
+      "label": "ADR 0001 \u2014 Replace MUI Joy with Tailwind + shadcn/ui",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-shadcn-tailwind-over-mui-joy.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0001_shadcn_tailwind_over_mui_joy_owned_component_source",
+      "label": "Owned component source (no runtime design-system dependency)",
+      "file_type": "rationale",
+      "source_file": "docs/adr/0001-shadcn-tailwind-over-mui-joy.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0001_shadcn_tailwind_over_mui_joy_owned_component_source",
+      "target": "docs_adr_0001_shadcn_tailwind_over_mui_joy_adr_0001",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0001-shadcn-tailwind-over-mui-joy.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0001_shadcn_tailwind_over_mui_joy_adr_0001",
+      "target": "docs_adr_0003_mock_first_service_seam_service_seam",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0001-shadcn-tailwind-over-mui-joy.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

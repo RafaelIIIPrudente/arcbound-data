@@ -1,0 +1,465 @@
+{
+  "nodes": [
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "label": "Client Detail Screen (scrolled, upload history visible)",
+      "file_type": "image",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_sidebar_nav",
+      "label": "ArcBase Sidebar Navigation (Dashboard / Client List / Add LI Post Metrics / Resources)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_kpi_cards",
+      "label": "Client KPI Cards (Uploads / Posts / Followers)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "label": "Upload History Table (most recent first)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_ingestion_delta_columns",
+      "label": "Ingestion Delta Columns (Ins. / Upd. / Unch.)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_source_format_badge",
+      "label": "Upload Source Format Badge (CSV / JSON)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_attribution_column",
+      "label": "Upload Attribution Column (BY \u2014 staff initials per upload)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_follower_snapshot_column",
+      "label": "Per-Upload Follower Snapshot Column",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_breadcrumb_backlink",
+      "label": "Breadcrumb Back-Link (\u2190 CLIENT LIST)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_identity_header",
+      "label": "Client Identity Header (name + linkedin.com/in/ handle)",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_topbar_env_and_session",
+      "label": "Top Bar: STAGING pill, dark-mode toggle, avatar, SIGN OUT",
+      "file_type": "concept",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_environment_disclosure",
+      "label": "Environment Disclosure Pattern (STAGING shown in chrome and footer)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_monospace_label_language",
+      "label": "Monospace Uppercase Label Language",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_red_accent_system",
+      "label": "Single Red Accent System",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_zero_padded_counter",
+      "label": "Zero-Padded Sequence Counter (002, 02, 01)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_horizontal_table_scroll",
+      "label": "Horizontally Scrollable Wide Table (clipped BY column + scrollbars)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_audit_trail",
+      "label": "Upload Audit Trail Concept (every ingest is a durable, inspectable record)",
+      "file_type": "rationale",
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_sidebar_nav",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_identity_header",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_kpi_cards",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_breadcrumb_backlink",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_topbar_env_and_session",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_ingestion_delta_columns",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_source_format_badge",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_attribution_column",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_follower_snapshot_column",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_audit_trail",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_audit_trail",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_attribution_column",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_ingestion_delta_columns",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_kpi_cards",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_follower_snapshot_column",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_kpi_cards",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_monospace_label_language",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_red_accent_system",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_sidebar_nav",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_red_accent_system",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_ingestion_delta_columns",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_zero_padded_counter",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_monospace_label_language",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_zero_padded_counter",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_kpi_cards",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_horizontal_table_scroll",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_environment_disclosure",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_topbar_env_and_session",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_breadcrumb_backlink",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_sidebar_nav",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_source_format_badge",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_audit_trail",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_identity_header",
+      "target": "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "client_detail_upload_provenance_view",
+      "label": "Per-client upload provenance view: identity, counts, and the per-upload ledger",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_identity_header",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_kpi_cards",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_history_table",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_ingestion_delta_columns",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_follower_snapshot_column",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_upload_attribution_column"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png"
+    },
+    {
+      "id": "arcbase_editorial_visual_language",
+      "label": "ArcBase editorial visual language: mono uppercase labels, zero-padded counters, single red accent",
+      "nodes": [
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_monospace_label_language",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_zero_padded_counter",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_red_accent_system",
+        "docs_arcbase_dashboard_design_brief_project_screenshots_detail2_client_detail_screen"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/arcbase-dashboard-design-brief/project/screenshots/detail2.png"
+    }
+  ]
+}

@@ -1,0 +1,184 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_handoff",
+      "label": "Handoff \u2014 Outreach System S4: the prospect table (viewer parity)",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_prospect_table",
+      "label": "ProspectTable \u2014 TanStack table over all 24 source columns",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_outreach_pill",
+      "label": "OutreachPill \u2014 status pill coloured from canonicalReply, labelled with raw text",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_viewer_pill_regex_bug",
+      "label": "Reference viewer's pill regex bug \u2014 'Not Interested' matches 'Interested' and reads green",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_staff_only_pii_boundary",
+      "label": "Staff-only PII boundary for prospect rows",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_aggregates_not_rescoped",
+      "label": "Aggregates never rescope to the table's filters",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_substring_filter_defect",
+      "label": "TanStack default substring filter defect \u2014 'Connected' also matched 'Not Connected'",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_prospect_table",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_outreach_pill",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_outreach_pill",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_outreach_vocab",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_viewer_pill_regex_bug",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_outreach_pill",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_staff_only_pii_boundary",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_prospect_table",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_aggregates_not_rescoped",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_prospect_table",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_substring_filter_defect",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_prospect_table",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_handoff",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_viewer_pill_regex_bug",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_unrecognised_disclosed_verbatim",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_viewer_pill_regex_bug",
+      "target": "docs_handoffs_2026_07_27_outreach_s4_prospect_table_substring_filter_defect",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s4-prospect-table.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

@@ -1,0 +1,133 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_handoff",
+      "label": "Handoff \u2014 Dashboard Posts KPI + weekday chart + has-data gate (A/B/C)",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_posts_kpi",
+      "label": "Posts KPI via the toKpi idiom",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_weekdayimpressionschart",
+      "label": "WeekdayImpressionsChart \u2014 dashboard average impressions by weekday",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_estimated_post_date_dating_rule",
+      "label": "estimated_post_date-only dating rule",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_measurement_not_recommendation",
+      "label": "Title as a measurement, never a recommendation",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_has_data_gate_fix",
+      "label": "hasData gate keyed off totalPosts, not vestigial recentPosts",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_handoff",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_posts_kpi",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_handoff",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_weekdayimpressionschart",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_estimated_post_date_dating_rule",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_weekdayimpressionschart",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_measurement_not_recommendation",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_weekdayimpressionschart",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_has_data_gate_fix",
+      "target": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_handoff",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_dashboard_posts_kpi_and_weekday_handoff",
+      "target": "docs_handoffs_2026_07_25_report_weekday_dating_fix_handoff",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-dashboard-posts-kpi-and-weekday.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

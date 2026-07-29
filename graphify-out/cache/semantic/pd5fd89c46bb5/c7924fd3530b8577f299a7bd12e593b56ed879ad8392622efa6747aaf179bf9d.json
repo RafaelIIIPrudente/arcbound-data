@@ -1,0 +1,141 @@
+{
+  "nodes": [
+    {
+      "id": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "label": "ADR 0012 \u2014 The Outreach System: per-Client prospect snapshots",
+      "file_type": "document",
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0012_outreach_system_per_client_snapshots_outreach_snapshot",
+      "label": "Outreach Snapshot (immutable whole-file upload, never upserted)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0012_outreach_system_per_client_snapshots_prospect",
+      "label": "Prospect (24-column CRM row: identity, qualification, pipeline)",
+      "file_type": "concept",
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_adr_0012_outreach_system_per_client_snapshots_aggregate_only_client_exposure",
+      "label": "Aggregate-only client exposure (privacy boundary enforced in SQL)",
+      "file_type": "rationale",
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "target": "docs_adr_0011_client_report_links_adr_0011",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_adr_0009",
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_name_match_attribution",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_outreach_snapshot",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_prospect",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_aggregate_only_client_exposure",
+      "target": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_aggregate_only_client_exposure",
+      "target": "docs_adr_0011_client_report_links_report_link",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_adr_0012",
+      "target": "docs_adr_0009_arcbase_conforms_to_external_bi_schema_store_raw_canonicalise_at_read",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_aggregate_only_client_exposure",
+      "target": "docs_adr_0005_multi_tenancy_rls_isolation_boundary",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_adr_0012_outreach_system_per_client_snapshots_prospect",
+      "target": "docs_adr_0007_arcbase_single_tenant_client_as_tracked_subject",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/adr/0012-outreach-system-per-client-snapshots.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

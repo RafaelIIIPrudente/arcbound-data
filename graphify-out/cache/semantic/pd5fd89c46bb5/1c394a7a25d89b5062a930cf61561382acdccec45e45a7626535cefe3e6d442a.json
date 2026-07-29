@@ -1,0 +1,132 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_s5_public_read_handoff",
+      "label": "Handoff \u2014 Report Links S5: token-scoped public report read (read-grant)",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "label": "Read grant \u2014 short-lived sha256-hashed bearer secret minted on success only",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_s5_public_read_report_link_read",
+      "label": "report_link_read(token, grant) \u2014 SECURITY DEFINER single-client read",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_s5_public_read_report_link_grants_table",
+      "label": "public.report_link_grants table (per-viewer-session grants)",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_25_report_links_s5_public_read_two_factor_to_the_data",
+      "label": "URL + Access Code two-factor preserved all the way to the data",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_handoff",
+      "target": "docs_handoffs_2026_07_25_report_links_s5_public_read_report_link_read",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "target": "docs_handoffs_2026_07_25_report_links_s5_public_read_report_link_grants_table",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_two_factor_to_the_data",
+      "target": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "target": "docs_handoffs_2026_07_25_report_links_client_side_gate_cookie",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_report_link_read",
+      "target": "docs_handoffs_2026_07_25_report_links_s1_data_model_resolve_report_link",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_25_report_links_s5_public_read_read_grant",
+      "target": "docs_handoffs_2026_07_25_report_links_s1_data_model_access_code_bcrypt_hash",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/handoffs/2026-07-25-report-links-s5-public-read.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

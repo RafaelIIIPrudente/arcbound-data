@@ -1,0 +1,80 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_handoff",
+      "label": "Handoff \u2014 Connection Count: trim derived per-1K figures to a raw count",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_raw_count_not_ratio",
+      "label": "Connections is a raw count everywhere; no per-1K derived figure",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_averageline_misrendering_trap",
+      "label": "AverageLine trap \u2014 a point-in-time count must not read '\u00b7 all time' or approximate",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_handoff",
+      "target": "docs_handoffs_2026_07_27_linkedin_connection_count_handoff",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_raw_count_not_ratio",
+      "target": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_handoff",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_averageline_misrendering_trap",
+      "target": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_raw_count_not_ratio",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_connection_count_raw_figure_trim_handoff",
+      "target": "docs_handoffs_2026_07_27_linkedin_connection_count_connections_count_column",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-connection-count-raw-figure-trim.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}

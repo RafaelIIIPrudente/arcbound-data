@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BiPostRow } from "@/services/analytics";
 import { availablePeriods, parseReportPeriod } from "@/services/client-report";
+import type { ReportPeriod } from "@/services/types";
 
 import { reportPeriodHref, scopeCaption } from "./report-period";
 
@@ -139,5 +140,26 @@ describe("scopeCaption", () => {
     for (const period of PERIODS) {
       expect(scopeCaption(period)).toMatch(/^Scoped to \S/);
     }
+  });
+
+  // ── a custom window ────────────────────────────────────────────────────────
+  const CUSTOM: ReportPeriod = {
+    kind: "custom",
+    key: "custom:2026-06-12..2026-07-29",
+    label: "12 Jun – 29 Jul 2026",
+    startDay: "2026-06-12",
+    endDay: "2026-07-29",
+  };
+
+  it("captions a custom window by its dates", () => {
+    expect(scopeCaption(CUSTOM)).toBe("Scoped to 12 Jun – 29 Jul 2026");
+  });
+
+  it("keeps a custom label's casing — the all-time lowercasing is NOT general", () => {
+    // ⚠️ The existing rule is unchanged: all-time alone is lowercased because it
+    // is prose. A dated window is a name like any month or quarter, so
+    // lowercasing it here would spread a special case into a general one.
+    expect(scopeCaption(CUSTOM)).toContain(CUSTOM.label);
+    expect(scopeCaption(CUSTOM)).not.toContain("12 jun");
   });
 });

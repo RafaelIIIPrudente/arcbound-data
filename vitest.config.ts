@@ -9,6 +9,24 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // ⚠️ RAISED FOR ONE SPECIFIC COST, NOT BECAUSE TESTS ARE SLOW.
+    //
+    // `date-range-picker.tsx` loads the calendar through a dynamic `import()`,
+    // so that react-day-picker is code-split out of `/r/[token]` — the report a
+    // CLIENT holds, which renders the picker with `allowCustom={false}` and can
+    // never open a calendar. The cost must follow the capability.
+    //
+    // Under a STATIC import, Vite transforms react-day-picker while collecting
+    // the module graph, where no per-test budget applies. A DYNAMIC one defers
+    // that same ~6s transform into whichever test first mounts the picker, and
+    // it lands against the 5s default — three suites failed deterministically
+    // on it. The work is identical either way; only which clock it is billed to
+    // changes. It is paid once per test FILE, not per test.
+    //
+    // So this is headroom for a one-off module transform, and NOT licence for
+    // slow tests. If a test needs seconds of its own, that is a design problem
+    // in the test.
+    testTimeout: 15_000,
     // `supabase/` is included so the script ⇄ migration sync guard can live next
     // to the SQL files it protects (coverage still only measures `src/`).
     include: ["src/**/*.{test,spec}.{ts,tsx}", "supabase/**/*.{test,spec}.ts"],

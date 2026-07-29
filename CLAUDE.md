@@ -84,3 +84,26 @@ The shaping decisions behind the build are
 vocabulary lives in [`CONTEXT.md`](CONTEXT.md); the full requirements are in the
 [SRS](docs/SRS/SPEC.md); the visual language is in the
 [design brief](docs/arcbase-dashboard-design-brief).
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+**The graph is committed, so a fresh clone has it without rebuilding.** Built with
+**graphify 0.9.29** (skill pinned in `.claude/skills/graphify/`) over `src/` and
+`docs/` — 1,914 nodes, 4,211 edges, 107 communities. `graphify-out/cache/` is
+committed too, so re-running `/graphify .` re-extracts the 55 doc/image files for
+**zero tokens**. `graph.html` is NOT committed — regenerate it with
+`graphify export html`.
+
+⚠️ Known limitation, recorded so the graph is not over-trusted: ~11% of raw edges
+(512 of 4,747) were dropped as dangling endpoints, because doc-derived node IDs do
+not always match the IDs the AST extractor generates. Doc→code links are therefore
+lossier than doc→doc and code→code links.
+
+Rules:
+
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

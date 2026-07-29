@@ -1,0 +1,153 @@
+{
+  "nodes": [
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s3_client_tab_handoff",
+      "label": "Handoff \u2014 Outreach System S3: the Outreach client tab",
+      "file_type": "document",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s3_client_tab_outreach_vocab",
+      "label": "outreach-vocab \u2014 canonicalReply / canonicalStage / parseCount",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s3_client_tab_buildoutreachanalytics",
+      "label": "buildOutreachAnalytics \u2014 pure funnel + breakdowns over prospect rows",
+      "file_type": "concept",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s3_client_tab_terminal_stage_counts",
+      "label": "Stage counts are terminal \u2014 the funnel comes from four other columns",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s3_client_tab_unrecognised_disclosed_verbatim",
+      "label": "Unmapped vocabulary values disclosed verbatim, never guessed or bucketed",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_handoffs_2026_07_27_outreach_s3_client_tab_connections_accepted_defect",
+      "label": "Connections-accepted defect \u2014 funnel step derived from Stage index, not Connection Status",
+      "file_type": "rationale",
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_outreach_vocab",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_buildoutreachanalytics",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_buildoutreachanalytics",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_outreach_vocab",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_terminal_stage_counts",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_buildoutreachanalytics",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_unrecognised_disclosed_verbatim",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_outreach_vocab",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_connections_accepted_defect",
+      "target": "docs_handoffs_2026_07_27_outreach_s3_client_tab_buildoutreachanalytics",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_handoff",
+      "target": "docs_handoffs_2026_07_27_outreach_s1_data_model_latestsnapshot_paging",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_handoffs_2026_07_27_outreach_s3_client_tab_terminal_stage_counts",
+      "target": "docs_handoffs_2026_07_25_posting_cadence_no_consistency_score",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/handoffs/2026-07-27-outreach-s3-client-tab.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": []
+}
