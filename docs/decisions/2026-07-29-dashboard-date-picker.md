@@ -377,6 +377,75 @@ formatting on this file.
 byte-equality to the CLI output cannot be proven by anyone. Committing it turns
 that into a diffable baseline. Worth a glance before the operator commits.
 
+## S3 — landed, uncommitted, planner-verified (2026-07-29) — WORKSTREAM COMPLETE
+
+Gate green: exit 0. **1,424 → 1,460 tests (+36)**, still 96 files — S3 extended
+existing suites rather than adding new ones. Planner re-ran `pnpm test`
+independently: **1,460 passed / 96 files**, confirmed not taken on report.
+
+**Bundle — the point of the exercise:**
+
+| Route                  | S2 baseline | S3 static import | S3 shipped (lazy) |
+| ---------------------- | ----------- | ---------------- | ----------------- |
+| `/clients/[id]/report` | 274 kB      | 289 kB           | **269 kB**        |
+| `/clients/[id]/posts`  | 166 kB      | 180 kB           | **160 kB**        |
+| `/r/[token]`           | 271 kB      | 286 kB           | **266 kB**        |
+
+The public route lands 20 kB below the static-import version and **5 kB below
+its own pre-S3 baseline** — it gains a better picker and gets smaller. Verified
+from the build manifest, not inferred from totals: `react-day-picker` lives in
+two chunks and neither appears in the initial payload of `/r/[token]`,
+`/clients/[id]/report`, `/clients/[id]/posts`, or `/`.
+
+**The inclusive/exclusive trap, handled.** `periodRange`'s custom branch converts
+`utcDayBounds`' inclusive `23:59:59.999Z` to the half-open `< end` bound every
+consumer expects, with a ⚠️ comment stating the failure mode it prevents: "the
+posts are read, the count comes back a day short, and nothing errors."
+Planner-verified in source.
+
+**The `allowCustom` boundary, verified at every site:** `posts/page.tsx:66` and
+`report/page.tsx:99` pass it; `public-report.tsx:174` passes `false` explicitly
+under a ⚠️; the prop defaults `false` at `report-period-picker.tsx:34`; two tests
+pin the absence of any calendar or custom affordance in the DOM.
+
+### Three scope notes, all disclosed by the executer rather than hidden
+
+1. **`vitest.config.ts` — `testTimeout: 15_000`. Outside the stated scope.**
+   Cause: a dynamic `import()` moves react-day-picker's ~6s Vite transform out
+   of module collection (no per-test budget) and into whichever test first
+   mounts the picker (5s budget). Same work, different clock, paid once per test
+   FILE. The in-file comment says explicitly that it is headroom for a one-off
+   module transform and **not licence for slow tests**.
+   **Planner assessment: accept, with a known trade-off** — a genuinely hung
+   test now takes 3× longer to fail. A narrower alternative exists (a per-file
+   timeout on the picker suite only) if that ever bites.
+2. **`date-range-picker.tsx` carries a second change beyond the sanctioned lazy
+   import** — a prefetch-on-mount effect. Flagged twice by the executer.
+   Verified gated: `if (allowCustom) void import(...)` (lines 126-128), so it
+   never runs on the public route. It is also the right product behaviour — a
+   staff popover opens instantly instead of showing an empty panel on a cold
+   cache. **Accepted.** No public prop changed; all 25 S1 picker tests pass
+   unmodified, including in isolation.
+3. **`report-cover.tsx` (+13)** was modified — a print surface not named on the
+   literal scope list, but the same category as the `print-report.tsx` entry
+   that was. Noted, not a concern.
+
+### A diagnosis the executer walked back, correctly
+
+They first blamed the 6s transform on `next/dynamic` and switched to
+`React.lazy`. On re-testing, all seven calendar-dependent S1 tests failed **in
+isolation**: `React.lazy` suspends to its fallback and mounts a tick after the
+click, so a synchronous `querySelector` right after `await user.click()` sees
+nothing. They had only re-run the full file, never isolation, and missed it.
+`next/dynamic` settles within the click's own flush and is isolation-clean —
+that is what shipped, and the reason is recorded in the file. Worth keeping:
+**a raised timeout cannot help a synchronous assertion that runs too early.**
+
+## Status: all three slices landed, green, UNCOMMITTED
+
+Everything sits uncommitted on `feat-add-date-picker` at `d0cb3f0`, awaiting the
+operator's review and commit. 1,289 → 1,460 tests across the workstream (+171).
+
 ## Open items carried, not resolved
 
 - The 14-day and 120-day bucketing thresholds (D5) are invented constants,
@@ -404,3 +473,10 @@ that into a diffable baseline. Worth a glance before the operator commits.
   `/r/[token]` does not carry `react-day-picker`). `calendar.tsx` anomaly
   surfaced and assessed benign, with its unprovable-baseline limit stated.
   S3 handoff authored.
+- **v1.6 (2026-07-29)** — **S3 landed green and planner-verified** at 1,460
+  tests (independently re-run, not taken on report). Lazy calendar leaves
+  `/r/[token]` 5 kB SMALLER than before the workstream. `periodRange`'s
+  inclusive→half-open `+1` and the `allowCustom` boundary both verified in
+  source. Three disclosed scope notes accepted, one with a stated trade-off
+  (`vitest.config.ts` timeout). **Workstream complete; all three slices
+  uncommitted on `feat-add-date-picker` awaiting review.**
