@@ -1,6 +1,17 @@
 import type { Kpi } from "@/services/types";
 
+/**
+ * The ▲/▼ chip, or NOTHING when there is no prior period to compare against.
+ *
+ * ⚠️ ABSENCE IS THE THIRD STATE, AND IT RENDERS AS ABSENCE. `delta: 0` is a real
+ * comparison that came out flat and still draws a chip; `delta: null` means no
+ * comparable prior period exists at all (today: all-time). Drawing "0%" there
+ * would claim the figure held steady against a period that never existed, and
+ * drawing "—" would borrow this repo's reserved sign for "we tried to compute
+ * this and could not" — a different statement again. So: no chip.
+ */
 function Delta({ kpi }: { kpi: Kpi }) {
+  if (kpi.delta === null || kpi.direction === null) return null;
   // The comp renders deltas in the accent colour for both directions; the
   // ▲/▼ glyph carries the direction visually, and an sr-only word carries it
   // for assistive tech — direction is never conveyed by colour alone.
@@ -47,9 +58,14 @@ export function KpiCards({
             <Delta kpi={hero} />
           </div>
         </div>
-        <div className="mt-3 font-mono text-[11px] tracking-wide text-muted-foreground">
-          vs. prior {rangeLabel}
-        </div>
+        {/* Dropped entirely when there is no prior period: naming one ("vs.
+            prior all time") would assert a comparison the figures do not carry.
+            Keyed off the hero's own delta, the same signal the chip uses. */}
+        {hero.delta === null ? null : (
+          <div className="mt-3 font-mono text-[11px] tracking-wide text-muted-foreground">
+            vs. prior {rangeLabel}
+          </div>
+        )}
       </div>
 
       {kpis.map((kpi) => (

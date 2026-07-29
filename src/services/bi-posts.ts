@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { utcDayBounds } from "@/lib/date-range";
 import { asPage, readAllPages, type PagedRead, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
 import { effectiveMs, type BiPostRow } from "@/services/analytics";
@@ -88,6 +89,18 @@ export function periodRange(period: ReportPeriod): { start: number; end: number 
     }
     case "year":
       return { start: Date.UTC(period.year, 0, 1), end: Date.UTC(period.year + 1, 0, 1) };
+    case "custom": {
+      // ⚠️ INCLUSIVE END → HALF-OPEN BOUND, AND THE `+ 1` IS THE WHOLE POINT.
+      // `utcDayBounds` closes a day at 23:59:59.999Z INCLUSIVELY, while every
+      // consumer of this function filters `ms < end`. Returning that instant
+      // directly would make the last day of a custom range vanish: the posts are
+      // read, the count comes back a day short, and nothing errors. Adding a
+      // millisecond lands exactly on the next day's midnight — the same
+      // exclusive boundary the month, quarter and year branches already return.
+      const { startMs } = utcDayBounds(period.startDay);
+      const { endMs } = utcDayBounds(period.endDay);
+      return { start: startMs, end: endMs + 1 };
+    }
     case "all":
       return { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY };
   }

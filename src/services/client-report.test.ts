@@ -277,6 +277,74 @@ describe("parseReportPeriod (pure)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// A CUSTOM PERIOD IS COMPOSED FROM THE URL, NOT ENUMERATED FROM THE DATA.
+//
+// Every other member of `ReportPeriod` appears in `availablePeriods`, so
+// `parseReportPeriod` resolves it by exact key match. A custom window never
+// does — it is whatever two days staff picked — so it has to be DECODED before
+// that match runs, and the existing fallback has to survive underneath.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("parseReportPeriod — a custom window", () => {
+  it("decodes a valid custom token that is NOT in available", () => {
+    const periods = availablePeriods(HISTORY);
+    const period = parseReportPeriod("custom:2026-06-12..2026-07-29", periods);
+
+    expect(period.kind).toBe("custom");
+    expect(period).toMatchObject({
+      key: "custom:2026-06-12..2026-07-29",
+      startDay: "2026-06-12",
+      endDay: "2026-07-29",
+    });
+    // Never smuggled into the option list — the picker enumerates that.
+    expect(periods.some((p) => p.kind === "custom")).toBe(false);
+  });
+
+  it("labels the window in the report's own title case, not the picker's caps", () => {
+    // `scopeCaption` and the chart scope render `label` verbatim, and the
+    // existing rule is that period labels are proper nouns — NOT lowercased,
+    // and not the trigger's shouty form either.
+    const period = parseReportPeriod("custom:2026-06-12..2026-07-29", availablePeriods(HISTORY));
+    expect(period.label).toBe("12 Jun – 29 Jul 2026");
+  });
+
+  it("states a cross-year window's two years, and a single day once", () => {
+    const periods = availablePeriods(HISTORY);
+    expect(parseReportPeriod("custom:2025-12-30..2026-01-05", periods).label).toBe(
+      "30 Dec 2025 – 5 Jan 2026",
+    );
+    expect(parseReportPeriod("custom:2026-07-29..2026-07-29", periods).label).toBe("29 Jul 2026");
+  });
+
+  it("KEEPS THE EXISTING FALLBACK for a token it cannot decode", () => {
+    // ⚠️ The fallback is unchanged: newest month with data, never a guess and
+    // never a clamp. Each of these is a URL somebody can type.
+    const periods = availablePeriods(HISTORY);
+    for (const token of [
+      "custom:",
+      "custom:garbage",
+      "custom:2026-07-29..2026-06-12", // inverted
+      "custom:2026-13-01..2026-12-31", // not a calendar day
+      "custom:2026-6-12..2026-07-29", // unpadded
+      "2026-06-12..2026-07-29", // the DASHBOARD's dialect, not this one
+    ]) {
+      expect(parseReportPeriod(token, periods).key, token).toBe("2026-07");
+    }
+  });
+
+  it("still falls back to all-time for an undecodable token when no month has data", () => {
+    expect(parseReportPeriod("custom:nope", availablePeriods([])).key).toBe("all");
+  });
+
+  it("does not let a custom token shadow a real available period", () => {
+    // A named key must still win by exact match; decoding runs first but only
+    // recognises the `custom:` dialect.
+    const periods = availablePeriods(HISTORY);
+    expect(parseReportPeriod("2026-06", periods).kind).toBe("month");
+    expect(parseReportPeriod("all", periods).kind).toBe("all");
+  });
+});
+
 describe("period scoping — what the picker moves, and what it deliberately does not", () => {
   // ⚠️ THIS DOCUMENTS A DELIBERATE DESIGN, NOT A BUG.
   //
@@ -1491,5 +1559,133 @@ describe("buildClientReport — the raw connection count", () => {
 
     expect(busy).toBe(5000);
     expect(quiet).toBe(5000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A CUSTOM PERIOD ACROSS THE WHOLE REPORT.
+//
+// The picker governs the page, so a custom window rescopes everything a named
+// period rescopes — and rescopes NOTHING that is pinned to all time by design.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("buildClientReport — a custom period", () => {
+  const NOW_C = new Date("2026-07-29T12:00:00.000Z");
+
+  const buildC = (rows: BiPostRow[], key: string | undefined) => {
+    const periods = availablePeriods(rows);
+    return buildClientReport(rows, new Map(), {
+      period: parseReportPeriod(key, periods),
+      now: NOW_C,
+      followers: 1000,
+      connections: null,
+      availablePeriods: periods,
+    });
+  };
+
+  // May, Jun, Jul — so a window can genuinely include some and exclude others.
+  // Impressions are non-zero on purpose: a bucket holding a post with ZERO
+  // impressions is a measured 0, which must stay distinguishable from a bucket
+  // holding no posts at all (`null`). A fixture of zeroes cannot tell them apart.
+  const SPREAD = [
+    row({
+      linkedin_post_id: "may1",
+      estimated_post_date: "2026-05-10",
+      impressions: 5000,
+      interactions: 500,
+    }),
+    row({
+      linkedin_post_id: "jun1",
+      estimated_post_date: "2026-06-20",
+      impressions: 1000,
+      interactions: 100,
+    }),
+    row({
+      linkedin_post_id: "jul1",
+      estimated_post_date: "2026-07-10",
+      impressions: 100,
+      interactions: 10,
+    }),
+    row({
+      linkedin_post_id: "jul2",
+      estimated_post_date: "2026-07-29",
+      impressions: 200,
+      interactions: 20,
+    }),
+  ];
+
+  it("scopes the hero figures to the chosen window", () => {
+    // 12 Jun – 29 Jul takes jun1, jul1 and jul2 — not may1.
+    const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    expect(r.keyPerformance.selected.map((f) => [f.label, f.value])).toEqual([
+      ["Total posts", 3],
+      ["Avg interactions", 43.3],
+      ["Total interactions", 130],
+    ]);
+  });
+
+  it("INCLUDES a post on the window's last day — the boundary, end to end", () => {
+    // jul2 sits ON 29 July. If the inclusive→half-open conversion in
+    // `periodRange` were dropped, this post would vanish from the report and
+    // "Total posts" would read 2 with nothing to indicate a post was lost.
+    const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    expect(r.keyPerformance.selected[0]!.value).toBe(3);
+
+    const excludingLastDay = buildC(SPREAD, "custom:2026-06-12..2026-07-28");
+    expect(excludingLastDay.keyPerformance.selected[0]!.value).toBe(2);
+  });
+
+  it("leaves the ALL-TIME figures untouched, exactly as a named period does", () => {
+    // ⚠️ PINNED TO ALL TIME BY DESIGN (types.ts): totalPostsAllTime, BOTH matrix
+    // rows, perThousandFollowers, and the allTime comparison row. A custom
+    // window changes none of them.
+    const custom = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    const all = buildC(SPREAD, "all");
+
+    expect(custom.totalPostsAllTime).toBe(all.totalPostsAllTime);
+    expect(custom.keyPerformance.matrix).toEqual(all.keyPerformance.matrix);
+    expect(custom.keyPerformance.perThousandFollowers).toEqual(
+      all.keyPerformance.perThousandFollowers,
+    );
+    expect(custom.interactionsComparison.find((r) => r.scope === "allTime")).toEqual(
+      all.interactionsComparison.find((r) => r.scope === "allTime"),
+    );
+  });
+
+  it("buckets a LONG window by month, and says so", () => {
+    // 1 Jan – 29 Jul is 210 days → past bucketPlan's 120-day weekly ceiling.
+    const r = buildC(SPREAD, "custom:2026-01-01..2026-07-29");
+    expect(r.impressionsBucket).toBe("month");
+  });
+
+  it("buckets a SHORT window by week, and says so", () => {
+    // 12 Jun – 29 Jul is 48 days → weekly under the same rule the dashboard uses.
+    const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    expect(r.impressionsBucket).toBe("week");
+  });
+
+  it("⚠️ TITLE FOLLOWS THE DATA: the bucket it names is the bucket it drew", () => {
+    // The card renders "Average impressions by {bucket}". A series bucketed one
+    // way and labelled another is a caption that lies about its own chart.
+    const weekly = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    const monthly = buildC(SPREAD, "custom:2026-01-01..2026-07-29");
+
+    // 48 days at 7-day buckets = 7 points; Jan–Jul is 7 calendar months.
+    expect(weekly.impressionsBucket).toBe("week");
+    expect(weekly.impressionsSeries).toHaveLength(7);
+    expect(monthly.impressionsBucket).toBe("month");
+    expect(monthly.impressionsSeries.length).toBeLessThan(weekly.impressionsSeries.length + 7);
+  });
+
+  it("renders an empty bucket as a GAP, never as a measured zero", () => {
+    // ⚠️ The report's own rule (monthSeries): a bucket with no posts is `null`.
+    // A 0 would read as "we posted and got no reach", which is a different fact.
+    const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    expect(r.impressionsSeries.some((p) => p.value === null)).toBe(true);
+    expect(r.impressionsSeries.every((p) => p.value !== 0)).toBe(true);
+  });
+
+  it("labels weekly buckets by the day they open", () => {
+    const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
+    expect(r.impressionsSeries[0]!.label).toBe("12 Jun");
   });
 });

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { bucketLabel, bucketPlan, resolveWindow, type RangeSelection } from "@/lib/date-range";
 import { median } from "@/lib/median";
 import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +11,6 @@ import type {
   ClientComparisonRow,
   ComparisonMedian,
   DashboardAnalytics,
-  DashboardRange,
   Kpi,
   RecentPost,
   SeriesPoint,
@@ -48,16 +48,13 @@ export interface BiPostRow {
   uploaded_at: string | null;
 }
 
-/** Human label for the "vs. prior …" copy and the chart caption. */
-export const RANGE_LABEL: Record<DashboardRange, string> = {
-  "7d": "7 days",
-  "30d": "30 days",
-  "90d": "90 days",
-};
-
-const RANGE_DAYS: Record<DashboardRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
-// Series buckets per range: daily / weekly / monthly (approximate).
-const RANGE_BUCKETS: Record<DashboardRange, number> = { "7d": 7, "30d": 5, "90d": 3 };
+// `RANGE_LABEL`, `RANGE_DAYS` and `RANGE_BUCKETS` are RETIRED, and the three
+// preset strings with them. The window, its baseline and its bucketing all now
+// come from `@/lib/date-range`, so a preset and a custom range of the same
+// length are drawn and compared identically — `RANGE_BUCKETS` was a fixed bucket
+// COUNT per preset, which cannot describe an arbitrary window at all. The
+// "vs. prior …" copy is `spanLabel`, whose preset output ("30 days") is
+// byte-identical to what `RANGE_LABEL` produced.
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -65,7 +62,7 @@ const DAY_MS = 86_400_000;
 
 export interface DashboardOptions {
   clientId?: string;
-  range: DashboardRange;
+  range: RangeSelection;
   /**
    * The client roster, already being read by the caller for something else (the
    * Dashboard reads it for its filter dropdown). Passed in so the all-clients
@@ -147,8 +144,18 @@ function sumOf(rows: BiPostRow[], pick: (r: BiPostRow) => number | null): number
   return rows.reduce((s, r) => s + num(pick(r)), 0);
 }
 
-/** A KPI from a current sum vs a prior sum: magnitude %Δ + up/down. */
-function toKpi(label: string, current: number, prior: number): Kpi {
+/**
+ * A KPI from a current sum vs a prior sum: magnitude %Δ + up/down.
+ *
+ * ⚠️ `prior === null` MEANS NO PRIOR WINDOW EXISTS, WHICH IS NOT `prior === 0`.
+ * All-time has nothing before it to compare against, so the delta is absent and
+ * the render site draws no chip. A prior window that EXISTS and happens to sum
+ * to zero is a real comparison and keeps its "grew from nothing" 100% exactly as
+ * before — the two must never collapse into one branch.
+ */
+function toKpi(label: string, current: number, prior: number | null): Kpi {
+  if (prior === null) return { label, value: current, delta: null, direction: null };
+
   let delta = 0;
   let direction: "up" | "down" = "up";
   if (prior > 0) {
@@ -214,53 +221,70 @@ function formatSync(ms: number): string {
  */
 export function currentWindow(
   rows: BiPostRow[],
-  { range, now }: { range: DashboardRange; now: Date },
+  { range, now }: { range: RangeSelection; now: Date },
 ): BiPostRow[] {
-  const nowMs = now.getTime();
-  const currentStart = nowMs - RANGE_DAYS[range] * DAY_MS;
+  // `startMs` is -Infinity for all time, which needs no special case here: every
+  // datable row is `>= -Infinity`. `endMs` is INCLUSIVE.
+  const { startMs, endMs } = resolveWindow(range, now);
   return rows.filter((r) => {
     const t = effectiveMs(r);
-    return t !== null && t >= currentStart && t <= nowMs;
+    return t !== null && t >= startMs && t <= endMs;
   });
 }
 
 export function buildDashboardAnalytics(
   rows: BiPostRow[],
-  { range, now }: { range: DashboardRange; now: Date },
+  { range, now }: { range: RangeSelection; now: Date },
 ): DashboardAnalytics {
-  const days = RANGE_DAYS[range];
   const nowMs = now.getTime();
-  const currentStart = nowMs - days * DAY_MS;
-  const priorStart = nowMs - 2 * days * DAY_MS;
+  const { startMs, spanDays, priorStartMs, priorEndMs } = resolveWindow(range, now);
 
   const current = currentWindow(rows, { range, now });
-  const prior = rows.filter((r) => {
-    const t = effectiveMs(r);
-    return t !== null && t >= priorStart && t < currentStart;
-  });
+
+  /**
+   * The baseline set, or `null` when there is NO COMPARABLE PRIOR WINDOW.
+   *
+   * ⚠️ NULL AND EMPTY-ARRAY ARE DIFFERENT ANSWERS HERE. `[]` is a prior window
+   * that exists and held no posts — a real comparison, which `toKpi` reads as
+   * "grew from nothing". `null` is all-time, which has nothing before it at all.
+   * Collapsing the two would print "▲ 100%" on every all-time KPI.
+   */
+  const prior =
+    priorStartMs === null || priorEndMs === null
+      ? null
+      : rows.filter((r) => {
+          const t = effectiveMs(r);
+          // Half-open at the top, so the two windows partition without overlap:
+          // `priorEndMs` IS `startMs`, not the millisecond before it.
+          return t !== null && t >= priorStartMs && t < priorEndMs;
+        });
+
+  /** Sum a column over the baseline, or `null` when there is no baseline. */
+  const priorSum = (pick: (r: BiPostRow) => number | null): number | null =>
+    prior === null ? null : sumOf(prior, pick);
 
   const empty = current.length === 0;
 
   const hero = toKpi(
     "Impressions",
     sumOf(current, (r) => r.impressions),
-    sumOf(prior, (r) => r.impressions),
+    priorSum((r) => r.impressions),
   );
   const kpis: Kpi[] = [
     // Publishing VOLUME leads the row: it is the number of posts the engagement
     // outputs below were earned on. A count, not a sum — `toKpi` takes two numbers
     // and carries the same vs-prior delta every other KPI does. `current.length`
     // is `totalPosts` by construction, so the KPI and the header caption agree.
-    toKpi("Posts", current.length, prior.length),
+    toKpi("Posts", current.length, prior === null ? null : prior.length),
     toKpi(
       "Likes",
       sumOf(current, (r) => r.likes),
-      sumOf(prior, (r) => r.likes),
+      priorSum((r) => r.likes),
     ),
     toKpi(
       "Comments",
       sumOf(current, (r) => r.comments),
-      sumOf(prior, (r) => r.comments),
+      priorSum((r) => r.comments),
     ),
     toKpi(
       // `reposts` in the view; ALWAYS "Shares" to staff. This KPI was the lone
@@ -269,47 +293,68 @@ export function buildDashboardAnalytics(
       // names and had no way to know it was one metric.
       "Shares",
       sumOf(current, (r) => r.reposts),
-      sumOf(prior, (r) => r.reposts),
+      priorSum((r) => r.reposts),
     ),
     toKpi(
       "Saves",
       sumOf(current, (r) => r.saves),
-      sumOf(prior, (r) => r.saves),
+      priorSum((r) => r.saves),
     ),
   ];
 
   const currentRate = weightedRate(current);
   const engagement = {
     value: round1(currentRate),
-    delta: round1(currentRate - weightedRate(prior)),
+    // Null for the same reason every KPI delta is: a "+0pt" chip against a
+    // period that does not exist reads as "unchanged", which is a claim.
+    delta: prior === null ? null : round1(currentRate - weightedRate(prior)),
   };
 
-  // Bucket the current window (impressions summed; engagement = weighted rate).
-  const bucketCount = RANGE_BUCKETS[range];
-  const spanMs = (days * DAY_MS) / bucketCount;
-  const impr = new Array<number>(bucketCount).fill(0);
-  const inter = new Array<number>(bucketCount).fill(0);
-  for (const r of current) {
-    // Non-null by construction: `current` is filtered on effectiveMs !== null.
-    const t = effectiveMs(r)!;
-    const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((t - currentStart) / spanMs)));
-    impr[idx]! += num(r.impressions);
-    inter[idx]! += num(r.interactions);
+  // ── the series ─────────────────────────────────────────────────────────────
+  //
+  // ⚠️ ALL TIME HAS NO SPAN OF ITS OWN, AND `bucketPlan` THROWS ON THE INFINITY
+  // IT REPORTS. That throw is deliberate (date-range.ts): an infinite bucket
+  // count is not a drawable answer, and inventing a finite one would be a
+  // fabricated axis. So all-time measures the span the DATA actually covers —
+  // its earliest post through `now` — and buckets that. With no posts there is
+  // no span at all, and the honest series is EMPTY: a zero-height bar over an
+  // invented date range would assert a period was observed and found silent.
+  const earliestMs = current.length > 0 ? Math.min(...current.map((r) => effectiveMs(r)!)) : null;
+  const seriesStart = Number.isFinite(startMs) ? startMs : earliestMs;
+  const seriesSpanDays = Number.isFinite(spanDays)
+    ? spanDays
+    : earliestMs === null
+      ? null
+      : // Both endpoints count, and a window that opened today is still one day.
+        Math.max(1, Math.ceil((nowMs - earliestMs) / DAY_MS));
+
+  let impressionsSeries: SeriesPoint[] = [];
+  let engagementSeries: SeriesPoint[] = [];
+
+  if (seriesStart !== null && seriesSpanDays !== null) {
+    const plan = bucketPlan(seriesSpanDays);
+    const impr = new Array<number>(plan.count).fill(0);
+    const inter = new Array<number>(plan.count).fill(0);
+    for (const r of current) {
+      // Non-null by construction: `current` is filtered on effectiveMs !== null.
+      const t = effectiveMs(r)!;
+      const idx = Math.min(
+        plan.count - 1,
+        Math.max(0, Math.floor((t - seriesStart) / plan.widthMs)),
+      );
+      impr[idx]! += num(r.impressions);
+      inter[idx]! += num(r.interactions);
+    }
+    // Labelled by the DAY a bucket opens, from `bucketLabel` — never "Wk N",
+    // which cannot name an arbitrary window, and never a weekday name, which
+    // repeats after seven bars.
+    const labelAt = (i: number) => bucketLabel(plan.unit, seriesStart + i * plan.widthMs);
+    impressionsSeries = impr.map((v, i) => ({ label: labelAt(i), value: Math.round(v) }));
+    engagementSeries = inter.map((v, i) => ({
+      label: labelAt(i),
+      value: impr[i]! > 0 ? round1((v / impr[i]!) * 100) : 0,
+    }));
   }
-  const bucketLabel = (i: number): string => {
-    const start = new Date(currentStart + i * spanMs);
-    if (range === "7d") return WEEKDAYS[start.getUTCDay()]!;
-    if (range === "90d") return MONTHS[start.getUTCMonth()]!;
-    return `Wk ${i + 1}`;
-  };
-  const impressionsSeries: SeriesPoint[] = impr.map((v, i) => ({
-    label: bucketLabel(i),
-    value: Math.round(v),
-  }));
-  const engagementSeries: SeriesPoint[] = inter.map((v, i) => ({
-    label: bucketLabel(i),
-    value: impr[i]! > 0 ? round1((v / impr[i]!) * 100) : 0,
-  }));
 
   // Recent posts: newest first by estimated_post_date (fallback scraped_at).
   const recentPosts: RecentPost[] = empty
@@ -576,19 +621,23 @@ const BI_LABEL = "bi.linkedin_post_latest";
  */
 function dashboardPageReader(
   clientId: string | undefined,
-  boundIso: string,
+  boundIso: string | null,
 ): PageReader<BiPostRow> {
   let supabase: ReturnType<typeof createClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createClient(cookies());
     const base = supabase.schema("bi").from("linkedin_post_latest").select(SELECT_COLUMNS, opts);
     const scoped = clientId ? base.eq("client_id", clientId) : base;
+    // ⚠️ A NULL BOUND IS "NO FLOOR", NOT "A FLOOR AT ZERO". All-time drops the
+    // clause entirely rather than passing an epoch or a stringified -Infinity,
+    // either of which would be a date this code invented.
+    const bounded =
+      boundIso === null
+        ? scoped
+        : // Keeps null-dated hour-age posts so they can still appear in "recent posts".
+          scoped.or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`);
     return asPage<BiPostRow>(
-      scoped
-        // Keeps null-dated hour-age posts so they can still appear in "recent posts".
-        .or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`)
-        .order("linkedin_post_id", { ascending: true })
-        .range(from, to),
+      bounded.order("linkedin_post_id", { ascending: true }).range(from, to),
     );
   };
 }
@@ -599,11 +648,18 @@ export async function getDashboardAnalytics({
   registry,
 }: DashboardOptions): Promise<DashboardAnalytics> {
   const now = new Date();
-  // Bound to the largest window needed (current + prior = 2N days), but keep
-  // null-dated hour-age posts so they can appear in "recent posts".
-  const boundIso = new Date(now.getTime() - 2 * RANGE_DAYS[range] * DAY_MS)
-    .toISOString()
-    .slice(0, 10);
+  // ⚠️ LOWER BOUND ONLY — NEVER AN UPPER ONE. The floor is the PRIOR window's
+  // start, which is the earliest instant any figure on the screen needs; for a
+  // preset that is still `now − 2N days`, so this generalises the old rule
+  // rather than replacing it. A window that ENDS in the past (only a custom one
+  // can) would read nothing at all under the old `now − 2 × span` floor.
+  //
+  // No upper bound is added, because the `.or(… is.null)` clause deliberately
+  // keeps null-dated hour-age posts for `effectiveMs` to window by `scraped_at`,
+  // and an upper bound would interact badly with it. Rows past the window's end
+  // are filtered in memory by `currentWindow`, which is correct and cheap.
+  const { priorStartMs } = resolveWindow(range, now);
+  const boundIso = priorStartMs === null ? null : new Date(priorStartMs).toISOString().slice(0, 10);
 
   const { rows, unavailable, truncated, total } = await readAllPages(
     dashboardPageReader(clientId, boundIso),

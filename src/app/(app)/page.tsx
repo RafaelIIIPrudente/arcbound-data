@@ -6,21 +6,52 @@ import {
   AnalyticsUnavailable,
 } from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientComparisonTable } from "@/components/dashboard/analytics/client-comparison";
-import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-filters";
+import { DashboardFilters, PRESET_DAYS } from "@/components/dashboard/analytics/dashboard-filters";
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
 import { KpiCards } from "@/components/dashboard/analytics/kpi-cards";
 import { WeekdayImpressionsChart } from "@/components/dashboard/analytics/weekday-impressions-chart";
 import { Button } from "@/components/ui/button";
+import {
+  decodeRange,
+  encodeRange,
+  spanLabel,
+  utcDayBounds,
+  type RangeSelection,
+} from "@/lib/date-range";
 import { paths } from "@/paths";
-import { getDashboardAnalytics, RANGE_LABEL } from "@/services/analytics";
+import { getDashboardAnalytics } from "@/services/analytics";
 import { listClientRegistry } from "@/services/clients";
-import type { DashboardRange } from "@/services/types";
 
 export const metadata: Metadata = { title: "Post analytics" };
 
-function normalizeRange(value?: string): DashboardRange {
-  return value === "7d" || value === "30d" || value === "90d" ? value : "30d";
+const DEFAULT_SELECTION: RangeSelection = { kind: "preset", days: 30 };
+
+/**
+ * The `?range=` token as a window, or the default.
+ *
+ * ⚠️ THIS IS THE ONLY GATE ON A FUTURE-ENDING WINDOW, AND IT REFUSES RATHER THAN
+ * CLAMPS. The picker cannot produce one; a hand-edited URL can. `resolveWindow`
+ * deliberately does not clamp either — trimming the window to today while it
+ * still baselines against the full DECLARED span would compare a short period
+ * against a long one and report the shortfall as a change. Falling back to the
+ * default is the only reading that invents nothing.
+ *
+ * Not exported: Next rejects arbitrary named exports from a page module. Its
+ * branches are covered through the page itself in page.test.tsx, which asserts
+ * the window actually handed to the analytics seam.
+ */
+function normalizeRange(value: string | undefined, now: Date): RangeSelection {
+  if (value === undefined) return DEFAULT_SELECTION;
+  // `decodeRange` already refuses unknown presets, malformed days, inverted
+  // ranges and the report's `custom:` dialect — it returns null, never a guess.
+  const decoded = decodeRange(value, PRESET_DAYS);
+  if (decoded === null) return DEFAULT_SELECTION;
+  if (decoded.kind !== "custom") return decoded;
+  // The day boundary is UTC, matching the windowing — on a UTC+8 dev machine a
+  // local reading would accept tomorrow-in-UTC for most of the working day.
+  const today = utcDayBounds(new Date(now.getTime()).toISOString().slice(0, 10));
+  return utcDayBounds(decoded.endDay).startMs > today.startMs ? DEFAULT_SELECTION : decoded;
 }
 
 export default async function DashboardPage({
@@ -29,7 +60,11 @@ export default async function DashboardPage({
   searchParams: Promise<{ client?: string; range?: string }>;
 }) {
   const { client, range: rawRange } = await searchParams;
-  const range = normalizeRange(rawRange);
+  // One clock for the whole render: the decoder's "is this in the future?" test,
+  // the calendar's disabled days and the caption all read the same instant.
+  const now = new Date();
+  const range = normalizeRange(rawRange, now);
+  const rangeLabel = spanLabel(range, now);
   const clientId = client && client !== "all" ? client : undefined;
 
   // The client book is read ONCE per request. The filter needs only id + name,
@@ -64,7 +99,16 @@ export default async function DashboardPage({
             {analytics.totalPosts.toLocaleString()} posts · last sync {analytics.lastSync}
           </p>
         </div>
-        <DashboardFilters clients={clients} client={client ?? "all"} range={range} />
+        <DashboardFilters
+          clients={clients}
+          client={client ?? "all"}
+          // ⚠️ THE NORMALISED SELECTION, NOT THE RAW PARAM. A token the decoder
+          // refused (`?range=garbage`, or a window ending next month) would
+          // otherwise sit in the trigger while the screen below renders the
+          // default — the control claiming a window nobody is looking at.
+          range={encodeRange(range)}
+          today={now}
+        />
       </div>
 
       {analytics.unavailable ? (
@@ -80,9 +124,9 @@ export default async function DashboardPage({
               total={analytics.truncation.total}
             />
           ) : null}
-          <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={RANGE_LABEL[range]} />
+          <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={rangeLabel} />
           <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">
-            <ImpressionsChart data={analytics.impressionsSeries} rangeLabel={RANGE_LABEL[range]} />
+            <ImpressionsChart data={analytics.impressionsSeries} rangeLabel={rangeLabel} />
             <EngagementChart
               data={analytics.engagementSeries}
               value={analytics.engagement.value}
@@ -95,7 +139,7 @@ export default async function DashboardPage({
               excluded undated ones. */}
           <WeekdayImpressionsChart
             data={analytics.impressionsByWeekday}
-            rangeLabel={RANGE_LABEL[range]}
+            rangeLabel={rangeLabel}
             datedPosts={analytics.totalPosts - analytics.weekdayUndatedPosts}
             undatedPosts={analytics.weekdayUndatedPosts}
           />

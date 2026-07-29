@@ -1,3 +1,4 @@
+import { bucketLabel, bucketPlan, decodeRange } from "@/lib/date-range";
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
 import { estMs, type BiPostRow } from "@/services/analytics";
 import { buildCadence } from "@/services/cadence";
@@ -154,15 +155,65 @@ export function availablePeriods(rows: BiPostRow[]): ReportPeriod[] {
   ];
 }
 
+/** The prefix that keeps a custom window from colliding with a named period key. */
+const CUSTOM_PREFIX = "custom:";
+
+/**
+ * A custom window's label — the only string staff ever read for it.
+ *
+ * Read straight off the day STRINGS rather than through a `Date`: these are
+ * calendar days, not instants, and parsing them into a Date only to read the
+ * parts back is how a UTC+8 machine renders "12 Jun" as "11 Jun".
+ *
+ * Title case, matching every other period label. `scopeCaption`'s existing rule
+ * is that labels are proper nouns and are NOT lowercased — all-time alone is
+ * prose — so this must not borrow the picker trigger's uppercase form.
+ */
+function customPeriodLabel(startDay: string, endDay: string): string {
+  const part = (day: string) => {
+    const [y, m, d] = day.split("-") as [string, string, string];
+    return { y, month: SHORT_MONTHS[Number(m) - 1]!, d: String(Number(d)) };
+  };
+  const a = part(startDay);
+  const b = part(endDay);
+
+  if (startDay === endDay) return `${b.d} ${b.month} ${b.y}`;
+  // The year is repeated only when the window crosses one, where printing it
+  // once would attach the wrong year to the opening date.
+  if (a.y !== b.y) return `${a.d} ${a.month} ${a.y} – ${b.d} ${b.month} ${b.y}`;
+  return `${a.d} ${a.month} – ${b.d} ${b.month} ${b.y}`;
+}
+
 /**
  * Resolve a URL `period` value against what the data supports. An unknown or
  * absent value falls back to the most recent MONTH with data (the report's most
  * useful default), and to all-time only when there is no month at all.
+ *
+ * ⚠️ THE CUSTOM DECODE RUNS FIRST, AND MUST. A custom window is composed from
+ * the URL rather than enumerated from the data, so it is NEVER in `available`
+ * and the key match below could not possibly find it. `decodeRange` returns null
+ * — never a guess — for a malformed day, an inverted range or the dashboard's
+ * unprefixed dialect, and every one of those then falls through to the fallback
+ * below EXACTLY as before.
  */
 export function parseReportPeriod(
   value: string | undefined,
   available: ReportPeriod[],
 ): ReportPeriod {
+  if (value !== undefined) {
+    // `[]` for presets: this surface offers named periods, not day-counts, so
+    // "30d" is not a period here and must not decode into one.
+    const decoded = decodeRange(value, [], CUSTOM_PREFIX);
+    if (decoded?.kind === "custom") {
+      return {
+        kind: "custom",
+        key: value,
+        label: customPeriodLabel(decoded.startDay, decoded.endDay),
+        startDay: decoded.startDay,
+        endDay: decoded.endDay,
+      };
+    }
+  }
   const match = value ? available.find((p) => p.key === value) : undefined;
   if (match) return match;
   // `available` is already newest-first within each kind.
@@ -239,6 +290,50 @@ function monthSeries(dated: PlacedRow[]): MonthPoint[] {
     }
   }
   return points;
+}
+
+/** Calendar days a custom window covers, counting BOTH endpoints. */
+function periodSpanDays(period: Extract<ReportPeriod, { kind: "custom" }>): number {
+  const { start, end } = periodRange(period);
+  // `end` is already the exclusive next-day boundary, so this is a whole number
+  // of days without an off-by-one of its own.
+  return Math.round((end - start) / 86_400_000);
+}
+
+/**
+ * Average impressions per FIXED-WIDTH bucket across an arbitrary window.
+ *
+ * `weekSeries` cannot serve this: it tiles ONE calendar month by day-of-month
+ * blocks and needs a year and a month, which a custom window does not have.
+ * This walks the window itself, at the width `bucketPlan` chose, labelling each
+ * bucket with S1's `bucketLabel` so the axis reads the same as the dashboard's.
+ *
+ * ⚠️ AN EMPTY BUCKET IS `null`, NOT `0` — the report's own rule, and the reason
+ * this cannot just reuse the dashboard's series builder, which fills empties
+ * with zero. A zero here reads as "we posted and got no reach", which is a
+ * different fact from "we did not post".
+ */
+function windowSeries(
+  dated: PlacedRow[],
+  period: Extract<ReportPeriod, { kind: "custom" }>,
+): MonthPoint[] {
+  const { start } = periodRange(period);
+  const plan = bucketPlan(periodSpanDays(period));
+  // The report has no daily tier, so a short window is drawn at week width —
+  // matching the `impressionsBucket` the card titles itself with.
+  const widthMs = plan.unit === "day" ? 7 * 86_400_000 : plan.widthMs;
+  const count = Math.ceil((periodSpanDays(period) * 86_400_000) / widthMs);
+
+  const buckets: number[][] = Array.from({ length: count }, () => []);
+  for (const { row, ms } of dated) {
+    const index = Math.min(Math.max(Math.floor((ms - start) / widthMs), 0), count - 1);
+    buckets[index]!.push(num(row.impressions));
+  }
+
+  return buckets.map((bucket, i) => ({
+    label: bucketLabel(plan.unit === "day" ? "week" : plan.unit, start + i * widthMs),
+    value: bucket.length > 0 ? mean(bucket) : null,
+  }));
 }
 
 /**
@@ -391,11 +486,29 @@ export function buildClientReport(
   // Granularity follows the period: a month bucketed by month is a single bar,
   // so a month period buckets by WEEK. `impressionsBucket` travels with the data
   // so the card can title itself honestly rather than always claiming "month".
-  const impressionsBucket: ImpressionsBucket = period.kind === "month" ? "week" : "month";
+  //
+  // ⚠️ A CUSTOM WINDOW CHOOSES ITS GRANULARITY FROM ITS SPAN, via the SAME
+  // `bucketPlan` the dashboard uses — not a third scheme invented here. The one
+  // adaptation: this report renders two granularities ("week" | "month"), while
+  // `bucketPlan` also has a "day" tier, so a plan of "day" is drawn at the next
+  // tier up. That keeps the card's "Average impressions by {bucket}" title true
+  // of the bars beneath it, which is the binding rule on that component.
+  const customPlan = period.kind === "custom" ? bucketPlan(periodSpanDays(period)) : null;
+  const impressionsBucket: ImpressionsBucket = customPlan
+    ? customPlan.unit === "month"
+      ? "month"
+      : "week"
+    : period.kind === "month"
+      ? "week"
+      : "month";
   const impressionsSeries =
-    period.kind === "month"
-      ? weekSeries(selectedPlaceable, period.year, period.month)
-      : monthSeries(selectedPlaceable);
+    period.kind === "custom"
+      ? impressionsBucket === "month"
+        ? monthSeries(selectedPlaceable)
+        : windowSeries(selectedPlaceable, period)
+      : period.kind === "month"
+        ? weekSeries(selectedPlaceable, period.year, period.month)
+        : monthSeries(selectedPlaceable);
 
   // ── weekday buckets (SELECTED PERIOD) ──────────────────────────────────────
   //

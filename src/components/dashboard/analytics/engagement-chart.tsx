@@ -21,7 +21,8 @@ export function EngagementChart({
 }: {
   data: SeriesPoint[];
   value: number;
-  delta: number;
+  /** `null` when there is no comparable prior period — see the chip below. */
+  delta: number | null;
 }) {
   return (
     <div className="rounded-lg border bg-card p-5">
@@ -45,10 +46,16 @@ export function EngagementChart({
       <div className="mt-2.5 font-display text-2xl font-extrabold tracking-tight tabular-nums">
         {value}
         <span className="text-muted-foreground">%</span>{" "}
-        <span className="font-mono text-[11px] font-normal text-primary">
-          {delta >= 0 ? "+" : ""}
-          {delta}pt
-        </span>
+        {/* ⚠️ NO CHIP WHEN THERE IS NO PRIOR PERIOD. `delta` of 0 renders as
+            "+0pt", which reads as "measured, unchanged" — a claim nobody can
+            make about all-time, which has nothing before it to be unchanged
+            from. Same rule as the KPI cards' ▲/▼. */}
+        {delta === null ? null : (
+          <span className="font-mono text-[11px] font-normal text-primary">
+            {delta >= 0 ? "+" : ""}
+            {delta}pt
+          </span>
+        )}
       </div>
     </div>
   );

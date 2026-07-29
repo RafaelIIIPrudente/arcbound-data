@@ -9,6 +9,7 @@ const { biState } = vi.hoisted(() => ({
     schemaCalls: [] as string[],
     fromCalls: [] as string[],
     orderCalls: [] as unknown[][],
+    orCalls: [] as string[],
     registry: null as { id: string; name: string }[] | null,
     uploads: null as unknown[] | null,
     registryCalls: 0,
@@ -52,7 +53,10 @@ vi.mock("@/lib/supabase/server", () => ({
             biState.eqCalls.push(a);
             return chain;
           };
-          chain.or = () => chain;
+          chain.or = (f: string) => {
+            biState.orCalls.push(f);
+            return chain;
+          };
           chain.order = (...a: unknown[]) => {
             biState.orderCalls.push(a);
             return chain;
@@ -93,12 +97,14 @@ vi.mock("@/services/uploads", () => ({
   },
 }));
 
+import type { RangeSelection } from "@/lib/date-range";
 import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
 import type { SeriesPoint } from "@/services/types";
 
 import {
   buildDashboardAnalytics,
+  currentWindow,
   effectiveMs,
   getDashboardAnalytics,
   type BiPostRow,
@@ -128,6 +134,13 @@ function biRow(over: Partial<BiPostRow>): BiPostRow {
 }
 
 const NOW = new Date("2026-07-16T12:00:00.000Z");
+
+// The three presets the dashboard offers, plus all-time, in the one vocabulary
+// `RangeSelection` now gives every surface.
+const R7: RangeSelection = { kind: "preset", days: 7 };
+const R30: RangeSelection = { kind: "preset", days: 30 };
+const R90: RangeSelection = { kind: "preset", days: 90 };
+const ALL: RangeSelection = { kind: "all" };
 
 // Two current-window posts (Jul), one prior-window (May), one hour-age (null date).
 const ROWS: BiPostRow[] = [
@@ -210,7 +223,7 @@ describe("effectiveMs (pure)", () => {
 
 describe("hour-age posts (null estimated_post_date) are counted", () => {
   it("counts an hour-age post in totalPosts and the current window", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
 
     // p4 has no estimated_post_date but was scraped 6h before NOW — it is a real
     // post from within the window and must not be silently dropped.
@@ -219,13 +232,13 @@ describe("hour-age posts (null estimated_post_date) are counted", () => {
   });
 
   it("includes an hour-age post's impressions in the series buckets", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     // The series must reconcile with the hero, including the hour-age row.
     expect(a.impressionsSeries.reduce((s, p) => s + p.value, 0)).toBe(1700);
   });
 
   it("still DISPLAYS post_age rather than a date for that post", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     const p4 = a.recentPosts.find((p) => p.id === "p4")!;
     // Counting it uses scraped_at; showing it must not — the scrape date is not
     // the publish date, and "5h" is the more honest label.
@@ -241,7 +254,7 @@ describe("hour-age posts (null estimated_post_date) are counted", () => {
       impressions: 900,
       scraped_at: "2026-05-20T10:00:00.000Z", // prior window, not current
     });
-    const a = buildDashboardAnalytics([...ROWS, stale], { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics([...ROWS, stale], { range: R30, now: NOW });
 
     expect(a.totalPosts).toBe(3); // unchanged — p5 is not in the current window
     expect(a.hero.value).toBe(1700);
@@ -250,7 +263,7 @@ describe("hour-age posts (null estimated_post_date) are counted", () => {
 
 describe("buildDashboardAnalytics (pure)", () => {
   it("sums the current window and computes deltas vs the prior window", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
 
     // Current window (Jul 1 + Jul 10 + the hour-age p4) impressions = 1700;
     // prior (May 20) = 600. p4 counts via its scraped_at — see `effectiveMs`.
@@ -265,14 +278,14 @@ describe("buildDashboardAnalytics (pure)", () => {
   });
 
   it("computes the weighted engagement rate and a signed points delta", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     // interactions 177 / impressions 1700 * 100 = 10.41; prior 36/600*100 = 6.0.
     expect(a.engagement.value).toBeCloseTo(10.4, 1);
     expect(a.engagement.delta).toBeCloseTo(4.4, 1);
   });
 
   it("counts the window, picks recent posts, and formats lastSync", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     expect(a.totalPosts).toBe(3); // hour-age (null date) counts via scraped_at
     expect(a.lastSync).toBe("2026-07-16 06:00"); // max scraped_at (p4)
 
@@ -284,18 +297,176 @@ describe("buildDashboardAnalytics (pure)", () => {
     expect(a.recentPosts[0]).not.toHaveProperty("format");
   });
 
-  it("buckets the current window into a series that totals the hero value", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
-    expect(a.impressionsSeries).toHaveLength(5); // 30d → 5 weekly buckets
+  // ⚠️ REPLACES the old fixed-bucket-COUNT assertions (7 / 5 / 3 per preset, the
+  // retired `RANGE_BUCKETS`). Bucket WIDTH is now derived from the span by one
+  // rule — daily ≤14d, weekly ≤120d, monthly beyond — so a preset and a custom
+  // range of the same length draw identically. 90d changes the most: it drew 3
+  // month-ish bars and now draws 13 weekly ones. Same data, different bars.
+  it("buckets the current window by WIDTH, into a series that totals the hero value", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
+
+    expect(a.impressionsSeries).toHaveLength(5); // 30d → ceil(30/7) weekly buckets
     expect(a.impressionsSeries.reduce((s, p) => s + p.value, 0)).toBe(1700);
     expect(a.engagementSeries).toHaveLength(5);
 
-    expect(buildDashboardAnalytics(ROWS, { range: "7d", now: NOW }).impressionsSeries).toHaveLength(
-      7,
+    expect(buildDashboardAnalytics(ROWS, { range: R7, now: NOW }).impressionsSeries).toHaveLength(
+      7, // ≤14d → one bar per day
     );
-    expect(
-      buildDashboardAnalytics(ROWS, { range: "90d", now: NOW }).impressionsSeries,
-    ).toHaveLength(3);
+    expect(buildDashboardAnalytics(ROWS, { range: R90, now: NOW }).impressionsSeries).toHaveLength(
+      13, // was 3 under the retired per-preset bucket count
+    );
+  });
+
+  it("labels buckets by DATE, not by a preset-specific scheme", () => {
+    // The retired `bucketLabel` branched on the literal strings "7d"/"90d" and
+    // emitted "Wk 1…Wk 5" for everything else — a label that cannot describe an
+    // arbitrary window at all.
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
+
+    expect(a.impressionsSeries.map((p) => p.label)).toEqual([
+      "16 Jun",
+      "23 Jun",
+      "30 Jun",
+      "7 Jul",
+      "14 Jul",
+    ]);
+    expect(a.impressionsSeries.some((p) => /^Wk /.test(p.label))).toBe(false);
+  });
+
+  it("draws a custom window on the same rule a preset of that length gets", () => {
+    // 12 Jun – 29 Jul 2026 is 48 days → weekly → ceil(48/7) = 7 buckets.
+    const custom: RangeSelection = { kind: "custom", startDay: "2026-06-12", endDay: "2026-07-29" };
+    const a = buildDashboardAnalytics(ROWS, { range: custom, now: NOW });
+
+    expect(a.impressionsSeries).toHaveLength(7);
+    expect(a.impressionsSeries[0]!.label).toBe("12 Jun");
+  });
+});
+
+describe("the window is one definition, and everything derives from it", () => {
+  it("keeps totalPosts identical to currentWindow's own length", () => {
+    // ⚠️ The property `currentWindow` is exported to guarantee. A second filter
+    // is how the count above a table comes to disagree with the rows in it.
+    for (const range of [R7, R30, R90, ALL]) {
+      const a = buildDashboardAnalytics(ROWS, { range, now: NOW });
+      expect(a.totalPosts, JSON.stringify(range)).toBe(
+        currentWindow(ROWS, { range, now: NOW }).length,
+      );
+    }
+  });
+
+  it("baselines a 48-day custom window on exactly the 48 days before it", () => {
+    // One row inside the window, one row inside the prior window, one far older.
+    const inWindow = biRow({
+      linkedin_post_id: "w1",
+      estimated_post_date: "2026-06-20",
+      impressions: 100,
+      scraped_at: "2026-06-21T00:00:00.000Z",
+    });
+    // The prior window is 12 Jun minus 48 days = 25 Apr, up to (not incl.) 12 Jun.
+    const inPrior = biRow({
+      linkedin_post_id: "w2",
+      estimated_post_date: "2026-05-01",
+      impressions: 50,
+      scraped_at: "2026-05-02T00:00:00.000Z",
+    });
+    const tooOld = biRow({
+      linkedin_post_id: "w3",
+      estimated_post_date: "2026-04-24", // one day before the prior window opens
+      impressions: 999,
+      scraped_at: "2026-04-25T00:00:00.000Z",
+    });
+    const custom: RangeSelection = { kind: "custom", startDay: "2026-06-12", endDay: "2026-07-29" };
+
+    const a = buildDashboardAnalytics([inWindow, inPrior, tooOld], { range: custom, now: NOW });
+
+    // 100 vs 50 → +100%. `tooOld` must not reach the baseline, or the delta moves.
+    expect(a.hero.value).toBe(100);
+    expect(a.hero.delta).toBe(100);
+    expect(a.hero.direction).toBe("up");
+  });
+});
+
+describe("ALL TIME — no comparable prior period, which is not a zero", () => {
+  it("reaches back past every preset's horizon", () => {
+    const ancient = biRow({
+      linkedin_post_id: "old",
+      estimated_post_date: "2019-01-01",
+      impressions: 7,
+      scraped_at: "2019-01-02T00:00:00.000Z",
+    });
+    const a = buildDashboardAnalytics([...ROWS, ancient], { range: ALL, now: NOW });
+
+    expect(a.totalPosts).toBe(5); // every datable row, including the 2019 one
+    expect(a.hero.value).toBe(2307); // 1700 + p3's 600 + 7
+  });
+
+  it("reports NULL deltas — absent, never 0 and never a direction", () => {
+    // ⚠️ THE WHOLE POINT. 0 would render "▲ 0%", asserting the figure held
+    // steady against a period that does not exist.
+    const a = buildDashboardAnalytics(ROWS, { range: ALL, now: NOW });
+
+    expect(a.hero.delta).toBeNull();
+    expect(a.hero.direction).toBeNull();
+    for (const kpi of a.kpis) {
+      expect(kpi.delta, kpi.label).toBeNull();
+      expect(kpi.direction, kpi.label).toBeNull();
+    }
+    expect(a.engagement.delta).toBeNull();
+  });
+
+  it("still reports the VALUES, which are perfectly real", () => {
+    const a = buildDashboardAnalytics(ROWS, { range: ALL, now: NOW });
+
+    expect(a.hero.value).toBe(2300); // all four rows, including the May one
+    expect(a.engagement.value).toBeGreaterThan(0);
+  });
+
+  it("MEASURES THE DATA'S OWN SPAN rather than asking bucketPlan for Infinity", () => {
+    // ⚠️ `bucketPlan` THROWS on a non-finite span by design (date-range.ts) —
+    // an honest Infinity beats a fabricated bucket count. The caller must
+    // measure earliest-post → now itself.
+    const a = buildDashboardAnalytics(ROWS, { range: ALL, now: NOW });
+
+    // Earliest effective date is p3 on 2026-05-20; through 16 Jul is 58 days →
+    // weekly → ceil(58/7) = 9 buckets, opening on the earliest post's own day.
+    expect(a.impressionsSeries).toHaveLength(9);
+    expect(a.impressionsSeries[0]!.label).toBe("20 May");
+    expect(a.impressionsSeries.reduce((s, p) => s + p.value, 0)).toBe(2300);
+  });
+
+  it("draws NO BUCKET AT ALL when there is no data to span", () => {
+    // Zero rows is not a zero-height bar; there is no span to draw.
+    const a = buildDashboardAnalytics([], { range: ALL, now: NOW });
+
+    expect(a.totalPosts).toBe(0);
+    expect(a.impressionsSeries).toEqual([]);
+    expect(a.engagementSeries).toEqual([]);
+  });
+
+  it("draws a single day for a single post", () => {
+    const only = biRow({
+      linkedin_post_id: "one",
+      estimated_post_date: "2026-07-16",
+      impressions: 42,
+      scraped_at: "2026-07-16T00:00:00.000Z",
+    });
+    const a = buildDashboardAnalytics([only], { range: ALL, now: NOW });
+
+    expect(a.impressionsSeries).toHaveLength(1);
+    expect(a.impressionsSeries[0]!.value).toBe(42);
+  });
+});
+
+describe("every non-all-time range keeps the delta behaviour it has today", () => {
+  it("still reads a prior window of genuine zero as `grew from nothing`", () => {
+    // ⚠️ A prior window that EXISTS and summed to 0 is a real comparison, and is
+    // categorically different from all-time's absent one. It must keep its 100%.
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
+    const saves = a.kpis.find((k) => k.label === "Saves")!;
+
+    expect(saves.delta).toBe(100);
+    expect(saves.direction).toBe("up");
   });
 
   it("yields an empty dashboard when the current window has no posts", () => {
@@ -310,7 +481,7 @@ describe("buildDashboardAnalytics (pure)", () => {
       scraped_at: "2026-05-20T10:00:00.000Z",
     });
     const priorOnly = [ROWS[2]!, staleHourAge];
-    const a = buildDashboardAnalytics(priorOnly, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(priorOnly, { range: R30, now: NOW });
     expect(a.totalPosts).toBe(0);
     expect(a.hero.value).toBe(0);
     expect(a.engagement.value).toBe(0);
@@ -325,7 +496,7 @@ describe("buildDashboardAnalytics (pure)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("the Posts KPI (publishing volume)", () => {
   it("leads the KPI row with the current window's post count", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     // Posts is the volume the engagement outputs were earned on, so it reads
     // Posts → Likes → Comments → Shares → Saves.
     expect(a.kpis[0]!.label).toBe("Posts");
@@ -334,7 +505,7 @@ describe("the Posts KPI (publishing volume)", () => {
   });
 
   it("carries a vs-prior delta built from the two windows' counts", () => {
-    const a = buildDashboardAnalytics(ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     // current 3 posts vs prior 1 (May p3): (3 − 1) / 1 × 100 = 200%, up.
     expect(a.kpis[0]).toEqual({ label: "Posts", value: 3, delta: 200, direction: "up" });
   });
@@ -349,7 +520,7 @@ describe("the Posts KPI (publishing volume)", () => {
       biRow({ linkedin_post_id: "pr2", estimated_post_date: "2026-06-05", impressions: 10 }),
       biRow({ linkedin_post_id: "pr3", estimated_post_date: "2026-05-20", impressions: 10 }),
     ];
-    const a = buildDashboardAnalytics(rows, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(rows, { range: R30, now: NOW });
     // (1 − 3) / 3 × 100 = −66.7 → 67%, down.
     expect(a.kpis[0]).toEqual({ label: "Posts", value: 1, delta: 67, direction: "down" });
   });
@@ -385,7 +556,7 @@ describe("average impressions by weekday", () => {
   ];
 
   it("returns seven buckets, Sunday through Saturday", () => {
-    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: R30, now: NOW });
     expect(a.impressionsByWeekday.map((d) => d.label)).toEqual([
       "Sun",
       "Mon",
@@ -398,7 +569,7 @@ describe("average impressions by weekday", () => {
   });
 
   it("averages each weekday's impressions — the MEAN, never the sum", () => {
-    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: R30, now: NOW });
     // Two Wednesday posts: mean(100, 300) = 200. A sum would read 400 and let a
     // high-volume weekday dominate a chart that is meant to compare per-post reach.
     expect(wk("Wed", a.impressionsByWeekday)).toBe(200);
@@ -406,7 +577,7 @@ describe("average impressions by weekday", () => {
   });
 
   it("dates each post by its estimated_post_date weekday, NOT its scrape weekday", () => {
-    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: R30, now: NOW });
     // w4 was scraped on a Thursday but has no resolved publish date. If it were
     // bucketed by effectiveMs/scraped_at it would drop 999 onto Thursday; it must
     // not. Thursday saw no DATABLE post, so it is a genuine zero.
@@ -414,7 +585,7 @@ describe("average impressions by weekday", () => {
   });
 
   it("excludes undated posts and counts how many were excluded", () => {
-    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: R30, now: NOW });
     // w4 is the one in-window post with no resolved date. It is counted in
     // totalPosts (it is a real post) but excluded from the weekday chart, and the
     // exclusion is surfaced so the UI can disclose it rather than hide it.
@@ -423,7 +594,7 @@ describe("average impressions by weekday", () => {
   });
 
   it("gives a weekday with no posts a genuine zero", () => {
-    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(WEEKDAY_ROWS, { range: R30, now: NOW });
     // Sunday saw nothing — a real 0, distinct from a weekday we could not measure.
     expect(wk("Sun", a.impressionsByWeekday)).toBe(0);
     expect(wk("Mon", a.impressionsByWeekday)).toBe(0);
@@ -449,7 +620,7 @@ describe("average impressions by weekday", () => {
         scraped_at: "2026-07-16T06:00:00.000Z",
       }),
     ];
-    const a = buildDashboardAnalytics(undatedOnly, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(undatedOnly, { range: R30, now: NOW });
     expect(a.impressionsByWeekday.every((d) => d.value === 0)).toBe(true);
     expect(a.totalPosts).toBe(2);
     expect(a.weekdayUndatedPosts).toBe(2);
@@ -463,7 +634,7 @@ describe("average impressions by weekday", () => {
       ...WEEKDAY_ROWS,
       biRow({ linkedin_post_id: "old", estimated_post_date: "2026-06-05", impressions: 9000 }),
     ];
-    const a = buildDashboardAnalytics(withPrior, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(withPrior, { range: R30, now: NOW });
     expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
   });
 });
@@ -504,7 +675,7 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
   ];
 
   it("reports the ratio of TOTALS, not the average of the two posts' rates", () => {
-    const a = buildDashboardAnalytics(LOPSIDED, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(LOPSIDED, { range: R30, now: NOW });
 
     expect(a.engagement.value).toBeCloseTo(1.0, 1);
     // Spelled out so the failure message names the defect rather than a number:
@@ -525,9 +696,8 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
       }),
     ];
 
-    const before = buildDashboardAnalytics(LOPSIDED, { range: "30d", now: NOW }).engagement.value;
-    const after = buildDashboardAnalytics(quieterMinnow, { range: "30d", now: NOW }).engagement
-      .value;
+    const before = buildDashboardAnalytics(LOPSIDED, { range: R30, now: NOW }).engagement.value;
+    const after = buildDashboardAnalytics(quieterMinnow, { range: R30, now: NOW }).engagement.value;
 
     expect(Math.abs(after - before)).toBeLessThan(0.5);
   });
@@ -542,7 +712,7 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
       }),
     ];
 
-    const a = buildDashboardAnalytics(noReach, { range: "30d", now: NOW });
+    const a = buildDashboardAnalytics(noReach, { range: R30, now: NOW });
 
     expect(a.engagement.value).toBe(0);
     expect(Number.isNaN(a.engagement.value)).toBe(false);
@@ -557,13 +727,14 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     biState.schemaCalls = [];
     biState.fromCalls = [];
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registry = [];
     biState.uploads = [];
   });
 
   it("reads the bi view and returns a well-formed analytics", async () => {
     biState.rows = ROWS;
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(biState.schemaCalls).toContain("bi");
     expect(biState.fromCalls).toContain("linkedin_post_latest");
@@ -575,23 +746,74 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
 
   it("filters by client_id when provided", async () => {
     biState.rows = ROWS;
-    await getDashboardAnalytics({ range: "30d", clientId: "c1" });
+    await getDashboardAnalytics({ range: R30, clientId: "c1" });
     expect(biState.eqCalls).toContainEqual(["client_id", "c1"]);
   });
 
   it("returns the empty state for zero rows (available, just no data)", async () => {
     biState.rows = [];
-    const a = await getDashboardAnalytics({ range: "7d" });
+    const a = await getDashboardAnalytics({ range: R7 });
     expect(a.recentPosts).toEqual([]);
     expect(a.totalPosts).toBe(0);
     expect(a.unavailable).toBeFalsy(); // genuinely empty, not an outage
+  });
+
+  // ── the read's lower bound ─────────────────────────────────────────────────
+  // ⚠️ LOWER BOUND ONLY, ALWAYS. The `.or(… estimated_post_date.is.null)` clause
+  // deliberately keeps null-dated hour-age posts so `effectiveMs` can window
+  // them by `scraped_at`; an UPPER bound would interact badly with it. Rows past
+  // the window's end are filtered in memory by `currentWindow`, which is cheap.
+
+  it("bounds the read at the PRIOR window's start, so the baseline is readable", async () => {
+    biState.rows = ROWS;
+    await getDashboardAnalytics({ range: R30 });
+
+    // now − 2 × 30d, exactly as before: `priorStartMs` reproduces the old rule
+    // for presets rather than replacing it with a second one.
+    const bound = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+    expect(biState.orCalls).toHaveLength(1);
+    expect(biState.orCalls[0]).toBe(`estimated_post_date.gte.${bound},estimated_post_date.is.null`);
+  });
+
+  it("bounds a CUSTOM window at its own prior start, not at now minus a span", async () => {
+    // A window that ended in the past would read nothing at all under the old
+    // `now − 2 × span` bound: both its windows sit further back than that.
+    biState.rows = ROWS;
+    await getDashboardAnalytics({
+      range: { kind: "custom", startDay: "2026-06-12", endDay: "2026-07-29" },
+    });
+
+    // 12 Jun 2026 minus its own 48-day span = 25 Apr 2026.
+    expect(biState.orCalls[0]).toBe(
+      "estimated_post_date.gte.2026-04-25,estimated_post_date.is.null",
+    );
+  });
+
+  it("DROPS THE BOUND ENTIRELY for all time — there is no floor to apply", async () => {
+    biState.rows = ROWS;
+    await getDashboardAnalytics({ range: ALL });
+
+    // Not a bound at the epoch, and not a bound at -Infinity stringified into a
+    // date: no clause at all.
+    expect(biState.orCalls).toEqual([]);
+  });
+
+  it("never adds an UPPER bound to the query", async () => {
+    biState.rows = ROWS;
+    for (const range of [R7, R30, ALL]) {
+      biState.orCalls = [];
+      await getDashboardAnalytics({ range });
+      for (const filter of biState.orCalls) {
+        expect(filter, JSON.stringify(range)).not.toMatch(/\.lte\.|\.lt\./);
+      }
+    }
   });
 
   it("flags unavailable (does not throw) when the bi query errors", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     biState.error = { message: "permission denied for schema bi" };
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.unavailable).toBe(true); // distinct from "no data"
     expect(a.recentPosts).toEqual([]);
@@ -622,6 +844,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
     biState.schemaCalls = [];
     biState.fromCalls = [];
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registry = [];
     biState.uploads = [];
   });
@@ -631,7 +854,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
       biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
     );
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.totalPosts).toBe(PAGE_SIZE + 200);
     // Nailed down explicitly: 1000 is precisely the number the defect produced.
@@ -643,7 +866,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
       biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
     );
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.hero.value).toBe((PAGE_SIZE + 200) * 10);
   });
@@ -656,7 +879,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
       biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
     );
 
-    await getDashboardAnalytics({ range: "30d" });
+    await getDashboardAnalytics({ range: R30 });
 
     expect(biState.orderCalls).toContainEqual(["linkedin_post_id", { ascending: true }]);
   });
@@ -669,7 +892,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
       biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
     );
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     // ⚠️ THE TWO NUMBERS MUST DIFFER. "Incomplete" is a warning; "50,000 of
     // 50,001" is actionable, and only the pager knows the second one.
@@ -686,7 +909,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     biState.error = { message: "permission denied for schema bi" };
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.unavailable).toBe(true);
     expect(a.truncation).toBeFalsy();
@@ -697,7 +920,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
   it("flags neither on a complete read", async () => {
     biState.rows = ROWS;
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.unavailable).toBeFalsy();
     expect(a.truncation).toBeFalsy();
@@ -743,6 +966,7 @@ describe("the client comparison", () => {
     biState.schemaCalls = [];
     biState.fromCalls = [];
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registryCalls = 0;
     biState.uploadsCalls = 0;
     biState.registry = [
@@ -769,7 +993,7 @@ describe("the client comparison", () => {
       biRow({ linkedin_post_id: "d", client_id: "ghost", estimated_post_date: inWindow }),
     ];
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
     const c = a.comparison!;
 
     expect(c.unattributedPosts).toBe(1);
@@ -784,7 +1008,7 @@ describe("the client comparison", () => {
       biRow({ linkedin_post_id: "oldghost", client_id: "ghost", estimated_post_date: outOfWindow }),
     ];
 
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
     const c = a.comparison!;
 
     expect(a.totalPosts).toBe(1);
@@ -800,7 +1024,7 @@ describe("the client comparison", () => {
       biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
     const quiet = c.rows.find((r) => r.clientId === "c2")!;
 
     expect(quiet.posts).toBe(0);
@@ -822,7 +1046,7 @@ describe("the client comparison", () => {
       }),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
     const row = c.rows.find((r) => r.clientId === "c1")!;
 
     expect(row.posts).toBe(1); // it DID post — that part is measured
@@ -852,7 +1076,7 @@ describe("the client comparison", () => {
       }),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     // Weighted: 11 / 1010 = 1.1%. A mean of rates would give 5.5%.
     expect(c.rows.find((r) => r.clientId === "c1")!.engagementRate).toBeCloseTo(1.1, 1);
@@ -874,7 +1098,7 @@ describe("the client comparison", () => {
       }),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows.find((r) => r.clientId === "c1")!.avgImpressions).toBe(200);
     expect(c.rows.find((r) => r.clientId === "c2")!.avgImpressions).toBeNull();
@@ -912,6 +1136,7 @@ describe("the comparison's follower-normalised figure", () => {
     ];
     biState.error = null;
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registryCalls = 0;
     biState.uploadsCalls = 0;
     biState.registry = [{ id: "c1", name: "Bryan Wish" }];
@@ -926,7 +1151,7 @@ describe("the comparison's follower-normalised figure", () => {
       upload("c1", "2026-06-01T00:00:00.000Z", 4_000),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.followers).toBe(10_000);
     // 500 interactions / 10,000 followers × 1000 = 50
@@ -936,7 +1161,7 @@ describe("the comparison's follower-normalised figure", () => {
   it("reports followers and the per-1,000 rate as null when nothing was ever recorded", async () => {
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.followers).toBeNull();
     expect(c.rows[0]!.interactionsPer1K).toBeNull();
@@ -946,7 +1171,7 @@ describe("the comparison's follower-normalised figure", () => {
   it("reports the per-1,000 rate as null when the follower count is a recorded 0", async () => {
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 0)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     // The 0 itself is a real measurement and is reported.
     expect(c.rows[0]!.followers).toBe(0);
@@ -993,6 +1218,7 @@ describe("the comparison's raw connection count", () => {
     ];
     biState.error = null;
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registryCalls = 0;
     biState.uploadsCalls = 0;
     biState.registry = [{ id: "c1", name: "Bryan Wish" }];
@@ -1007,7 +1233,7 @@ describe("the comparison's raw connection count", () => {
       upload("c1", "2026-06-01T00:00:00.000Z", 1_000, 2_000),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.connections).toBe(5_000);
   });
@@ -1016,7 +1242,7 @@ describe("the comparison's raw connection count", () => {
     // The DEFAULT for every client today: a full follower history, no connections.
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.connections).toBeNull();
     // ⚠️ AND THE FOLLOWER COLUMNS ARE UNTOUCHED — INCLUDING ITS PER-1K RATE. Only
@@ -1028,7 +1254,7 @@ describe("the comparison's raw connection count", () => {
   it("never lets a follower count stand in for a missing connection count", async () => {
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.connections).not.toBe(10_000);
     expect(c.rows[0]!.connections).toBeNull();
@@ -1037,7 +1263,7 @@ describe("the comparison's raw connection count", () => {
   it("keeps a recorded 0 as 0 — a measured zero is a fact, not a gap", async () => {
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 0)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.connections).toBe(0);
     expect(c.rows[0]!.connections).not.toBeNull();
@@ -1050,7 +1276,7 @@ describe("the comparison's raw connection count", () => {
     biState.rows = [];
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 5_000)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.rows[0]!.posts).toBe(0);
     expect(c.rows[0]!.connections).toBe(5_000);
@@ -1063,7 +1289,7 @@ describe("the comparison's raw connection count", () => {
     // while leaving the FOLLOWER rate in place, because that asymmetry is intended.
     biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000)];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(Object.keys(c.rows[0]!).sort()).toEqual([
       "avgImpressions",
@@ -1096,7 +1322,7 @@ describe("the comparison's raw connection count", () => {
       upload("c2", "2026-07-20T00:00:00.000Z", 2_000, null),
     ];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.medians.connections.value).toBe(5_000);
     expect(c.medians.connections.clients).toBe(1);
@@ -1110,6 +1336,7 @@ describe("the comparison's medians carry their sample size", () => {
   beforeEach(() => {
     biState.error = null;
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registryCalls = 0;
     biState.uploadsCalls = 0;
     biState.uploads = [];
@@ -1145,7 +1372,7 @@ describe("the comparison's medians carry their sample size", () => {
   // ⚠️ A MEDIAN OVER THREE CLIENTS AND A MEDIAN OVER THIRTY ARE DIFFERENT
   // CLAIMS. The count is what lets the UI say which one it is showing.
   it("computes each median only over Clients where the figure exists, and says how many", async () => {
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.medians.avgImpressions.value).toBe(200);
     // Three, NOT four — the silent Client has no average to contribute.
@@ -1153,7 +1380,7 @@ describe("the comparison's medians carry their sample size", () => {
   });
 
   it("reports a null median with a zero count when no Client has the figure", async () => {
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     // No uploads at all, so nobody has a follower count.
     expect(c.medians.followers.value).toBeNull();
@@ -1170,6 +1397,7 @@ describe("the comparison is only built where it is meaningful", () => {
     ];
     biState.error = null;
     biState.orderCalls = [];
+    biState.orCalls = [];
     biState.registryCalls = 0;
     biState.uploadsCalls = 0;
     biState.registry = [{ id: "c1", name: "Bryan Wish" }];
@@ -1178,7 +1406,7 @@ describe("the comparison is only built where it is meaningful", () => {
 
   // ⚠️ AND IT DOES NOT PAY FOR WHAT IT WILL NOT USE.
   it("is null for a single-client dashboard, and issues neither extra read", async () => {
-    const a = await getDashboardAnalytics({ range: "30d", clientId: "c1" });
+    const a = await getDashboardAnalytics({ range: R30, clientId: "c1" });
 
     expect(a.comparison).toBeNull();
     expect(biState.registryCalls).toBe(0);
@@ -1186,7 +1414,7 @@ describe("the comparison is only built where it is meaningful", () => {
   });
 
   it("is built, and reads both sources, in the all-clients state", async () => {
-    const a = await getDashboardAnalytics({ range: "30d" });
+    const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.comparison).not.toBeNull();
     expect(biState.registryCalls).toBe(1);
@@ -1199,7 +1427,7 @@ describe("the comparison is only built where it is meaningful", () => {
   // most-hit route reads `public.clients` twice on every all-clients render.
   it("reuses a caller-supplied registry instead of reading it a second time", async () => {
     const a = await getDashboardAnalytics({
-      range: "30d",
+      range: R30,
       registry: Promise.resolve([{ id: "c1", name: "Bryan Wish" }]),
     });
 
@@ -1213,12 +1441,12 @@ describe("the comparison is only built where it is meaningful", () => {
 
   it("still reads its own registry when the caller supplies none", async () => {
     // The fallback the other callers and every existing test rely on.
-    await getDashboardAnalytics({ range: "30d" });
+    await getDashboardAnalytics({ range: R30 });
     expect(biState.registryCalls).toBe(1);
   });
 
   it("honours a caller-supplied registry that FAILED — comparison unavailable, still no re-read", async () => {
-    const c = (await getDashboardAnalytics({ range: "30d", registry: Promise.resolve(null) }))
+    const c = (await getDashboardAnalytics({ range: R30, registry: Promise.resolve(null) }))
       .comparison!;
 
     // A passed-in null is a failed roster read; the comparison is unavailable and
@@ -1230,7 +1458,7 @@ describe("the comparison is only built where it is meaningful", () => {
   it("marks the comparison unavailable when the registry read failed — not empty", async () => {
     biState.registry = null;
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.unavailable).toBe(true);
     expect(c.rows).toEqual([]);
@@ -1253,7 +1481,7 @@ describe("the comparison is only built where it is meaningful", () => {
     biState.registry = [{ id: "c1", name: "Bryan Wish" }];
     biState.uploads = null; // the upload read FAILED
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     // Built, not blanked — the whole point of the fix.
     expect(c.unavailable).toBe(false);
@@ -1284,7 +1512,7 @@ describe("the comparison is only built where it is meaningful", () => {
     biState.registry = [{ id: "c1", name: "Bryan Wish" }];
     biState.uploads = []; // read ok, just no follower rows
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     // Every row still em-dashes followers, but that is "no follower figure", NOT
     // an outage — the flag must stay false so the panel does not cry wolf.
@@ -1298,7 +1526,7 @@ describe("the comparison is only built where it is meaningful", () => {
     biState.registry = [{ id: "c1", name: "Bryan Wish" }];
     biState.uploads = [];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.connectionsUnavailable).toBe(false);
   });
@@ -1306,7 +1534,7 @@ describe("the comparison is only built where it is meaningful", () => {
   it("is available and empty — not unavailable — when the registry is genuinely empty", async () => {
     biState.registry = [];
 
-    const c = (await getDashboardAnalytics({ range: "30d" })).comparison!;
+    const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.unavailable).toBe(false);
     expect(c.rows).toEqual([]);

@@ -91,7 +91,14 @@ export default async function ClientReportPage({
               is no longer true, and a control placed inside one section while
               driving the whole page misrepresents its own reach. */}
           <div className="flex flex-wrap items-center gap-2">
-            <ReportPeriodPicker periods={report.availablePeriods} value={report.period.key} />
+            <ReportPeriodPicker
+              periods={report.availablePeriods}
+              value={report.period.key}
+              // A staff screen, so the custom range is opted INTO. The prop
+              // defaults to false precisely so `/r/[token]` cannot inherit it.
+              allowCustom
+              today={new Date()}
+            />
             {/* Opens the print-optimised document in its own tab, carrying the
                 period selected here so the export matches what is on screen. */}
             <Link

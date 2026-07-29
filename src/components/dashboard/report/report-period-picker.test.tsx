@@ -19,6 +19,12 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   };
+  window.matchMedia = ((query: string) => ({
+    media: query,
+    matches: false,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
 });
 
 const replace = vi.fn();
@@ -42,8 +48,18 @@ beforeEach(() => {
   replace.mockClear();
 });
 
+// ⚠️ REPLACES the `role="combobox"` / `role="option"` selectors this file used
+// while the control was a Radix `Select`. It is now a Popover — a `Select`
+// cannot host a calendar inside a `SelectItem` — so the trigger is a button and
+// the periods are buttons. The ACCESSIBLE NAME is unchanged and still asserted
+// here; every behavioural expectation below is untouched.
 function trigger() {
-  return screen.getByRole("combobox", { name: "Reporting period" });
+  return screen.getByRole("button", { name: "Reporting period" });
+}
+
+/** One period option, by its visible label. */
+function option(name: string) {
+  return screen.getByRole("button", { name });
 }
 
 describe("ReportPeriodPicker", () => {
@@ -52,7 +68,9 @@ describe("ReportPeriodPicker", () => {
     render(<ReportPeriodPicker periods={PERIODS} value="2026-07" />);
 
     await user.click(trigger());
-    const labels = (await screen.findAllByRole("option")).map((o) => o.textContent?.trim());
+    const labels = [...document.querySelectorAll("[data-preset-key]")].map((o) =>
+      o.textContent?.trim(),
+    );
 
     expect(labels).toEqual(["All time", "2026", "Q3 2026", "Q2 2026", "July 2026", "June 2026"]);
   });
@@ -62,7 +80,7 @@ describe("ReportPeriodPicker", () => {
     render(<ReportPeriodPicker periods={PERIODS} value="2026-07" />);
 
     await user.click(trigger());
-    await user.click(await screen.findByRole("option", { name: "All time" }));
+    await user.click(option("All time"));
 
     // The param is always written — an absent param means "no choice yet" and
     // the decoder resolves that to the newest month.
@@ -78,7 +96,7 @@ describe("ReportPeriodPicker", () => {
     render(<ReportPeriodPicker periods={PERIODS} value="2026-07" />);
 
     await user.click(trigger());
-    await user.click(await screen.findByRole("option", { name: label }));
+    await user.click(option(label));
 
     expect(replace).toHaveBeenCalledWith(`/clients/abc/report?period=${key}`, { scroll: false });
   });
@@ -108,5 +126,101 @@ describe("ReportPeriodPicker", () => {
 
       expect(trigger()).toHaveTextContent(label);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE STAFF / CLIENT BOUNDARY.
+//
+// This same component renders on `/r/[token]`, the report a CLIENT holds. The
+// custom-range calendar is a staff affordance, and the gate is a prop that
+// FAILS CLOSED — so the interesting test is the one that proves the default,
+// not the one that proves the opt-in.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("ReportPeriodPicker — the custom range is gated", () => {
+  it("SHIPS NO CALENDAR AND NO CUSTOM AFFORDANCE WHEN allowCustom IS OMITTED", async () => {
+    // ⚠️ THIS IS THE CLIENT-FACING CASE. `/r/[token]` renders exactly this call
+    // shape. If this test ever goes green for the wrong reason, a client gains a
+    // control over a window nobody meant to give them.
+    const user = userEvent.setup();
+    render(<ReportPeriodPicker periods={PERIODS} value="2026-07" />);
+    await user.click(trigger());
+
+    expect(document.querySelector("[data-slot=calendar]")).toBeNull();
+    expect(document.querySelectorAll("[data-slot=calendar] table")).toHaveLength(0);
+    expect(document.body.textContent ?? "").not.toMatch(/custom/i);
+  });
+
+  it("ships none when allowCustom is explicitly false either", async () => {
+    const user = userEvent.setup();
+    render(<ReportPeriodPicker periods={PERIODS} value="2026-07" allowCustom={false} />);
+    await user.click(trigger());
+
+    expect(document.querySelector("[data-slot=calendar]")).toBeNull();
+  });
+
+  it("still offers every NAMED period to a client — only the calendar is withheld", async () => {
+    // The gate narrows one affordance, not the screen. A client keeps all-time,
+    // years, quarters and months.
+    const user = userEvent.setup();
+    render(<ReportPeriodPicker periods={PERIODS} value="2026-07" />);
+    await user.click(trigger());
+
+    expect(
+      [...document.querySelectorAll("[data-preset-key]")].map((o) => o.textContent?.trim()),
+    ).toEqual(["All time", "2026", "Q3 2026", "Q2 2026", "July 2026", "June 2026"]);
+  });
+
+  it("offers the calendar on a STAFF screen, which opts in explicitly", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportPeriodPicker
+        periods={PERIODS}
+        value="2026-07"
+        allowCustom
+        today={new Date(2026, 6, 29)}
+      />,
+    );
+    await user.click(trigger());
+
+    expect(document.querySelector("[data-slot=calendar]")).not.toBeNull();
+  });
+});
+
+describe("ReportPeriodPicker — a custom window travels as a prefixed key", () => {
+  it("ALWAYS WRITES the param for a custom window, exactly as for a named one", async () => {
+    // ⚠️ The never-strip rule (report-period.ts) extends to custom keys verbatim:
+    // an absent param means "no choice yet", so a stripped custom key would
+    // silently revert to the newest month.
+    const user = userEvent.setup();
+    render(
+      <ReportPeriodPicker
+        periods={PERIODS}
+        value="2026-07"
+        allowCustom
+        today={new Date(2026, 6, 29)}
+      />,
+    );
+    await user.click(trigger());
+    await user.click(screen.getByRole("button", { name: /July 10th, 2026/ }));
+    await user.click(screen.getByRole("button", { name: /July 25th, 2026/ }));
+
+    expect(replace).toHaveBeenCalledWith(
+      "/clients/abc/report?period=custom%3A2026-07-10..2026-07-25",
+      { scroll: false },
+    );
+  });
+
+  it("reads a custom key back as its dates, not as a raw token", () => {
+    render(
+      <ReportPeriodPicker
+        periods={PERIODS}
+        value="custom:2026-06-12..2026-07-29"
+        allowCustom
+        today={new Date(2026, 6, 29)}
+      />,
+    );
+
+    expect(trigger()).toHaveTextContent("12 JUN – 29 JUL 2026");
   });
 });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import type { BiPostRow } from "@/services/analytics";
 import type { ClientReport, PostingCadence } from "@/services/types";
@@ -104,6 +105,67 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
 const FRESH = { currentAsOf: "2026-07-20T00:00:00.000Z", trackedSince: "2026-05-01T00:00:00.000Z" };
 
 // ── PublicReportView (pure rendering) ────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// THE STAFF / CLIENT BOUNDARY, ASSERTED FROM THE CLIENT'S SIDE.
+//
+// `/r/[token]` renders the SAME period picker the two staff screens do. The
+// custom-range calendar is withheld here by a prop that fails closed, and this
+// block exists so that a future edit which flips that default cannot land
+// quietly: the failure would be a client silently gaining a control over a
+// reporting window nobody decided to give them.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PublicReportView — A CLIENT IS NEVER GIVEN THE CUSTOM DATE RANGE", () => {
+  beforeEach(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    window.matchMedia = ((query: string) => ({
+      media: query,
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  /** Opens the period picker, which is the only place a calendar could appear. */
+  async function openPicker() {
+    const user = userEvent.setup();
+    render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
+    await user.click(screen.getByRole("button", { name: "Reporting period" }));
+    // The picker's options are mounted, so the popover is genuinely open — this
+    // is what stops the assertions below passing against a closed popover.
+    await screen.findByRole("button", { name: "All time" });
+  }
+
+  it("renders NO CALENDAR, WITH THE PICKER OPEN", async () => {
+    await openPicker();
+
+    expect(document.querySelector("[data-slot=calendar]")).toBeNull();
+    expect(document.querySelectorAll("[data-slot=calendar] table")).toHaveLength(0);
+  });
+
+  it("renders NO CUSTOM AFFORDANCE — no wording a client could act on", async () => {
+    await openPicker();
+
+    expect(document.body.textContent ?? "").not.toMatch(/custom/i);
+  });
+
+  it("still gives the client its period picker — only the calendar is withheld", async () => {
+    // The gate narrows ONE affordance. A client keeps the named periods; if this
+    // ever fails, the boundary has been drawn in the wrong place.
+    await openPicker();
+
+    expect(screen.getByRole("button", { name: "Reporting period" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
+  });
+});
+
 describe("PublicReportView — the client-facing wrapper (pure)", () => {
   it("renders the client name, the Report Status strip, and the report sections", () => {
     render(<PublicReportView report={makeReport()} clientName="Acme Corp" freshness={FRESH} />);

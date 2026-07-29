@@ -75,6 +75,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import {
   MAX_PAGES,
   PAGE_SIZE,
+  periodRange,
   readClientPostRows,
   selectPeriodPlaceable,
   selectPeriodRows,
@@ -121,6 +122,14 @@ const Q3: ReportPeriod = {
 };
 const YEAR: ReportPeriod = { kind: "year", key: "2026", label: "2026", year: 2026 };
 const ALL: ReportPeriod = { kind: "all", key: "all", label: "All time" };
+/** A staff-chosen window: 12 Jun – 29 Jul 2026, both endpoints inclusive. */
+const CUSTOM: ReportPeriod = {
+  kind: "custom",
+  key: "custom:2026-06-12..2026-07-29",
+  label: "12 Jun – 29 Jul 2026",
+  startDay: "2026-06-12",
+  endDay: "2026-07-29",
+};
 
 beforeEach(() => {
   state.ranges = [];
@@ -411,5 +420,122 @@ describe("readClientPostRows (paged bi read)", () => {
     await readClientPostRows("c1");
 
     expect(state.ranges).toHaveLength(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A CUSTOM PERIOD'S BOUNDS — WHERE AN INCLUSIVE END MEETS A HALF-OPEN RANGE.
+//
+// ⚠️ THE OFF-BY-ONE THAT WOULD NOT ERROR. `resolveWindow` reports a window's end
+// INCLUSIVELY (23:59:59.999Z on the end day), and every consumer here filters
+// `ms < end`. Hand the inclusive instant straight through as `end` and the final
+// day of every custom range silently vanishes: the posts are read, the count is
+// short by a day's worth, and nothing throws. The conversion is `+ 1`.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("a custom period converts its INCLUSIVE end into a half-open bound", () => {
+  it("opens at the start day's first instant and closes at the day AFTER the end day", () => {
+    expect(periodRange(CUSTOM)).toEqual({
+      start: Date.parse("2026-06-12T00:00:00.000Z"),
+      end: Date.parse("2026-07-30T00:00:00.000Z"),
+    });
+  });
+
+  it("INCLUDES a post at 23:59:59.999Z on the end day", () => {
+    // ⚠️ THE TEST THAT FAILS IF THE `+ 1` IS DROPPED. With the inclusive instant
+    // used as an exclusive bound, `ms < end` is false at exactly this timestamp
+    // and the post disappears from the last day of the range.
+    const lastInstant = row({
+      linkedin_post_id: "lastInstant",
+      estimated_post_date: "2026-07-29T23:59:59.999Z",
+    });
+
+    expect(ids(selectPeriodRows([lastInstant], CUSTOM))).toEqual(["lastInstant"]);
+  });
+
+  it("EXCLUDES a post one millisecond later", () => {
+    // The other side of the same boundary: one ms past the end day is the next
+    // day, and must not be counted. Asserting only the inclusion above would
+    // pass for an implementation that never closes the window at all.
+    const justAfter = row({
+      linkedin_post_id: "justAfter",
+      estimated_post_date: "2026-07-30T00:00:00.000Z",
+    });
+
+    expect(selectPeriodRows([justAfter], CUSTOM)).toEqual([]);
+  });
+
+  it("INCLUDES a post at the start day's first instant, and excludes the one before", () => {
+    const atStart = row({
+      linkedin_post_id: "atStart",
+      estimated_post_date: "2026-06-12T00:00:00.000Z",
+    });
+    const justBefore = row({
+      linkedin_post_id: "justBefore",
+      estimated_post_date: "2026-06-11T23:59:59.999Z",
+    });
+
+    expect(ids(selectPeriodRows([atStart, justBefore], CUSTOM))).toEqual(["atStart"]);
+  });
+
+  it("covers a SINGLE-DAY window as one whole day, not as an empty instant", () => {
+    const oneDay: ReportPeriod = {
+      kind: "custom",
+      key: "custom:2026-07-29..2026-07-29",
+      label: "29 Jul 2026",
+      startDay: "2026-07-29",
+      endDay: "2026-07-29",
+    };
+    const morning = row({
+      linkedin_post_id: "morning",
+      estimated_post_date: "2026-07-29T08:00:00.000Z",
+    });
+
+    expect(periodRange(oneDay).end - periodRange(oneDay).start).toBe(86_400_000);
+    expect(ids(selectPeriodRows([morning], oneDay))).toEqual(["morning"]);
+  });
+});
+
+describe("a custom period is a REAL WINDOW, not a second all-time", () => {
+  const DATED = row({ linkedin_post_id: "dated", estimated_post_date: "2026-07-10" });
+  const GHOST = row({
+    // Neither a resolved date nor a scrape timestamp: genuinely unplaceable.
+    linkedin_post_id: "ghost",
+    post_age: "23h",
+    estimated_post_date: null,
+    scraped_at: null,
+  });
+
+  it("DROPS an undatable row, unlike all-time which keeps every row", () => {
+    // ⚠️ All-time is every row, datable or not (bi-posts.ts:113). A custom period
+    // must NOT inherit that short-circuit: it is a bounded window, and a row that
+    // cannot be placed on a time axis cannot be shown to fall inside one.
+    expect(ids(selectPeriodRows([DATED, GHOST], ALL))).toEqual(["dated", "ghost"]);
+    expect(ids(selectPeriodRows([DATED, GHOST], CUSTOM))).toEqual(["dated"]);
+  });
+
+  it("windows an hour-age post on its SCRAPE time, as every bounded period does", () => {
+    const hourAge = row({
+      linkedin_post_id: "hourAge",
+      post_age: "23h",
+      estimated_post_date: null,
+      scraped_at: "2026-07-15T09:00:00.000Z",
+    });
+    const outside = row({
+      linkedin_post_id: "outside",
+      post_age: "23h",
+      estimated_post_date: null,
+      scraped_at: "2026-09-01T09:00:00.000Z",
+    });
+
+    expect(ids(selectPeriodRows([hourAge, outside], CUSTOM))).toEqual(["hourAge"]);
+  });
+
+  it("agrees with itself: placeable and rows select the same set for a custom window", () => {
+    // The two selectors diverge ONLY for all-time. If they ever disagree here,
+    // one of them has grown a special case it should not have.
+    const rows = [DATED, GHOST];
+    expect(ids(selectPeriodRows(rows, CUSTOM))).toEqual(
+      ids(selectPeriodPlaceable(rows, CUSTOM).map((d) => d.row)),
+    );
   });
 });

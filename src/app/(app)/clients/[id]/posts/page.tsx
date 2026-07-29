@@ -58,7 +58,14 @@ export default async function ClientPostsPage({
           {/* The SAME picker, reading the same `?period=` param and the same
               `availablePeriods`, so this screen and the report always offer the
               same windows for the same client. */}
-          <ReportPeriodPicker periods={posts.availablePeriods} value={posts.period.key} />
+          <ReportPeriodPicker
+            periods={posts.availablePeriods}
+            value={posts.period.key}
+            // A staff screen, so the custom range is opted INTO. The prop defaults
+            // to false precisely so `/r/[token]` cannot inherit it.
+            allowCustom
+            today={new Date()}
+          />
         </div>
       </div>
 

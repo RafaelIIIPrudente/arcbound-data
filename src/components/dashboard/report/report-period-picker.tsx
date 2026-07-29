@@ -2,15 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DateRangePicker } from "@/components/dashboard/date-range/date-range-picker";
 import type { ReportPeriod } from "@/services/types";
 
 // The pure helpers live in report-period.ts, NOT here: this is a client module,
@@ -20,48 +12,68 @@ import { reportPeriodHref } from "./report-period";
 
 /**
  * Scopes the WHOLE screen that renders it, not one section of it. Shared by the
- * client report and the client posts screens. Reads = RSC: this component just
- * rewrites the `period` search param and the server component re-fetches.
- * `period` is the only param on this route and its current value arrives as a
- * prop, so the next URL is built from props alone — no useSearchParams, hence
- * no Suspense boundary needed (same idiom as dashboard-filters.tsx).
+ * client report, the client posts screen, and the CLIENT-FACING `/r/[token]`
+ * report. Reads = RSC: this component just rewrites the `period` search param
+ * and the server component re-fetches.
+ *
+ * ⚠️ `allowCustom` DEFAULTS TO FALSE, AND THAT DEFAULT IS THE BOUNDARY. The same
+ * component renders on `/r/[token]`, the report a CLIENT holds. A custom window
+ * is a staff affordance — a client's report stays on periods that can be named
+ * back to them in a conversation — so a caller that forgets this prop ships the
+ * NARROWER surface. Widening is always deliberate, never inherited.
+ *
+ * ⚠️ IT MUST KEEP CALLING `reportPeriodHref`, which ALWAYS writes the param and
+ * never strips it. An absent `period` legitimately means "no choice yet" and the
+ * decoder resolves that to the newest month; stripping made a deliberate choice
+ * indistinguishable from no choice, which is how "All time" was once unreachable.
+ * A custom key is written the same way, for the same reason.
  */
-export function ReportPeriodPicker({ periods, value }: { periods: ReportPeriod[]; value: string }) {
+export function ReportPeriodPicker({
+  periods,
+  value,
+  allowCustom = false,
+  today,
+}: {
+  periods: ReportPeriod[];
+  value: string;
+  allowCustom?: boolean;
+  /**
+   * The server's day, so the calendar's "no future dates" boundary matches the
+   * clock the report was rendered against. Unused when `allowCustom` is false —
+   * no calendar renders at all — which is why `/r/[token]` need not pass it.
+   */
+  today?: Date;
+}) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const groups = [
-    { label: "Years", items: periods.filter((p) => p.kind === "year") },
-    { label: "Quarters", items: periods.filter((p) => p.kind === "quarter") },
-    { label: "Months", items: periods.filter((p) => p.kind === "month") },
-  ].filter((g) => g.items.length > 0);
-
-  const allTime = periods.find((p) => p.kind === "all");
+  // Exactly the grouping the Select this replaced rendered: all-time first and
+  // ungrouped, then Years, Quarters, Months. `ReportPeriod.label` is the only
+  // string ever shown to staff, so it travels through untouched.
+  const presets = [
+    ...periods.filter((p) => p.kind === "all").map((p) => ({ key: p.key, label: p.label })),
+    ...periods
+      .filter((p) => p.kind === "year")
+      .map((p) => ({ key: p.key, label: p.label, group: "Years" })),
+    ...periods
+      .filter((p) => p.kind === "quarter")
+      .map((p) => ({ key: p.key, label: p.label, group: "Quarters" })),
+    ...periods
+      .filter((p) => p.kind === "month")
+      .map((p) => ({ key: p.key, label: p.label, group: "Months" })),
+  ];
 
   return (
-    <Select
+    <DateRangePicker
+      presets={presets}
       value={value}
-      onValueChange={(v) => router.replace(reportPeriodHref(pathname, v), { scroll: false })}
-    >
-      <SelectTrigger
-        className="w-auto max-w-55 gap-2 font-mono text-[11.5px] tracking-wide uppercase sm:max-w-70"
-        aria-label="Reporting period"
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {allTime ? <SelectItem value={allTime.key}>{allTime.label}</SelectItem> : null}
-        {groups.map((group) => (
-          <SelectGroup key={group.label}>
-            <SelectLabel>{group.label}</SelectLabel>
-            {group.items.map((p) => (
-              <SelectItem key={p.key} value={p.key}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        ))}
-      </SelectContent>
-    </Select>
+      allowCustom={allowCustom}
+      today={today ?? new Date()}
+      // The report's dialect: a bare `2026-06-12..2026-07-29` could not be told
+      // apart from a named period key, so a custom window carries the prefix.
+      customPrefix="custom:"
+      ariaLabel="Reporting period"
+      onSelect={(token) => router.replace(reportPeriodHref(pathname, token), { scroll: false })}
+    />
   );
 }
