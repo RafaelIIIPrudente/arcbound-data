@@ -36,6 +36,12 @@ describe("ReportLinkCardView — no active link", () => {
     expect(screen.getByRole("button", { name: /create client link/i })).toBeInTheDocument();
   });
 
+  it("keeps the original explanatory copy for an admin", () => {
+    // The analyst variant below replaces this; an admin's experience is unchanged.
+    render(<ReportLinkCardView status={null} issued={null} {...baseProps} />);
+    expect(screen.getByText(/give this client a private/i)).toBeInTheDocument();
+  });
+
   it("shows a Create button when the link is revoked (active: false)", () => {
     render(
       <ReportLinkCardView status={{ ...ACTIVE, active: false }} issued={null} {...baseProps} />,
@@ -130,6 +136,30 @@ describe("ReportLinkCardView — a Data Analyst (isAdmin: false)", () => {
     render(<ReportLinkCardView status={null} issued={null} {...analystProps} />);
 
     expect(screen.queryByRole("button", { name: /create client link/i })).toBeNull();
+  });
+
+  it("⚠️ is not invited to do something they cannot do when there is no link", () => {
+    // ⚠️ COPY IS AN AFFORDANCE TOO.
+    //
+    // S2 removed the Create button for analysts but left the sales pitch above it
+    // ("Give this client a private, read-only link…") — an instruction to act,
+    // addressed to someone with no way to act and no explanation why. Removing
+    // the button while keeping the prompt is a half-measure that reads as a bug.
+    render(<ReportLinkCardView status={null} issued={null} {...analystProps} />);
+
+    expect(screen.queryByText(/give this client a private/i)).toBeNull();
+    expect(screen.getByText(/no report link/i)).toBeInTheDocument();
+    expect(screen.getByText(/an admin can create one/i)).toBeInTheDocument();
+  });
+
+  it("still learns the state of the link — absence is reported, not hidden", () => {
+    // The analyst loses the ACTION, never the INFORMATION: they must still be able
+    // to tell "this client has no link" from "this card failed to load".
+    render(
+      <ReportLinkCardView status={{ ...ACTIVE, active: false }} issued={null} {...analystProps} />,
+    );
+
+    expect(screen.getByText(/no report link/i)).toBeInTheDocument();
   });
 
   it("sees no Create button when the link is revoked (active: false)", () => {

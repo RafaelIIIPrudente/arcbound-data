@@ -3,7 +3,9 @@
 **Date opened:** 2026-08-02
 **Branch:** `feat--implement-RBAC` (branched off `main` at `7d222f1`, clean tree)
 **Session role:** planning (shape → `/handoff`). No production code written here.
-**Status:** 🟡 grilling in progress — decisions being recorded as they are made.
+**Status:** 🟢 **COMPLETE** — all three slices landed, all SQL applied and
+live-verified (2026-08-02). S1+S2 committed as `f379882`; S3 code uncommitted.
+Residual open items are listed at the bottom; none block use.
 
 ---
 
@@ -193,6 +195,61 @@ explicitly untouched; both S1 seed twins corrected to `rflprdnt@gmail.com`.
 | **Copy defect, undecided.** In the no-link state an analyst still reads _"Give this client a private, read-only link…"_ with no button beneath it — a call to action they cannot perform. The executer correctly declined to rewrite user-facing copy outside its scope.                                                                                                                                                                              | Fold a fix into S3 (e.g. "No report link — ask an admin").                                                                                                                     |
 | Executer flag partly mistaken: it reported the brief named `issueReportLinkAction`. The brief named `createReportLinkAction`.                                                                                                                                                                                                                                                                                                                         | No impact; the correct action was guarded. Recorded for accuracy only.                                                                                                         |
 
+---
+
+## S3 landing record — 🟢 CODE LANDED, planner-verified (2026-08-02) · ⏳ SQL NOT YET APPLIED
+
+Handoff: [`docs/handoffs/2026-08-02-rbac-s3-roles-screen.md`](../handoffs/2026-08-02-rbac-s3-roles-screen.md).
+Code uncommitted on `feat--implement-RBAC`; S1+S2 committed by the user as `f379882`.
+
+**Shipped:** `list_staff()` + `set_staff_role()` SQL pair · `src/services/staff.ts` ·
+`/settings/roles` page + action · `staff-roles-table` components · admin-only link on
+`/settings` · `paths.settings.roles` · `resolvePageTitle` branch · the S2 analyst
+copy fix on the report-link card.
+
+**Verified independently:** `pnpm test` → **104 files / 1,540 tests, exit 0**
+(baseline 98 / 1,495); twins diff clean and registered in `PAIRS`; both functions
+revoked from `public`, granted to `authenticated`; `list_staff` **LEFT JOINs from
+`auth.users`**; the `/settings/roles` title branch precedes the generic settings
+branch; and a grep for a client-side copy of the last-admin rule found **none**.
+
+### 🟢 SQL APPLIED AND LIVE-VERIFIED (2026-08-02)
+
+`supabase/staff-roles-admin.sql` was applied by staff. `pg_proc` confirms:
+
+| function         | `security_definer` | guarded by `is_admin()` | advisory lock                            |
+| ---------------- | ------------------ | ----------------------- | ---------------------------------------- |
+| `list_staff`     | true               | true                    | **false** — read path, correctly no lock |
+| `set_staff_role` | true               | true                    | **true** — write path, lock present      |
+
+**All three slices are now applied. The RBAC workstream is functionally complete.**
+
+### ⚠️ What the 1,540 green tests do and do not prove
+
+The four `set_staff_role` refusal tests, the `updated_at` assertion, and the
+advisory-lock test are **SOURCE assertions**. No Postgres runs in this suite, so they
+verify the shipped SQL _says_ the right thing — not that the database _does_ it. The
+race the advisory lock prevents cannot be tested here at all. Combined with the
+one-account reality, that means:
+
+| Behaviour                                                         | Status                                      |
+| ----------------------------------------------------------------- | ------------------------------------------- |
+| App-layer guards, hidden controls, redirect                       | Covered by real behavioural tests           |
+| S2's DB guards (`is_admin()` on the three RPCs, `clients` policy) | **Live-verified** against production        |
+| S3's `set_staff_role` refusals, `updated_at`, the lock            | **Source assertions only** — never executed |
+| The deny path, the defaulted-analyst row, the last-admin refusal  | **Never executed anywhere**                 |
+
+Real verification of S3 needs the script applied to a database with **two** admins.
+
+### Findings from S3
+
+| Finding                                                                                                                                                                                                                                            | Consequence                                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **The "unexpected commit" was the user's own** — `f379882`, authored `RafaelIIIPrudente <rflprdnt@gmail.com>`, containing exactly the S1+S2 work. The executer surfaced rather than touched it.                                                    | Correct behaviour under the standing rule. No action.                                                                                                          |
+| **Minor deviation, accepted.** `list_staff` returns `sr.created_at` (role-assignment date, NULL when unassigned) rather than `u.created_at` (account creation).                                                                                    | Coherent with `assigned = false`, but the screen cannot show when someone joined. Known choice, not a silent one.                                              |
+| **Executer decisions the brief did not settle, both endorsed.** `list_staff`/`set_staff_role` raise for a non-admin rather than returning empty (matches S2's `42501` idiom); `listStaff()` throws on a failed read rather than degrading to `[]`. | The second is this repo's four-state discipline applied to a list — an empty roster would read as "there are no staff accounts", a lie a reader cannot detect. |
+| `graphify-out/cache/last_query_stamp` was swept into `f379882`.                                                                                                                                                                                    | Per-machine churn now tracked; it will dirty the tree on every clone that runs a graphify query. Worth adding to the ignore block.                             |
+
 ### Other findings from S1
 
 | Finding                                                                                                                                                                                                                                                                                                 | Consequence                                                                                                                                                                                                                                             |
@@ -207,14 +264,19 @@ explicitly untouched; both S1 seed twins corrected to `rflprdnt@gmail.com`.
 
 ## Open items
 
-- 🔴 **Confirm at least one admin row exists after applying S1's SQL** (see above).
-  Blocks S2.
-- `public.clients` policy discovery — `select * from pg_policies where tablename =
-'clients';` — must happen before S2's migration is authored.
-- Resolve the **Engineer/Admin vs Admin** glossary collision before S3.
-- `updated_at` maintenance in S3's `set_staff_role`.
-- Whether the analyst should see their own role anywhere in the UI (e.g. `/settings`).
-  Not decided; low stakes; can ride S3.
+✅ CLOSED: admin row confirmed · `clients` policy discovery done (`arcbase read/add
+clients`) · `updated_at` set explicitly in `set_staff_role`.
+
+Residual housekeeping the workstream surfaced but did not own. **None blocks use.**
+
+| #   | Item                                                                                                                                                                                                                      | Why it matters                                                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **`CONTEXT.md` defines two different "Admin"s** — the pre-existing _Engineer/Admin_ ("provisions staff accounts") and the new _Admin_ Staff Role.                                                                         | The word is now on a screen (`/settings/roles`). One is a person doing Supabase-level provisioning, the other an in-app privilege tier. Rename one, or state the distinction. |
+| 2   | **`supabase/INGEST-WRITE-APPLY.md:38-43` is stale** — documents the `clients` policies as `clients_select_authenticated` / `clients_insert_authenticated`; production has `arcbase read clients` / `arcbase add clients`. | Nothing is broken (S2 used the live names), but the runbook will mislead its next reader.                                                                                     |
+| 3   | **`graphify-out/cache/last_query_stamp` was committed** in `f379882`.                                                                                                                                                     | Per-machine churn now tracked; dirties the tree on every clone that runs a graphify query. Add to the `.gitignore` graphify block.                                            |
+| 4   | **No second staff account exists**, so the deny path has never executed and `/settings/roles` shows one unchangeable row (the last-admin guard correctly refusing).                                                       | Operational choice, not a defect. Until one exists, S3's SQL behaviour stays source-asserted rather than demonstrated.                                                        |
+| 5   | S3 code is **uncommitted**; S1+S2 are committed as `f379882`.                                                                                                                                                             | Per the standing rule, the user commits.                                                                                                                                      |
+| 6   | `graphify update .` not run for the workstream.                                                                                                                                                                           | Deferred per slice to keep diffs reviewable; worth one run now the branch is complete.                                                                                        |
 
 ---
 

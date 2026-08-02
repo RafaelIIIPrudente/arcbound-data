@@ -68,6 +68,22 @@ describe("resolvePageTitle", () => {
     });
   });
 
+  it("matches the STAFF ROLES route before the generic settings rule", () => {
+    // ⚠️ THE SAME ORDERING TRAP AS /outreach ABOVE, on a different prefix.
+    // `startsWith(paths.settings.profile)` — i.e. "/settings" — also matches
+    // "/settings/roles" and returns the generic Settings title, so a branch added
+    // AFTER it is dead code that silently never runs. Asserting the OUTCOME (not
+    // the source order) means this fails if the branch is ever moved below.
+    expect(resolvePageTitle(paths.settings.roles)).not.toEqual({ lead: "", accent: "Settings" });
+    expect(resolvePageTitle(paths.settings.roles)).toEqual({ lead: "Staff", accent: "roles" });
+  });
+
+  it("still returns the generic Settings title for the profile route", () => {
+    // The new branch must not swallow its neighbour in the other direction.
+    expect(resolvePageTitle(paths.settings.profile)).toEqual({ lead: "", accent: "Settings" });
+    expect(resolvePageTitle(paths.settings.security)).toEqual({ lead: "", accent: "Settings" });
+  });
+
   it("returns the design's italic-accent titles per route", () => {
     expect(resolvePageTitle("/")).toEqual({ lead: "Post", accent: "analytics" });
     expect(resolvePageTitle("/clients")).toEqual({ lead: "Client", accent: "list" });

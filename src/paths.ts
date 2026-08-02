@@ -45,6 +45,13 @@ export const paths = {
   settings: {
     profile: "/settings",
     security: "/settings/security",
+    // Staff Roles admin screen (ADR 0013). ADMIN-ONLY — the page calls
+    // `requireAdmin()`, and `/settings` links to it only for an admin.
+    //
+    // ⚠️ ITS OWN ROUTE, NOT A TAB ON `/settings`. Folding it into the profile
+    // page would force `requireAdmin()` onto that page, locking every analyst out
+    // of their own profile and password form to hide one panel from them.
+    roles: "/settings/roles",
   },
   auth: {
     resetPassword: "/auth/reset-password",

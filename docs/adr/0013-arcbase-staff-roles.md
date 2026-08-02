@@ -153,3 +153,37 @@ visibility split; ADR 0007's shared dataset is intact.
   If a third tier or a finer split is ever needed, the `CHECK` constraint takes a
   new value in one line — but a general permission model would be a new ADR, not an
   extension of this one.
+
+## Addendum — the roles screen (2026-08-02)
+
+The workstream is complete. The admin screen landed at **`/settings/roles`**, with
+`public.list_staff()` and `public.set_staff_role()` in
+`supabase/staff-roles-admin.sql`. Three things about it are decisions, not details:
+
+- **The last-admin invariant lives in `set_staff_role` and nowhere else.** The
+  function refuses any change that would leave zero admins (self-demotion is fine
+  while another admin remains). The screen does **not** re-derive that rule to
+  pre-disable a control: it always offers every tier, always submits, and renders
+  the database's refusal text verbatim. A second copy computed in the client would
+  be stale the moment another admin is added in another tab, and the copy users see
+  is the one that drifts first — into telling someone they cannot do something they
+  can. The write is followed by a count rather than preceded by one, so the check
+  asks about the real post-state, and a transaction-scoped advisory lock stops two
+  concurrent demotions from each seeing the other's pre-write value.
+- **The screen distinguishes an assigned Data Analyst from a defaulted one.**
+  `list_staff` drives from `auth.users` and LEFT JOINs `staff_roles`, so accounts
+  with no row still appear, flagged as defaulted. Selecting from `staff_roles`
+  instead would hide exactly the accounts the screen exists to fix.
+- **It is its own route, not a tab on `/settings`.** A tab would force
+  `requireAdmin()` onto the settings page and lock every analyst out of their own
+  profile and password form in order to hide one panel.
+
+This also confirms the staff-enumeration cost predicted above: `list_staff` is a
+genuinely new read surface. It is admin-gated inside its own body, because neither
+`auth.users` nor the own-row-readable `staff_roles` is listable otherwise.
+
+⚠️ **None of this is verified against live data.** Production holds a single staff
+account and it is the admin, so the roster renders one row that correctly cannot be
+changed, and the last-admin path cannot be reached there at all. The evidence is
+unit and component tests plus source assertions over the shipped SQL — no Postgres
+runs in the test suite.

@@ -202,10 +202,22 @@ export function ReportLinkCardView({
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Give this client a private, read-only link to their own live report. They open it with
-            an Access Code you share out of band.
-          </p>
+          {/* ⚠️ THE COPY IS ROLE-AWARE BECAUSE COPY IS AN AFFORDANCE TOO.
+              Removing the button but keeping "Give this client a link…" leaves an
+              analyst reading an instruction to act, with no way to act and no
+              explanation — which reads as a broken screen rather than a boundary.
+              They still learn the STATE (there is no link); they are simply not
+              asked to change it. */}
+          {isAdmin ? (
+            <p className="text-sm text-muted-foreground">
+              Give this client a private, read-only link to their own live report. They open it with
+              an Access Code you share out of band.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No report link for this client yet — an admin can create one.
+            </p>
+          )}
           {isAdmin ? (
             <form action={createAction}>
               <Button type="submit" disabled={pending}>

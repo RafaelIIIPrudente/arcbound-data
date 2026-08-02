@@ -68,6 +68,11 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname === paths.resources) return { lead: "", accent: "Resources" };
   if (pathname === paths.dataQuality) return { lead: "Data", accent: "quality" };
   if (pathname.startsWith(paths.customers.list)) return { lead: "", accent: "Customers" };
+  // ⚠️ BEFORE THE GENERIC SETTINGS RULE, FOR THE THIRD TIME IN THIS FILE.
+  // `paths.settings.roles` ("/settings/roles") starts with `paths.settings.profile`
+  // ("/settings"), so the rule below matches it too and returns "Settings". A
+  // branch placed after it never runs — dead code that looks alive.
+  if (pathname.startsWith(paths.settings.roles)) return { lead: "Staff", accent: "roles" };
   if (pathname.startsWith(paths.settings.profile)) return { lead: "", accent: "Settings" };
   return { lead: "", accent: "ArcBase" };
 }
