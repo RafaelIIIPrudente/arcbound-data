@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { requireAdmin } from "@/lib/auth/roles";
 import { paths } from "@/paths";
 import { issueReportLink, revokeReportLink, rotateReportLink } from "@/services/report-links";
 import type { IssuedReportLink } from "@/services/types";
@@ -16,6 +17,21 @@ import type { IssuedReportLink } from "@/services/types";
 // so the code is shown ONCE. It is never persisted, re-fetched, or logged — a
 // `revalidatePath` re-render reads `getReportLink`, which carries no code by
 // construction, so the code cannot reappear on a plain render.
+//
+// ⚠️ `await requireAdmin()` IS THE FIRST STATEMENT AND SITS OUTSIDE THE try.
+//
+// Issuing, rotating and revoking are Admin acts (ADR 0013): each one mints or
+// destroys a credential a person outside Arcbound holds. Two things about the
+// placement are load-bearing:
+//   • BEFORE the try — `requireAdmin()` denies by calling `redirect()`, which
+//     signals by THROWING. Inside the try it would be caught by the catch below,
+//     turned into `{status: "error"}`, and the redirect would never happen: the
+//     user would sit on the page reading a control-flow token as if it were a
+//     server fault. The tests assert the throw escapes.
+//   • NOT THE ONLY GUARD — this is the app-layer half. `issue/rotate/revoke_
+//     report_link` each re-check `public.is_admin()` in SQL, so a caller who
+//     skips the app entirely and uses their own Supabase token is still refused.
+//     Neither layer makes the other redundant.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ReportLinkActionState =
@@ -34,6 +50,7 @@ export async function createReportLinkAction(
   _prev: ReportLinkActionState,
   _formData: FormData,
 ): Promise<ReportLinkActionState> {
+  await requireAdmin();
   try {
     const link = await issueReportLink(clientId);
     revalidatePath(paths.clients.details(clientId));
@@ -49,6 +66,7 @@ export async function rotateReportLinkAction(
   _prev: ReportLinkActionState,
   _formData: FormData,
 ): Promise<ReportLinkActionState> {
+  await requireAdmin();
   try {
     const link = await rotateReportLink(clientId);
     revalidatePath(paths.clients.details(clientId));
@@ -64,6 +82,7 @@ export async function revokeReportLinkAction(
   _prev: ReportLinkActionState,
   _formData: FormData,
 ): Promise<ReportLinkActionState> {
+  await requireAdmin();
   try {
     await revokeReportLink(clientId);
     revalidatePath(paths.clients.details(clientId));

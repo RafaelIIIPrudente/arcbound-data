@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { AddClientDialog } from "@/components/dashboard/client/add-client-dialog";
 import { ClientsTable } from "@/components/dashboard/client/clients-table";
+import { getRole, isAdmin } from "@/lib/auth/roles";
 import { listClients } from "@/services/clients";
 
 export const metadata: Metadata = { title: "Client list" };
@@ -21,6 +22,15 @@ export default async function ClientsPage({
   const { q } = await searchParams;
   const { items, total } = await listClients({ q, pageSize: PAGE_SIZE });
 
+  // Registering a Client is an Admin act (ADR 0013). A Data Analyst sees the full
+  // roster — every row, every column — and simply has no way to add to it.
+  //
+  // ⚠️ HIDING THE DIALOG IS NOT THE BOUNDARY. `createClientAction` calls
+  // `requireAdmin()` and the "arcbase add clients" RLS policy checks
+  // `public.is_admin()`; those are what actually refuse. This only keeps the page
+  // honest about what the viewer can do.
+  const admin = isAdmin(await getRole());
+
   // The table shows every row it is given and has no pagination (neither does
   // the comp). If the fetch ever caps below the real total, the page SAYS SO —
   // a row that vanishes silently is the failure mode this codebase has been
@@ -39,7 +49,7 @@ export default async function ClientsPage({
             {total} {total === 1 ? "client" : "clients"} · records are immutable
           </p>
         </div>
-        <AddClientDialog />
+        {admin ? <AddClientDialog /> : null}
       </div>
       {truncated ? (
         <p

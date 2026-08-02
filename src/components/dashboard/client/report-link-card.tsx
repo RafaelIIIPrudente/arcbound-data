@@ -96,9 +96,26 @@ interface CardViewProps {
   createAction: (formData: FormData) => void;
   rotateAction: (formData: FormData) => void;
   revokeAction: (formData: FormData) => void;
+  /**
+   * Whether the viewer may CHANGE this link (ADR 0013). Read-only for everyone
+   * else — the status stays, the buttons go.
+   *
+   * ⚠️ REQUIRED, AND DELIBERATELY NOT DEFAULTED. A default would let a new call
+   * site forget the question and silently inherit whichever answer was more
+   * convenient to type. Required means TypeScript makes every call site state it.
+   */
+  isAdmin: boolean;
 }
 
-/** Pure(ish) render of the card — testable without firing server actions. */
+/**
+ * Pure(ish) render of the card — testable without firing server actions.
+ *
+ * ⚠️ `isAdmin` HIDES CONTROLS, IT DOES NOT PROTECT ANYTHING. This is an
+ * affordance, not a boundary: a hidden button is one `curl` away from being
+ * pressed. The real refusals are `requireAdmin()` in the three server actions and
+ * `public.is_admin()` inside `issue/rotate/revoke_report_link`. Never treat this
+ * flag as the thing keeping an analyst out.
+ */
 export function ReportLinkCardView({
   status,
   issued,
@@ -107,6 +124,7 @@ export function ReportLinkCardView({
   createAction,
   rotateAction,
   revokeAction,
+  isAdmin,
 }: CardViewProps) {
   const [confirming, setConfirming] = useState(false);
 
@@ -141,35 +159,46 @@ export function ReportLinkCardView({
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <form action={rotateAction}>
-              <Button type="submit" variant="outline" size="sm" disabled={pending}>
-                <RotateCcw className="size-3.5" aria-hidden />
-                Rotate
-              </Button>
-            </form>
-
-            {confirming ? (
-              <form action={revokeAction} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Revoke this link?</span>
-                <Button type="submit" variant="destructive" size="sm" disabled={pending}>
-                  Yes, revoke
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirming(false)}
-                >
-                  Cancel
+          {/* The mutating controls. Absent entirely for a Data Analyst — no
+              disabled shell and no explanatory tooltip, because a greyed-out
+              button still advertises a capability they do not have and invites
+              them to go asking why. The status above stays fully visible. */}
+          {isAdmin ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <form action={rotateAction}>
+                <Button type="submit" variant="outline" size="sm" disabled={pending}>
+                  <RotateCcw className="size-3.5" aria-hidden />
+                  Rotate
                 </Button>
               </form>
-            ) : (
-              <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(true)}>
-                Revoke
-              </Button>
-            )}
-          </div>
+
+              {confirming ? (
+                <form action={revokeAction} className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Revoke this link?</span>
+                  <Button type="submit" variant="destructive" size="sm" disabled={pending}>
+                    Yes, revoke
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setConfirming(false)}
+                  >
+                    Cancel
+                  </Button>
+                </form>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfirming(true)}
+                >
+                  Revoke
+                </Button>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
@@ -177,12 +206,14 @@ export function ReportLinkCardView({
             Give this client a private, read-only link to their own live report. They open it with
             an Access Code you share out of band.
           </p>
-          <form action={createAction}>
-            <Button type="submit" disabled={pending}>
-              <Plus aria-hidden />
-              Create client link
-            </Button>
-          </form>
+          {isAdmin ? (
+            <form action={createAction}>
+              <Button type="submit" disabled={pending}>
+                <Plus aria-hidden />
+                Create client link
+              </Button>
+            </form>
+          ) : null}
         </div>
       )}
     </section>
@@ -198,9 +229,12 @@ export function ReportLinkCardView({
 export function ReportLinkCard({
   clientId,
   status,
+  isAdmin,
 }: {
   clientId: string;
   status: ReportLinkStatus | null;
+  /** See `CardViewProps.isAdmin` — required, never defaulted. */
+  isAdmin: boolean;
 }) {
   const [createState, createAction, createPending] = useActionState(
     createReportLinkAction.bind(null, clientId),
@@ -244,6 +278,7 @@ export function ReportLinkCard({
       createAction={createAction}
       rotateAction={rotateAction}
       revokeAction={revokeAction}
+      isAdmin={isAdmin}
     />
   );
 }

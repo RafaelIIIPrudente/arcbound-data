@@ -10,6 +10,7 @@ import {
 } from "@/components/dashboard/client/follower-trend";
 import { ReportLinkCard } from "@/components/dashboard/client/report-link-card";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
+import { getRole, isAdmin } from "@/lib/auth/roles";
 import { connectionsTrend, followerTrend } from "@/lib/follower-trend";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
 import { connectionsDelta, followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
@@ -101,10 +102,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const { id } = await params;
   // `getReportLink` is a metadata-only read that degrades to null on failure, so
   // it can join the same parallel fetch without ever failing the page.
-  const [client, uploads, reportLink] = await Promise.all([
+  // The role joins the same parallel fetch — it is one indexed lookup and, like
+  // `getReportLink`, cannot fail the page: `getRole()` never throws and resolves
+  // to the least-privileged answer when it cannot tell (ADR 0013).
+  const [client, uploads, reportLink, role] = await Promise.all([
     getClient(id),
     listUploads(id),
     getReportLink(id),
+    getRole(),
   ]);
   if (!client) notFound();
 
@@ -188,7 +193,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           `status` is null when no link exists (→ Create); the Access Code is shown
           once at Create/Rotate and never re-rendered from here (it isn't on
           ReportLinkStatus). See components/report-link + supabase/report-links.sql. */}
-      <ReportLinkCard clientId={client.id} status={reportLink} />
+      <ReportLinkCard clientId={client.id} status={reportLink} isAdmin={isAdmin(role)} />
 
       {/* Both derived from the SAME `uploads` array the cards above read, with no
           second query — so neither series can end on a different figure than its

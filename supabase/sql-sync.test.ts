@@ -29,6 +29,16 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    name: "staff-roles-enforce",
+    script: "staff-roles-enforce.sql",
+    migration: "migrations/20260802130000_staff_roles_enforce.sql",
+  },
+  {
+    name: "staff-roles",
+    script: "staff-roles.sql",
+    migration: "migrations/20260802120000_staff_roles.sql",
+  },
+  {
     name: "outreach-report-link",
     script: "outreach-report-link.sql",
     migration: "migrations/20260727140000_outreach_report_link.sql",

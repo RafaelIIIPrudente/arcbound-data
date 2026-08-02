@@ -1,0 +1,57 @@
+-- ArcBase Staff Roles ENFORCEMENT — copy-paste for the Supabase SQL editor
+-- (Dashboard → SQL Editor → New query → paste → Run). Same DDL as
+-- supabase/migrations/20260802130000_staff_roles_enforce.sql.
+--
+-- Apply AFTER supabase/staff-roles.sql — this depends on public.is_admin()
+-- existing, and on at least one admin row existing. Applying it against a
+-- database with ZERO admin rows makes registering a Client impossible for
+-- everyone, with no in-app way back. Confirm first:
+--
+--     select * from public.staff_roles where role = 'admin';
+--
+-- ⚠️ THIS IS AN `alter policy`, NOT A `create policy`. `public.clients` was
+-- created OUTSIDE this repo (there is no migration for it here) and already
+-- carries exactly two policies. This script narrows ONE of them in place. It
+-- deliberately does not create, drop, or re-create the table or its policies —
+-- a `drop policy` + `create policy` pair would briefly leave the table with no
+-- policy at all, and a botched re-create would leave it permanently open.
+--
+-- ⚠️ THE POLICY NAMES CONTAIN SPACES, so every reference must be double-quoted.
+-- Unquoted, Postgres folds and splits the identifier and the statement fails.
+--
+-- ⚠️ CONFIRM THE POLICY NAME BEFORE RUNNING THIS. The name below was read from the
+-- live database on 2026-08-02, but `supabase/INGEST-WRITE-APPLY.md` documents a
+-- DIFFERENT pair of candidate names (`clients_select_authenticated` /
+-- `clients_insert_authenticated`) as a conditional fallback. Only one set is real.
+-- List them first and edit the name below to match if it differs:
+--
+--     select policyname, cmd, qual, with_check
+--       from pg_policies where schemaname = 'public' and tablename = 'clients';
+--
+-- Getting this wrong fails LOUDLY (`42704 policy ... does not exist`) rather than
+-- silently leaving the table open, which is the safe direction — but it does mean
+-- the guard is simply not applied until the name matches.
+
+-- ============================================================================
+-- Registering a Client becomes admin-only
+-- ============================================================================
+--
+-- INSERT is the whole governance surface on this table: ArcBase never updates or
+-- deletes a Client (records are immutable, ADR 0007), so there are no other write
+-- policies to narrow. A Client is the identity every downstream row attributes to
+-- — a wrong or duplicated one splits a person's history with no merge tool — which
+-- is why creating one is an Admin act while reading is not.
+--
+-- The RLS boundary and the Server Action guard are BOTH required and neither
+-- replaces the other: this policy is what stops a caller who bypasses the app and
+-- uses their own Supabase token, and `requireAdmin()` is what gives a staff member
+-- in the UI a redirect instead of a raw Postgres error.
+alter policy "arcbase add clients" on public.clients
+  with check (public.is_admin());
+
+-- ⚠️ "arcbase read clients" (SELECT, qual = true) IS DELIBERATELY NOT TOUCHED.
+--
+-- A Data Analyst still reads EVERYTHING. This slice removes the ability to change
+-- things, never the ability to see them (ADR 0013 — a privilege tier, not a
+-- visibility tier). Narrowing the read policy would break every analyst screen and
+-- would be a different, much larger decision than the one that was made.

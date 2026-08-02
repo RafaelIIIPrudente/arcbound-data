@@ -22,6 +22,10 @@ const baseProps = {
   createAction: noop,
   rotateAction: noop,
   revokeAction: noop,
+  // The card's original audience. Every test below this line predates the role
+  // boundary and keeps asserting exactly what it asserted then; the analyst view
+  // is covered separately at the bottom of the file.
+  isAdmin: true,
 };
 
 afterEach(() => vi.restoreAllMocks());
@@ -93,5 +97,56 @@ describe("ReportLinkCardView — revoke uses an INLINE confirm (never the native
     fireEvent.click(screen.getByRole("button", { name: /^revoke/i }));
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     expect(screen.queryByRole("button", { name: /yes, revoke/i })).toBeNull();
+  });
+});
+
+describe("ReportLinkCardView — a Data Analyst (isAdmin: false)", () => {
+  const analystProps = { ...baseProps, isAdmin: false };
+
+  it("⚠️ STILL SEES the link's status, and sees no control that would change it", () => {
+    // ⚠️ THE TWO HALVES ARE IN ONE TEST ON PURPOSE.
+    //
+    // ADR 0013 removes ACTION affordances, never INFORMATION. Split across two
+    // tests, a change that blanked the whole card for analysts would still leave
+    // the "no buttons" test green and looking like a pass. Asserting that the
+    // status survives IN THE SAME TEST as the buttons disappearing is what makes
+    // over-hiding fail.
+    render(<ReportLinkCardView status={ACTIVE} issued={null} {...analystProps} />);
+
+    // Reading survives, in full.
+    expect(screen.getByText(ACTIVE.url)).toBeInTheDocument();
+    expect(screen.getByText(/created/i)).toBeInTheDocument();
+    expect(screen.getByText(/last opened/i)).toBeInTheDocument();
+    // Copying a URL is reading, not changing — the analyst keeps it.
+    expect(screen.getAllByRole("button", { name: /copy/i }).length).toBeGreaterThanOrEqual(1);
+
+    // Changing does not.
+    expect(screen.queryByRole("button", { name: /rotate/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /revoke/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /create client link/i })).toBeNull();
+  });
+
+  it("sees no Create button when the client has no link", () => {
+    render(<ReportLinkCardView status={null} issued={null} {...analystProps} />);
+
+    expect(screen.queryByRole("button", { name: /create client link/i })).toBeNull();
+  });
+
+  it("sees no Create button when the link is revoked (active: false)", () => {
+    render(
+      <ReportLinkCardView status={{ ...ACTIVE, active: false }} issued={null} {...analystProps} />,
+    );
+
+    expect(screen.queryByRole("button", { name: /create client link/i })).toBeNull();
+  });
+
+  it("has no hidden route to the confirm step — the whole flow is absent", () => {
+    // Not merely "Revoke is not rendered": there is no path to `Yes, revoke`
+    // either, so a disabled-shell regression that left the confirm reachable
+    // would fail here.
+    render(<ReportLinkCardView status={ACTIVE} issued={null} {...analystProps} />);
+
+    expect(screen.queryByRole("button", { name: /yes, revoke/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /cancel/i })).toBeNull();
   });
 });

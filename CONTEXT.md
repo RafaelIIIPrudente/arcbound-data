@@ -26,6 +26,20 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Engineer/Admin** — sets up and maintains ArcBase and provisions staff
   accounts. There is no self-serve signup.
 
+- **Staff Role** — the privilege tier attached to an Arcbound staff Supabase
+  account. Two values: **Admin** and **Data Analyst**. A Staff Role is _not_ a
+  tenant ([ADR 0007](docs/adr/0007-arcbase-single-tenant.md) stands — all staff
+  share one dataset), _not_ a Client (that is the LinkedIn profile being tracked),
+  and _not_ the Report Link read grant
+  ([ADR 0011](docs/adr/0011-client-report-links.md)), which is not a user account
+  at all. See [ADR 0013](docs/adr/0013-arcbase-staff-roles.md).
+
+- **Admin** — a Staff Role that adds the governance surface: registering a
+  Client, issuing/rotating/revoking a Report Link, and assigning Staff Roles.
+
+- **Data Analyst** — a Staff Role that uploads data and reads everything. The
+  default: a staff account with no assigned role is a Data Analyst.
+
 ### Domain
 
 - **Client** — an individual LinkedIn profile (a person) whose post metrics
