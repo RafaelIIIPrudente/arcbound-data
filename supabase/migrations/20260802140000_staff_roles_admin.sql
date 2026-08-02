@@ -32,12 +32,34 @@
 --
 -- `u.email` is `varchar` in `auth.users`; the cast to `text` is required or the
 -- returned row type will not match this signature.
+--
+-- ⚠️ `pending` IS WHY AN INVITED PERSON DOES NOT VANISH. An invited account exists
+-- in `auth.users` from the moment the invitation is sent, but has no confirmed
+-- email until they accept. Without surfacing that, an admin invites someone, the
+-- roster shows a normal-looking row, and there is no way to tell "they have not
+-- accepted yet" from "they are set up" (ADR 0014).
+--
+-- ⚠️ THE DROP BELOW IS REQUIRED, NOT TIDINESS. A `returns table` column list IS the
+-- function's return type, and `create or replace function` CANNOT change a return
+-- type — adding `pending` without dropping first makes Postgres raise 42P13
+-- ("cannot change return type of existing function"). Dropping also discards the
+-- grants, which is why the revoke/grant pair further down must be re-run with it.
+-- They are, in this same file: this remains ONE definition, applied as a unit.
+--
+-- ⚠️ AND IT IS EDITED IN PLACE, NOT RE-DEFINED IN A NEW FILE. S2 established the
+-- rule: a second `create or replace` of the same function in another script leaves
+-- a stale definition that silently wins whenever it is applied last, quietly
+-- reverting the change with no error and no test able to see it. One definition per
+-- function, always current, apply order irrelevant.
+drop function if exists public.list_staff();
+
 create or replace function public.list_staff()
 returns table (
   user_id    uuid,
   email      text,
   role       text,
   assigned   boolean,
+  pending    boolean,
   created_at timestamptz,
   updated_at timestamptz
 )
@@ -58,6 +80,7 @@ begin
            u.email::text,
            coalesce(sr.role, 'analyst'),
            (sr.user_id is not null),
+           (u.email_confirmed_at is null),
            sr.created_at,
            sr.updated_at
       from auth.users u

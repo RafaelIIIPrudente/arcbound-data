@@ -5,7 +5,7 @@ import { paths } from "@/paths";
 import { isNavItemActive, navItems, resolvePageTitle } from "./nav-config";
 
 describe("navItems", () => {
-  it("is exactly the five ArcBase nav items, in order", () => {
+  it("is exactly the six ArcBase nav items, in order", () => {
     expect(navItems.map((i) => i.title)).toEqual([
       "Dashboard",
       "Client List",
@@ -15,6 +15,10 @@ describe("navItems", () => {
       "Add Data",
       "Resources",
       "Data Quality",
+      // ⚠️ LAST, AND NOT ALPHABETICALLY. Settings is a UTILITY surface — the
+      // account, not the product — so it sits below the five screens that are
+      // the work. `toEqual` on the whole array is what pins the position.
+      "Settings",
     ]);
     expect(navItems.map((i) => i.href)).toEqual([
       paths.home,
@@ -22,7 +26,24 @@ describe("navItems", () => {
       paths.upload,
       paths.resources,
       paths.dataQuality,
+      paths.settings.profile,
     ]);
+  });
+
+  it("⚠️ lists Settings for EVERYONE — the item is not role-aware", () => {
+    // ⚠️ DELIBERATE, AND THE OPPOSITE OF A MISSING GUARD.
+    //
+    // `/settings` is where every staff member manages their own profile and
+    // password. Only the Staff Roles LINK INSIDE it is admin-only (ADR 0013, S3).
+    // Gating this nav item — or the page behind it — would lock analysts out of
+    // their own account in order to hide one panel from them.
+    //
+    // `navItems` is a plain constant: it takes no role, no session and no user,
+    // so there is nowhere for a role check to hide. That is the assertion.
+    const settings = navItems.find((i) => i.title === "Settings");
+    expect(settings).toEqual({ title: "Settings", href: paths.settings.profile });
+    // No `adminOnly`, no `role`, no predicate — there is nowhere for a gate to sit.
+    expect(Object.keys(settings!)).toEqual(["title", "href"]);
   });
 });
 
@@ -45,6 +66,17 @@ describe("isNavItemActive", () => {
   it("keeps Client List active on the client LinkedIn report route", () => {
     // The report is a nested client route — it must not orphan the nav.
     expect(isNavItemActive(paths.clients.list, paths.clients.report("abc123"))).toBe(true);
+  });
+
+  it("keeps Settings active on the nested Staff Roles route", () => {
+    // ⚠️ NO NEW LOGIC WAS NEEDED FOR THIS, AND THAT IS WORTH PINNING.
+    // `isNavItemActive` already treats every non-home item as active on its own
+    // route and anything nested beneath it, so `/settings/roles` keeps Settings
+    // lit for free. This asserts the behaviour so a future "optimisation" to that
+    // function cannot quietly orphan the nav on the roles screen.
+    expect(isNavItemActive(paths.settings.profile, paths.settings.profile)).toBe(true);
+    expect(isNavItemActive(paths.settings.profile, paths.settings.roles)).toBe(true);
+    expect(isNavItemActive(paths.settings.profile, paths.home)).toBe(false);
   });
 
   it("matches upload and resources on their own routes only", () => {

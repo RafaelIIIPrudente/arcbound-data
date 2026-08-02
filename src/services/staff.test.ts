@@ -2,26 +2,33 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hermetic: the RPC seam is mocked. Nothing hits Postgres — see the note in
 // supabase/staff-roles-admin.test.ts about what is and is not proven by tests.
-const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }));
+const { rpcMock, invokeMock } = vi.hoisted(() => ({ rpcMock: vi.fn(), invokeMock: vi.fn() }));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
-vi.mock("@/lib/supabase/server", () => ({ createClient: () => ({ rpc: rpcMock }) }));
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: () => ({ rpc: rpcMock, functions: { invoke: invokeMock } }),
+}));
 
-import { listStaff, setStaffRole } from "./staff";
+import { inviteStaff, listStaff, setStaffRole } from "./staff";
 
 const ADMIN_ROW = {
   user_id: "11111111-1111-1111-1111-111111111111",
   email: "admin@arcbound.com",
   role: "admin",
   assigned: true,
+  pending: false,
 };
 const UNASSIGNED_ROW = {
   user_id: "22222222-2222-2222-2222-222222222222",
   email: "newhire@arcbound.com",
   role: "analyst",
   assigned: false,
+  pending: true,
 };
 
-beforeEach(() => rpcMock.mockReset());
+beforeEach(() => {
+  rpcMock.mockReset();
+  invokeMock.mockReset();
+});
 
 describe("listStaff", () => {
   it("maps the roster, preserving who was ASSIGNED and who merely defaulted", async () => {
@@ -43,12 +50,17 @@ describe("listStaff", () => {
         email: "admin@arcbound.com",
         role: "admin",
         assigned: true,
+        pending: false,
       },
       {
         userId: UNASSIGNED_ROW.user_id,
         email: "newhire@arcbound.com",
         role: "analyst",
         assigned: false,
+        // ⚠️ INVITED BUT NOT YET ACCEPTED — a third fact, distinct from both
+        // "assigned admin" and "defaulted analyst". It must survive the mapping
+        // or an invited person is indistinguishable from an established one.
+        pending: true,
       },
     ]);
   });
@@ -94,5 +106,82 @@ describe("setStaffRole", () => {
     await expect(setStaffRole(ADMIN_ROW.user_id, "analyst")).rejects.toThrow(
       /at least one admin must remain/,
     );
+  });
+});
+
+describe("inviteStaff", () => {
+  it("invokes the edge function with the email and role", async () => {
+    invokeMock.mockResolvedValueOnce({ data: { status: "invited" }, error: null });
+
+    const result = await inviteStaff("newhire@arcbound.com", "analyst");
+
+    expect(invokeMock).toHaveBeenCalledWith("invite-staff", {
+      body: { email: "newhire@arcbound.com", role: "analyst" },
+    });
+    expect(result).toEqual({ status: "invited" });
+  });
+
+  it("⚠️ reports a sent invitation with an unsaved role as its OWN outcome", async () => {
+    // ⚠️ NOT SUCCESS, NOT FAILURE — AND THE DISTINCTION IS NOT COSMETIC.
+    //
+    // The invitation cannot be un-sent: the account exists. Only the role row
+    // failed, so the person will join as a Data Analyst (ADR 0013's default).
+    // Reporting success would leave an admin believing they had created an admin.
+    // Reporting failure would imply nothing happened, and they would invite again
+    // — against an email that now already exists.
+    invokeMock.mockResolvedValueOnce({
+      data: {
+        status: "invited_without_role",
+        message: "Invitation sent, but their role could not be saved.",
+      },
+      error: null,
+    });
+
+    const result = await inviteStaff("newhire@arcbound.com", "admin");
+
+    expect(result).toEqual({
+      status: "invited_without_role",
+      message: "Invitation sent, but their role could not be saved.",
+    });
+  });
+
+  it("⚠️ surfaces the edge function's own error text, not the generic wrapper", async () => {
+    // ⚠️ supabase-js collapses EVERY non-2xx into "Edge Function returned a
+    // non-2xx status code" and hides the real body on `error.context`. Passing
+    // that through would tell an admin nothing — a 403, a bad email and a
+    // misconfigured function would all read identically. The real message is read
+    // out of the response.
+    invokeMock.mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: "Edge Function returned a non-2xx status code",
+        context: { json: async () => ({ error: "admin role required" }) },
+      },
+    });
+
+    await expect(inviteStaff("someone@arcbound.com", "admin")).rejects.toThrow(
+      /admin role required/,
+    );
+  });
+
+  it("falls back to the wrapper message when the body cannot be read", async () => {
+    // A network-level failure has no JSON body at all; it must still throw
+    // something, not crash trying to parse nothing.
+    invokeMock.mockResolvedValueOnce({
+      data: null,
+      error: { message: "Failed to send a request to the Edge Function" },
+    });
+
+    await expect(inviteStaff("someone@arcbound.com", "admin")).rejects.toThrow(
+      /Failed to send a request/,
+    );
+  });
+
+  it("treats an unrecognised response shape as a failure, never as success", async () => {
+    // Fail closed on the unknown: silently returning "invited" for a response we
+    // do not understand would report a success nobody verified.
+    invokeMock.mockResolvedValueOnce({ data: { unexpected: true }, error: null });
+
+    await expect(inviteStaff("someone@arcbound.com", "admin")).rejects.toThrow();
   });
 });

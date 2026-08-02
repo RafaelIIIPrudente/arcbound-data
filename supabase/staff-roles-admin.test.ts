@@ -67,6 +67,39 @@ describe("list_staff lists the ROSTER, not just the assigned", () => {
     expect(body).toMatch(/sr\.user_id\s+is\s+not\s+null/);
   });
 
+  it("⚠️ reports whether an invited account has ACCEPTED yet", () => {
+    // ⚠️ WITHOUT THIS, AN INVITED PERSON LOOKS LIKE AN ESTABLISHED ONE. The row
+    // appears in `auth.users` the moment the invitation is sent, so the roster
+    // would show a normal-looking account and give an admin no way to tell "has
+    // not accepted yet" from "set up and working" (ADR 0014).
+    expect(body).toMatch(/u\.email_confirmed_at is null/);
+    expect(body).toMatch(/pending\s+boolean/);
+  });
+
+  it("⚠️ DROPS before replacing, because adding a column changes the return type", () => {
+    // ⚠️ NOT TIDINESS — WITHOUT IT THE APPLY FAILS. A `returns table` column list
+    // IS the return type, and `create or replace function` cannot change one:
+    // Postgres raises 42P13. This asserts the drop exists AND precedes the create,
+    // because a drop placed after would remove the function that was just defined.
+    const drop = source.indexOf("drop function if exists public.list_staff()");
+    const create = source.indexOf("create or replace function public.list_staff()");
+
+    expect(drop).toBeGreaterThan(-1);
+    expect(drop).toBeLessThan(create);
+  });
+
+  it("re-grants after the drop, since dropping discards grants", () => {
+    // The drop takes the EXECUTE grant with it. If the grant were not re-run in
+    // this same file, applying it would leave the function uncallable by
+    // `authenticated` — a roster that 403s for everyone, including admins.
+    const drop = source.indexOf("drop function if exists public.list_staff()");
+    const grant = source.indexOf(
+      "grant  execute on function public.list_staff() to authenticated;",
+    );
+
+    expect(grant).toBeGreaterThan(drop);
+  });
+
   it("casts auth.users.email to text so the row type matches", () => {
     // `auth.users.email` is varchar; without the cast the `returns table`
     // signature does not match and the function fails at runtime, not at create.

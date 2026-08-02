@@ -3,9 +3,18 @@
 **Date opened:** 2026-08-02
 **Branch:** `feat--implement-RBAC` (branched off `main` at `7d222f1`, clean tree)
 **Session role:** planning (shape → `/handoff`). No production code written here.
-**Status:** 🟢 **COMPLETE** — all three slices landed, all SQL applied and
-live-verified (2026-08-02). S1+S2 committed as `f379882`; S3 code uncommitted.
-Residual open items are listed at the bottom; none block use.
+**Status:** 🟢 **COMPLETE** — four slices landed, all SQL applied and live-verified
+(2026-08-02), 1,545 tests green. S1+S2 committed as `f379882`, S3 as `50f65c8`;
+S4 uncommitted. Residual open items are at the bottom; none block use.
+
+**S4 was unplanned and necessary.** S3 put the Staff Roles link on `/settings`, but
+`/settings` was not in the sidebar and nothing linked to it — `top-bar.tsx` has no
+links at all, the avatar being decorative. So the roles screen was reachable only by
+typing a URL. **Planner miss:** the S3 brief said "render a link on the settings
+page" without checking the settings page was itself reachable. S4 added Settings to
+the sidebar as a sixth item, visible to everyone (the roles link inside stays
+admin-only), which also un-orphaned profile and password management.
+Handoff: [`2026-08-02-rbac-s4-settings-nav.md`](../handoffs/2026-08-02-rbac-s4-settings-nav.md).
 
 ---
 
