@@ -6,9 +6,9 @@ import {
   createServiceAction,
   deleteServiceAction,
   setServiceStatusAction,
-  HANDLER_LABELS,
   type ServiceActionState,
 } from "@/app/(app)/settings/services/actions";
+import { HANDLER_LABELS } from "@/app/(app)/settings/services/handler-labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ArcboundServiceAdminRow } from "@/services/arcbound-services";

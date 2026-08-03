@@ -12,6 +12,7 @@ import {
   NotAssignedGate,
   ServicesUnreadableNotice,
 } from "@/components/dashboard/client/service-gate";
+import { SectionTabs } from "@/components/dashboard/client/section-tabs";
 import { PostsTable } from "@/components/dashboard/posts/posts-table";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
@@ -86,6 +87,17 @@ export default async function ClientPostsPage({
       </div>
 
       <ClientTabs clientId={client.id} />
+      {/* ⚠️ THE LINKEDIN SECTION'S SUB-NAV, ON BOTH ITS PAGES (D17/D18). Rendered
+          UNCONDITIONALLY — same placement as `ClientTabs` above — for the same
+          reason as the identical block on report/page.tsx: it states where you
+          are, not a verdict on assignment, and omitting it here specifically
+          would leave someone on Posts with no way back to Report. */}
+      <SectionTabs
+        tabs={[
+          { href: paths.clients.report(client.id), label: "Report" },
+          { href: paths.clients.posts(client.id), label: "Posts" },
+        ]}
+      />
 
       {/* ⚠️ ONLY WHEN THE REGISTRY ITSELF COULD NOT BE READ (`access === null`).
           `assigned` already fails OPEN in that case (see `canSee`), so the real

@@ -12,6 +12,7 @@ import {
   NotAssignedGate,
   ServicesUnreadableNotice,
 } from "@/components/dashboard/client/service-gate";
+import { SectionTabs } from "@/components/dashboard/client/section-tabs";
 import { ImpressionsByMonthChart } from "@/components/dashboard/report/impressions-by-month-chart";
 import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impressions-by-weekday-chart";
 import { InteractionsByAssetChart } from "@/components/dashboard/report/interactions-by-asset-chart";
@@ -127,6 +128,18 @@ export default async function ClientReportPage({
       </div>
 
       <ClientTabs clientId={client.id} />
+      {/* ⚠️ THE LINKEDIN SECTION'S SUB-NAV, ON BOTH ITS PAGES (D17/D18). Rendered
+          UNCONDITIONALLY — same placement as `ClientTabs` above — so it states
+          where you are, not a verdict on whether the Client is assigned; a
+          direct visit to this page while not assigned still shows a way to
+          Posts, and vice versa. Rendering it only here would leave someone on
+          `/posts` with no way back into the section they are inside. */}
+      <SectionTabs
+        tabs={[
+          { href: paths.clients.report(client.id), label: "Report" },
+          { href: paths.clients.posts(client.id), label: "Posts" },
+        ]}
+      />
 
       {/* ⚠️ ONLY WHEN THE REGISTRY ITSELF COULD NOT BE READ. `assigned` fails OPEN
           in that case (see `canSee`), so the real report still renders — this

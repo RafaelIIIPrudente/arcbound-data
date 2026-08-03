@@ -132,7 +132,7 @@ export interface ClientServiceAccess {
   services: ArcboundService[];
   /**
    * The Services this Client is actually assigned. This is what `canSee()` and
-   * `visibleTabHandlers()` (`src/lib/service-access.ts`) operate on: an ARCHIVED
+   * `visibleTabServices()` (`src/lib/service-access.ts`) operate on: an ARCHIVED
    * Service still appears here if held (D11), and a NULL-handler Service still
    * appears here too — it grants no section, but it is a real assignment.
    */

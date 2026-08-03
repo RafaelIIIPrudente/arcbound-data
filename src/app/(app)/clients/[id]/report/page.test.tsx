@@ -13,6 +13,15 @@ vi.mock("@/components/dashboard/client/client-tabs", () => ({ ClientTabs: () => 
 vi.mock("@/components/dashboard/report/report-period-picker", () => ({
   ReportPeriodPicker: () => null,
 }));
+// A stub carrying the tabs it was handed — this file is about the GATE, not
+// about `SectionTabs`' own pathname-highlighting (covered in
+// section-tabs.test.tsx), and the real component needs a router context this
+// file does not set up.
+vi.mock("@/components/dashboard/client/section-tabs", () => ({
+  SectionTabs: ({ tabs }: { tabs: { href: string; label: string }[] }) => (
+    <div data-testid="section-tabs">{tabs.map((t) => t.label).join(",")}</div>
+  ),
+}));
 // Every section component below is a stub carrying a recognisable marker — this
 // file is about the GATE, not about what any section computes (out of Scope).
 vi.mock("@/components/dashboard/report/key-performance", () => ({
@@ -142,5 +151,25 @@ describe("ClientReportPage — gated on linkedin_post_metrics (ADR 0015)", () =>
     const { container } = render(await ClientReportPage(params()));
 
     expect(container.firstChild).not.toBeNull();
+  });
+});
+
+describe("⚠️ ClientReportPage — the LinkedIn sub-nav (D17/D18)", () => {
+  it("renders the Report ⇄ Posts sub-nav under the tab row, on this page", async () => {
+    // ⚠️ BOTH PAGES, OR POSTS IS A DEAD END. This page and posts/page.tsx must
+    // both render it — see the identical test on posts/page.test.tsx.
+    getClientServicesMock.mockResolvedValue({ services: [LINKEDIN], held: [LINKEDIN] });
+
+    render(await ClientReportPage(params()));
+
+    expect(screen.getByTestId("section-tabs")).toHaveTextContent("Report,Posts");
+  });
+
+  it("renders the sub-nav even when the Client is not assigned — the row states where you are, not a verdict", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+
+    render(await ClientReportPage(params()));
+
+    expect(screen.getByTestId("section-tabs")).toBeInTheDocument();
   });
 });

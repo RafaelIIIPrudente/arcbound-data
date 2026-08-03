@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { ArcboundService, ServiceHandler } from "@/services/types";
+import type { ArcboundService } from "@/services/types";
 
-import { canSee, servicesForHandler, visibleTabHandlers } from "./service-access";
+import { canSee, servicesForHandler, visibleTabServices } from "./service-access";
 
 const LINKEDIN: ArcboundService = {
   id: "s-linkedin",
@@ -23,11 +23,14 @@ const OUTREACH: ArcboundService = {
   sortOrder: 20,
 };
 /**
- * ⚠️ SAME HANDLER, DIFFERENT SLUG. `slug` is admin-editable text; `handler` is a
- * database-enforced enum. A Client's access must survive a rename in Settings, so
- * every test below that checks "does this Service grant access" uses a Service
- * whose slug does NOT match its own product name — if any implementation matched
- * on slug instead of handler, this fixture is what would catch it.
+ * ⚠️ SAME HANDLER, DIFFERENT SLUG. `slug` is set once, at creation, and cannot be
+ * changed afterwards (`update_service` has no slug parameter) — so this is not
+ * guarding against a rename. It is guarding against matching the wrong THING:
+ * `handler` is the enum the code actually branches a pipeline on; `slug` is a
+ * display key. Every test below that checks "does this Service grant access"
+ * uses a Service whose slug does NOT resemble its own product, so an
+ * implementation that matched on slug instead of handler would fail here even
+ * though no rename ever touched it.
  */
 const RENAMED_OUTREACH: ArcboundService = {
   ...OUTREACH,
@@ -72,12 +75,13 @@ describe("canSee — the four-state read, made a two-argument function", () => {
   });
 
   it("⚠️ GATES ON handler, NEVER ON slug", () => {
-    // ⚠️ `slug` IS ADMIN-EDITABLE TEXT (S2); `handler` IS A DATABASE ENUM SET ONLY
-    // AT CREATION. A rename in Settings → Services must not be able to silently
-    // strip a Client of a tab they are genuinely still assigned to — which is
-    // exactly what matching on `slug === "outreach-system"` would do the moment
-    // someone renamed the row. RENAMED_OUTREACH's slug does not even resemble its
-    // product; only its handler says what it is.
+    // ⚠️ `slug` IS SET ONCE, AT CREATION, AND CANNOT BE CHANGED AFTERWARDS
+    // (`update_service` has no slug parameter) — so this is not a rename hazard.
+    // `handler` is the enum the code actually branches a pipeline on; `slug` is a
+    // display key, and matching on one instead — even an immutable one — ties a
+    // behavioural decision to a value whose job is to be read by a human.
+    // RENAMED_OUTREACH's slug does not even resemble its product; only its
+    // handler says what it is.
     expect(canSee([RENAMED_OUTREACH], "outreach_prospects")).toBe(true);
   });
 
@@ -111,31 +115,54 @@ describe("servicesForHandler — which held Service(s) unlock a section", () => 
   });
 });
 
-describe("visibleTabHandlers — the ordered set of sections to show", () => {
-  const ALL: ServiceHandler[] = ["linkedin_post_metrics", "outreach_prospects"];
-
-  it("⚠️ every handler when unreadable — code backstops the table (ADR 0015)", () => {
-    expect(visibleTabHandlers(null)).toEqual(ALL);
+describe("visibleTabServices — the ordered SERVICES to show as tabs (D17)", () => {
+  it("only the Services this Client actually holds, LinkedIn first regardless of held order", () => {
+    expect(visibleTabServices([OUTREACH, LINKEDIN])).toEqual([LINKEDIN, OUTREACH]);
   });
 
-  it("only the handlers this Client actually holds, LinkedIn first", () => {
-    expect(visibleTabHandlers([OUTREACH, LINKEDIN])).toEqual([
-      "linkedin_post_metrics",
-      "outreach_prospects",
-    ]);
-  });
-
-  it("no duplicate handler even if held twice (should not happen, but never trust it silently)", () => {
-    expect(visibleTabHandlers([LINKEDIN, { ...LINKEDIN, id: "s-dup" }])).toEqual([
-      "linkedin_post_metrics",
-    ]);
+  it("⚠️ returns the REAL Service objects, so a rename changes the tab label (D17)", () => {
+    // The label a caller shows is `service.name` — this function must not
+    // relabel or otherwise lose the registry's own name.
+    const RENAMED: ArcboundService = { ...LINKEDIN, name: "Totally Renamed LinkedIn Offering" };
+    expect(visibleTabServices([RENAMED])[0]?.name).toBe("Totally Renamed LinkedIn Offering");
   });
 
   it("empty when the Client holds nothing", () => {
-    expect(visibleTabHandlers([])).toEqual([]);
+    expect(visibleTabServices([])).toEqual([]);
   });
 
-  it("ignores NULL-handler Services — they unlock no section", () => {
-    expect(visibleTabHandlers([ADVISORY])).toEqual([]);
+  it("⚠️ ignores NULL-handler Services — they unlock no section (D2/D6)", () => {
+    // A NULL-handler Service is a real, listed offering with nowhere to go; it
+    // stays on the Overview's Services card, never in the tab row.
+    expect(visibleTabServices([ADVISORY])).toEqual([]);
+  });
+
+  it("⚠️ at most one Service per handler reaches the row, even if held carries two", () => {
+    // ⚠️ SAFE ONLY BECAUSE OF `services_one_per_handler` — a partial unique index
+    // in `supabase/arcbound-services.sql` (`on public.services (handler) where
+    // handler is not null`) — so this should never happen for real. This function
+    // does not trust that silently: it keeps whichever row it saw first.
+    const DUPLICATE_LINKEDIN: ArcboundService = { ...LINKEDIN, id: "s-dup", name: "Duplicate" };
+    expect(visibleTabServices([LINKEDIN, DUPLICATE_LINKEDIN])).toEqual([LINKEDIN]);
+  });
+
+  it("⚠️ every pipeline, CODE-LABELLED, when the registry could not be read (D14)", () => {
+    // ⚠️ `null` STILL MEANS EVERY TAB, AND NOW IT ALSO MEANS THERE ARE NO NAMES.
+    // Not a second labelling policy — the same "code backstops the table" policy
+    // degrading gracefully when there is no registry row to read a name from.
+    // `ServicesUnreadableNotice` (rendered on every gated page) is what discloses
+    // this on screen; a fallback label does not need to say so again.
+    const fallback = visibleTabServices(null);
+    expect(fallback.map((s) => s.handler)).toEqual(["linkedin_post_metrics", "outreach_prospects"]);
+    expect(fallback.every((s) => typeof s.name === "string" && s.name.length > 0)).toBe(true);
+  });
+
+  it("⚠️ ORDER COMES FROM HANDLER_ORDER, NEVER FROM sortOrder", () => {
+    // A re-sort in Settings must not be able to reorder a Client's navigation.
+    const REORDERED_OUTREACH: ArcboundService = { ...OUTREACH, sortOrder: 1 };
+    const REORDERED_LINKEDIN: ArcboundService = { ...LINKEDIN, sortOrder: 99 };
+    expect(
+      visibleTabServices([REORDERED_OUTREACH, REORDERED_LINKEDIN]).map((s) => s.handler),
+    ).toEqual(["linkedin_post_metrics", "outreach_prospects"]);
   });
 });

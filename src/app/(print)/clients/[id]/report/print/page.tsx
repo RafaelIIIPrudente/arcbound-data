@@ -2,10 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
-import {
-  NotAssignedGate,
-  ServicesUnreadableNotice,
-} from "@/components/dashboard/client/service-gate";
 import { PrintReport } from "@/components/dashboard/report/print/print-report";
 import { ReportCover } from "@/components/dashboard/report/print/report-cover";
 import { canSee } from "@/lib/service-access";
@@ -49,17 +45,21 @@ export default async function ClientReportPrintPage({
   // report be produced — and exported — for an engagement that does not exist,
   // reachable by a staff member pasting this URL directly regardless of what the
   // on-screen page shows. `canSee` fails OPEN on a null (unreadable) read, so an
-  // unreadable registry still renders the real report, with the same warning
-  // banner the on-screen page carries.
+  // unreadable registry still renders the real report — see the comment below,
+  // where that is the diagnostic that must NOT print.
   const assigned = canSee(access?.held ?? null, "linkedin_post_metrics");
 
+  // ⚠️ A PRINT-LOCAL REFUSAL, NOT THE SHARED `NotAssignedGate`. That component
+  // carries a `<Link>` to `/clients/<id>` — a staff-only route — and
+  // `(print)/layout.tsx` promises "nothing that would end up on paper or in a
+  // client's hands". The GATE stays: an unassigned Service still produces no
+  // report content here (mutation-proved by the test suite). Only the
+  // navigational chrome is dropped, for this one surface.
   if (!assigned) {
     return (
-      <NotAssignedGate
-        clientId={client.id}
-        clientName={client.name}
-        sectionName="LinkedIn Report"
-      />
+      <p className="py-20 text-center text-sm text-muted-foreground">
+        {client.name} is not assigned LinkedIn Report.
+      </p>
     );
   }
 
@@ -67,9 +67,16 @@ export default async function ClientReportPrintPage({
     return <AnalyticsUnavailable />;
   }
 
+  // ⚠️ NO `ServicesUnreadableNotice` HERE, UNLIKE THE ON-SCREEN REPORT. That
+  // notice is an internal diagnostic ("...the check itself failed. Try again
+  // shortly") written for STAFF reading the app — printed into a document
+  // handed to a Client, it reads as an error on the CLIENT'S OWN report. The
+  // access decision above is unchanged (still fails OPEN on `access === null`,
+  // D14), so the real report still renders; only the on-page disclosure of the
+  // read failure is gone, because paper has no later chance to retry and no
+  // reader who is staff.
   return (
     <>
-      {access === null ? <ServicesUnreadableNotice /> : null}
       <ReportCover
         clientName={client.name}
         linkedinUrl={client.linkedin_url}

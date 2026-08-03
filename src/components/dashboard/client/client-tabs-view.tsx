@@ -6,8 +6,17 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 export interface TabSpec {
+  /** Where the tab NAVIGATES to when clicked. */
   href: string;
   label: string;
+  /**
+   * Every pathname that counts as "on this tab" — checked by an EXACT match,
+   * NEVER `startsWith`/a prefix (see the ⚠️ below). Usually just `[href]`, but
+   * the LinkedIn tab's set also holds the Posts sub-route (D17/D18): Posts is a
+   * sub-nav item inside the LinkedIn section now, and its PARENT tab must stay
+   * current while a visitor is on it.
+   */
+  activePaths: string[];
 }
 
 /**
@@ -29,8 +38,14 @@ export interface TabSpec {
  * have to hold both pages' data in one client component and would drop the
  * period from the URL. Styled to match the TabsList/TabsTrigger look.
  *
- * `isActive` below is an EXACT pathname match, so every href handed in must be a
- * distinct path — never a prefix of another, or two tabs would light up.
+ * ⚠️ `isActive` BELOW CHECKS EXACT MEMBERSHIP IN EACH TAB'S OWN `activePaths`
+ * SET — NEVER `startsWith`/A PREFIX ON `href`. `/clients/<id>` (Overview's href)
+ * prefixes every other Client route, so a prefix comparison would light
+ * Overview on all of them at once. The unit is a SET, not a single href,
+ * because one tab (LinkedIn) now legitimately owns two routes (D18) — but two
+ * different tabs' sets must never overlap, or two tabs would light up on the
+ * same route; `client-tabs.test.tsx` asserts the COUNT of current tabs, not
+ * just which one, specifically to catch that.
  */
 export function ClientTabsView({ tabs }: { tabs: TabSpec[] }) {
   const pathname = usePathname();
@@ -44,7 +59,7 @@ export function ClientTabsView({ tabs }: { tabs: TabSpec[] }) {
       className="flex max-w-full items-center gap-7 overflow-x-auto border-b"
     >
       {tabs.map((tab) => {
-        const isActive = pathname === tab.href;
+        const isActive = tab.activePaths.includes(pathname);
         return (
           <Link
             key={tab.href}

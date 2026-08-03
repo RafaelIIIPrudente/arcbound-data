@@ -17,6 +17,15 @@ vi.mock("@/components/dashboard/client/client-tabs", () => ({ ClientTabs: () => 
 vi.mock("@/components/dashboard/report/report-period-picker", () => ({
   ReportPeriodPicker: () => null,
 }));
+// A stub carrying the tabs it was handed — this file is about the GATE, not
+// about `SectionTabs`' own pathname-highlighting (covered in
+// section-tabs.test.tsx), and the real component needs a router context this
+// file does not set up.
+vi.mock("@/components/dashboard/client/section-tabs", () => ({
+  SectionTabs: ({ tabs }: { tabs: { href: string; label: string }[] }) => (
+    <div data-testid="section-tabs">{tabs.map((t) => t.label).join(",")}</div>
+  ),
+}));
 // A stub carrying a recognisable marker, so this file can assert whether the real
 // content rendered at all WITHOUT depending on the table's own column shape —
 // that shape belongs to posts-table.test.tsx, not to a test about gating.
@@ -129,5 +138,27 @@ describe("ClientPostsPage — gated on linkedin_post_metrics (ADR 0015)", () => 
     const { container } = render(await ClientPostsPage(params()));
 
     expect(container.firstChild).not.toBeNull();
+  });
+});
+
+describe("⚠️ ClientPostsPage — the LinkedIn sub-nav (D17/D18)", () => {
+  it("⚠️ renders the Report ⇄ Posts sub-nav under the tab row — OR Posts is a dead end", async () => {
+    // ⚠️ BOTH PAGES, OR POSTS IS A DEAD END. Rendering the sub-nav only on
+    // /report would leave someone standing on /posts with no way back into the
+    // section they are actually inside. See the identical test on
+    // report/page.test.tsx.
+    getClientServicesMock.mockResolvedValue({ services: [LINKEDIN], held: [LINKEDIN] });
+
+    render(await ClientPostsPage(params()));
+
+    expect(screen.getByTestId("section-tabs")).toHaveTextContent("Report,Posts");
+  });
+
+  it("renders the sub-nav even when the Client is not assigned — the row states where you are, not a verdict", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+
+    render(await ClientPostsPage(params()));
+
+    expect(screen.getByTestId("section-tabs")).toBeInTheDocument();
   });
 });

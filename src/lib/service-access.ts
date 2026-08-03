@@ -24,11 +24,15 @@ import type { ArcboundService, ServiceHandler } from "@/services/types";
  * hiccup would strip every Client of every tab at once — a self-inflicted outage
  * far worse than the read failure causing it.
  *
- * ⚠️ GATES ON `handler`, NEVER ON `slug`. `slug` is admin-editable text (S2, and
- * only at creation — see `ArcboundService.handler`'s own doc); `handler` is the
- * database-enforced enum that cannot change after a Service is created. Matching
- * on slug would let a rename in Settings → Services silently disconnect a Client
- * from a section they are still genuinely assigned to.
+ * ⚠️ GATES ON `handler`, NEVER ON `slug` — though not for the reason an earlier
+ * version of this comment gave. There is no live rename hazard to guard against:
+ * `slug` is set once, at creation (`create_service`); `update_service` takes
+ * `(id, name, description, sort_order)` and has no way to touch it. The real
+ * reason stands on its own: `handler` is the enum this code actually branches a
+ * pipeline on (`HANDLER_ORDER` below, `FORMS` in `upload-tabs.tsx`, the
+ * `services_handler_known` CHECK in `supabase/arcbound-services.sql`). `slug` is
+ * a display key — matching on one, even an immutable one, ties a behavioural
+ * decision to a value whose job is to be read by a human, not compared by code.
  *
  * ⚠️ AN ARCHIVED-BUT-HELD SERVICE STILL COUNTS (D11). Archiving retires an
  * offering from the REGISTRY; it does not touch Clients already engaged on it.
@@ -55,25 +59,76 @@ export function servicesForHandler(
 }
 
 /**
- * Every handler this Client should see a tab for, in a fixed display order.
+ * The fixed display order for every handler-driven list in this module —
+ * `visibleTabServices` below, mirrored by `HANDLER_ORDER` in `upload-tabs.tsx`.
  *
- * ⚠️ UNREADABLE MEANS EVERY HANDLER, NOT ZERO. `null` in means "code backstops
- * the table" (ADR 0015): the tab strip shows every section ArcBase implements
- * rather than none, because rendering nothing would take a working screen offline
- * over a database read. This is the same rule `canSee(null, …)` encodes, restated
- * for a caller that wants the whole ordered list instead of one yes/no.
- *
- * The order is fixed in code (LinkedIn first) rather than taken from any
- * `sortOrder` on the Service rows — a registry re-sort must not be able to demote
- * the weekly routine.
+ * LinkedIn first is a PRODUCT decision, not a data one: taken from `sortOrder`
+ * on the Service rows instead, a registry re-sort in Settings could demote the
+ * weekly routine to second place.
  */
 const HANDLER_ORDER: ServiceHandler[] = ["linkedin_post_metrics", "outreach_prospects"];
 
-export function visibleTabHandlers(held: ArcboundService[] | null): ServiceHandler[] {
-  if (held === null) return HANDLER_ORDER;
+/**
+ * Code-side label for each pipeline, used ONLY as the fallback name in
+ * `visibleTabServices` when the registry could not be read — there is no real
+ * Service row to read a name from.
+ *
+ * ⚠️ A DELIBERATE NEAR-DUPLICATE OF `ALL_PIPELINE_SERVICES` IN `upload-tabs.tsx`.
+ * That module solves the identical problem for the upload picker's fallback, but
+ * it is a `"use client"` ingest component — importing from it here would drag
+ * the whole upload form tree into the Client tab row (a Server Component). This
+ * is the same idea, kept small and pure, not a refactor of that file.
+ */
+const HANDLER_LABELS: Record<ServiceHandler, string> = {
+  linkedin_post_metrics: "LinkedIn Metrics",
+  outreach_prospects: "Outreach System",
+};
 
-  const present = new Set(
-    held.map((service) => service.handler).filter((h): h is ServiceHandler => h !== null),
+/**
+ * Every pipeline ArcBase implements, as synthetic Services — the fallback tab
+ * list `visibleTabServices` returns for an unreadable registry.
+ */
+const FALLBACK_TAB_SERVICES: ArcboundService[] = HANDLER_ORDER.map((handler) => ({
+  id: `fallback:${handler}`,
+  slug: handler,
+  name: HANDLER_LABELS[handler],
+  description: null,
+  handler,
+  status: "active",
+  sortOrder: 0,
+}));
+
+/**
+ * The Services to show as top-level Client tabs, in `HANDLER_ORDER` — NEVER in
+ * `sortOrder`, so a re-sort in Settings → Services cannot reorder a Client's
+ * navigation.
+ *
+ * ⚠️ `null` STILL MEANS EVERY TAB (D14), AND NOW IT ALSO MEANS THERE ARE NO
+ * NAMES. This returns the code-side `FALLBACK_TAB_SERVICES` above rather than an
+ * empty list — the same "code backstops the table" policy `canSee(null, …)`
+ * already encodes, degrading gracefully when there is no registry row to read a
+ * name from. This is not a second labelling policy; `ServicesUnreadableNotice`
+ * (rendered on every gated page) is what discloses the read failure on screen.
+ *
+ * A NULL-handler Service is never included — it is a real, listed offering with
+ * nowhere to go (D2/D6); it stays on the Overview's Services card.
+ *
+ * ⚠️ AT MOST ONE SERVICE PER HANDLER REACHES THE ROW, EVEN IF `held` CARRIES
+ * TWO. `services_one_per_handler` — a partial unique index in
+ * `supabase/arcbound-services.sql` — means this should never happen for real;
+ * this function does not trust that silently, and keeps whichever row it saw
+ * first for a given handler.
+ */
+export function visibleTabServices(held: ArcboundService[] | null): ArcboundService[] {
+  if (held === null) return FALLBACK_TAB_SERVICES;
+
+  const byHandler = new Map<ServiceHandler, ArcboundService>();
+  for (const service of held) {
+    if (service.handler === null) continue;
+    if (!byHandler.has(service.handler)) byHandler.set(service.handler, service);
+  }
+
+  return HANDLER_ORDER.filter((handler) => byHandler.has(handler)).map((handler) =>
+    byHandler.get(handler)!,
   );
-  return HANDLER_ORDER.filter((handler) => present.has(handler));
 }
