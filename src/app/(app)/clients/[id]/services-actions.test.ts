@@ -54,6 +54,19 @@ describe("setClientServicesAction", () => {
     expect(state.status).toBe("saved");
   });
 
+  it("⚠️ ALSO revalidates /upload, because the tabs there are derived from this", async () => {
+    // ⚠️ WITHOUT THIS, ASSIGNING FROM /upload LOOKS LIKE IT DID NOTHING.
+    //
+    // S4 made the upload tabs a function of the Client's Services, and an admin can
+    // now assign them inline from that very page. Revalidating only the client's
+    // overview leaves the page they are standing on serving its cached, tab-less
+    // render — so the fix they just applied appears to have failed, and the obvious
+    // next move is to do it again.
+    await setClientServicesAction(IDLE, form(CLIENT, [SERVICE_A]));
+
+    expect(revalidateMock).toHaveBeenCalledWith(paths.upload);
+  });
+
   it("⚠️ accepts an EMPTY set — removing every service is a legitimate act", async () => {
     // ⚠️ NOT AN ERROR. An admin may correctly end an engagement entirely. Rejecting
     // this would make "no services" unreachable through the UI even though the

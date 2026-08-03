@@ -2,15 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hermetic: the Supabase seam is mocked. Nothing hits Postgres — see the note in
 // supabase/arcbound-services.test.ts about what is and is not proven by tests.
-const { rpcMock, fromMock } = vi.hoisted(() => ({ rpcMock: vi.fn(), fromMock: vi.fn() }));
+const { rpcMock, fromMock, readAllPagesMock } = vi.hoisted(() => ({
+  rpcMock: vi.fn(),
+  fromMock: vi.fn(),
+  readAllPagesMock: vi.fn(),
+}));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({ from: fromMock, rpc: rpcMock }),
+}));
+// Only the pager is replaced; `asPage` stays real so the reader is exercised.
+vi.mock("@/lib/supabase/paged", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/supabase/paged")>()),
+  readAllPages: readAllPagesMock,
 }));
 
 import {
   createService,
   deleteService,
+  listAllClientServices,
   listClientServices,
   listServices,
   listServicesAdmin,
@@ -22,7 +32,7 @@ import {
 /** A thenable query builder: every chained method returns itself, then resolves. */
 function table(result: { data: unknown; error: unknown }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "in"]) {
+  for (const method of ["select", "eq", "order", "in", "range"]) {
     chain[method] = () => chain;
   }
   chain.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
@@ -265,5 +275,102 @@ describe("deleteService does NOT re-implement the delete guard", () => {
     rpcMock.mockResolvedValueOnce({ data: null, error: null });
 
     await expect(deleteService("s1")).resolves.toBeUndefined();
+  });
+});
+
+describe("listAllClientServices — every engagement, for the upload screen", () => {
+  const ROW = {
+    client_id: "c1",
+    service_id: "aaaaaaaa-0000-0000-0000-000000000001",
+    created_at: "2026-08-02T00:00:00.000Z",
+    created_by: null,
+  };
+
+  beforeEach(() => {
+    readAllPagesMock.mockReset();
+    readAllPagesMock.mockResolvedValue({
+      rows: [ROW],
+      unavailable: false,
+      truncated: false,
+      total: 1,
+    });
+  });
+
+  it("maps every row, for every client", async () => {
+    await expect(listAllClientServices()).resolves.toEqual([
+      {
+        clientId: "c1",
+        serviceId: ROW.service_id,
+        createdAt: ROW.created_at,
+        createdBy: null,
+      },
+    ]);
+  });
+
+  it("reads client_services unfiltered, on a TOTAL order, with no per-client `eq`", async () => {
+    // The chain self-returns so the reader's real call sequence is exercised —
+    // including BOTH `.order()` calls, which a single-level stub would have hidden.
+    const eq = vi.fn();
+    const order = vi.fn();
+    const chain: Record<string, unknown> = { eq };
+    for (const method of ["select", "range"]) chain[method] = () => chain;
+    chain.order = (...args: unknown[]) => {
+      order(...args);
+      return chain;
+    };
+    chain.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: [], error: null }).then(resolve);
+    fromMock.mockReturnValue(chain);
+
+    await listAllClientServices();
+    // Exercise the reader the pager was handed.
+    const reader = readAllPagesMock.mock.calls[0]![0] as (
+      f: number,
+      t: number,
+    ) => PromiseLike<unknown>;
+    await reader(0, 999);
+
+    expect(fromMock).toHaveBeenCalledWith("client_services");
+    expect(eq).not.toHaveBeenCalled();
+
+    // ⚠️ `(client_id, service_id)` IS THE PRIMARY KEY, AND ORDERING BY BOTH IS WHAT
+    // MAKES THE ORDER TOTAL. Pages are issued concurrently; ordering by `client_id`
+    // alone leaves ties, and ties across concurrent ranges silently overlap or skip
+    // rows — a wrong row set with no error, which is exactly the failure mode this
+    // whole function is paged to avoid.
+    expect(order).toHaveBeenCalledWith("client_id", { ascending: true });
+    expect(order).toHaveBeenCalledWith("service_id", { ascending: true });
+  });
+
+  it("throws when the read failed", async () => {
+    readAllPagesMock.mockResolvedValue({
+      rows: [],
+      unavailable: true,
+      truncated: false,
+      total: null,
+    });
+
+    await expect(listAllClientServices()).rejects.toThrow(/could not be read/i);
+  });
+
+  it("⚠️ THROWS on truncation rather than returning a partial set", async () => {
+    // ⚠️ THE SILENT-TRUNCATION TRAP, AND WHY PARTIAL DATA IS WORSE THAN NO DATA.
+    //
+    // A truncated read is a PREFIX. Any Client whose rows fell off the end would
+    // arrive at /upload holding zero services — which after this slice renders as
+    // "no services assigned, you cannot upload". That is a false statement about a
+    // real Client, produced by a row cap, with no error anywhere to explain it.
+    //
+    // Throwing sends the page to its registry-unreadable branch instead, which
+    // shows BOTH pipeline tabs. Over-showing tabs is recoverable; silently
+    // stripping someone's upload path in the middle of the weekly routine is not.
+    readAllPagesMock.mockResolvedValue({
+      rows: [ROW],
+      unavailable: false,
+      truncated: true,
+      total: 90000,
+    });
+
+    await expect(listAllClientServices()).rejects.toThrow(/incomplete/i);
   });
 });

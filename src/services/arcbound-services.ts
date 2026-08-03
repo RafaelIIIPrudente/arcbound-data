@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
 import type { ArcboundService, ClientServiceAssignment, ServiceHandler } from "@/services/types";
 
@@ -94,24 +95,91 @@ export async function listServices(): Promise<ArcboundService[]> {
   return ((data ?? []) as ServiceRow[]).map(toService);
 }
 
-/** The Services one Client receives. */
-export async function listClientServices(clientId: string): Promise<ClientServiceAssignment[]> {
-  const supabase = createClient(cookies());
-  const { data, error } = await supabase
-    .from("client_services")
-    .select("client_id, service_id, created_at, created_by")
-    .eq("client_id", clientId);
+const CLIENT_SERVICE_COLUMNS = "client_id, service_id, created_at, created_by";
 
-  if (error) throw new Error(`Failed to list client services: ${error.message}`);
-
-  return ((data ?? []) as ClientServiceRow[]).map((row) => ({
+function toAssignment(row: ClientServiceRow): ClientServiceAssignment {
+  return {
     clientId: row.client_id,
     serviceId: row.service_id,
     createdAt: row.created_at,
     // `null` means the backfill wrote it from upload history rather than a person
     // choosing it. Preserved, never defaulted to a user id.
     createdBy: row.created_by,
-  }));
+  };
+}
+
+/** The Services one Client receives. */
+export async function listClientServices(clientId: string): Promise<ClientServiceAssignment[]> {
+  const supabase = createClient(cookies());
+  const { data, error } = await supabase
+    .from("client_services")
+    .select(CLIENT_SERVICE_COLUMNS)
+    .eq("client_id", clientId);
+
+  if (error) throw new Error(`Failed to list client services: ${error.message}`);
+
+  return ((data ?? []) as ClientServiceRow[]).map(toAssignment);
+}
+
+/**
+ * A `PageReader` over the whole `client_services` table.
+ *
+ * ⚠️ THE ORDER MUST BE TOTAL, AND `(client_id, service_id)` IS THE PRIMARY KEY.
+ * Pages 1..n are issued CONCURRENTLY, so without a total order the database may
+ * return overlapping or skipped rows across ranges — a silently wrong row set
+ * rather than an error. Ordering by `client_id` alone is NOT total: many rows
+ * share one.
+ */
+function clientServicePageReader(): PageReader<ClientServiceRow> {
+  let supabase: ReturnType<typeof createClient> | undefined;
+  return (from, to, opts) => {
+    supabase ??= createClient(cookies());
+    return asPage<ClientServiceRow>(
+      supabase
+        .from("client_services")
+        .select(CLIENT_SERVICE_COLUMNS, opts)
+        .order("client_id", { ascending: true })
+        .order("service_id", { ascending: true })
+        .range(from, to),
+    );
+  };
+}
+
+/**
+ * EVERY Client's Service assignments, in one paged read.
+ *
+ * ⚠️ PAGED, BECAUSE POSTGREST'S 1000-ROW CAP WOULD BE A SILENT TRUNCATION HERE —
+ * AND SILENT TRUNCATION READS AS "THIS CLIENT CANNOT UPLOAD".
+ *
+ * `/upload` derives a Client's tabs from these rows. A Client whose assignments
+ * fell off the end of an unpaged read would arrive holding zero Services, and the
+ * screen would state — plainly, and wrongly — that they have none and cannot
+ * receive uploads. No error would appear anywhere. `readAllPages` gives 50 pages
+ * × 1000 rows = **50,000 rows** of headroom against a table that holds one row per
+ * (Client × Service): roughly 150 rows today, so the cap is ~330× away.
+ *
+ * ⚠️ TRUNCATION THROWS RATHER THAN RETURNING A PREFIX. If the ceiling were ever
+ * reached, a partial set is worse than no set: it would strip SOME clients of
+ * their upload path while looking completely normal. Throwing sends the page to
+ * its registry-unreadable fallback, which shows every pipeline tab — over-showing
+ * is recoverable, silently removing someone's ability to work is not.
+ */
+export async function listAllClientServices(): Promise<ClientServiceAssignment[]> {
+  const read = await readAllPages<ClientServiceRow>(
+    clientServicePageReader(),
+    "public.client_services",
+  );
+
+  if (read.unavailable) {
+    throw new Error("Service assignments could not be read.");
+  }
+  if (read.truncated) {
+    throw new Error(
+      `Service assignments are incomplete: read ${read.rows.length} of ${read.total ?? "unknown"} rows.`,
+    );
+  }
+
+  return read.rows.map(toAssignment);
 }
 
 /** The admin registry, with per-Service counts. Admin-only in the database. */

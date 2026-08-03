@@ -2,33 +2,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Radix Select drives its listbox with Pointer Events + layout APIs that jsdom
-// does not implement. Polyfill them locally so the dropdown can actually open
-// (same stubs as report-period-picker.test.tsx and format-review.test.tsx).
-beforeAll(() => {
-  Element.prototype.hasPointerCapture = vi.fn(() => false);
-  Element.prototype.setPointerCapture = vi.fn();
-  Element.prototype.releasePointerCapture = vi.fn();
-  Element.prototype.scrollIntoView = vi.fn();
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-});
-
 // Hermetic: the Server Action is replaced by a spy, so this file asserts what the
 // FORM sends and shows, not what the action does with it (that lives in
 // outreach-actions.test).
+//
+// The Radix Select polyfills this file used to carry are gone with the selector
+// itself: step 01 moved up to `IngestPanel` (S4), so nothing here opens a dropdown.
 const { actionMock } = vi.hoisted(() => ({ actionMock: vi.fn() }));
 vi.mock("@/app/(app)/upload/outreach-actions", () => ({ ingestOutreachAction: actionMock }));
 
 import { OutreachUploadForm } from "./outreach-upload-form";
 
-const clients = [
-  { id: "c1", name: "Ada Lovelace" },
-  { id: "c2", name: "Grace Hopper" },
-];
+const CLIENT = "c2";
 
 /** The FormData the form handed to the action on its most recent submit. */
 function lastSubmission(): FormData {
@@ -41,36 +26,40 @@ beforeEach(() => {
   actionMock.mockResolvedValue(null);
 });
 
-describe("OutreachUploadForm — the three steps", () => {
-  it("asks for a client, a CSV, and a submit — and nothing else", () => {
+describe("OutreachUploadForm — the steps it still owns", () => {
+  it("asks for a CSV and a submit — and nothing else", () => {
     // ⚠️ SIMPLER THAN THE LINKEDIN WIZARD BY DESIGN. There is no JSON option, no
     // follower or connection count, and no format review, so borrowing that
     // form's four steps would put empty ceremony on screen.
-    render(<OutreachUploadForm clients={clients} />);
+    //
+    // ⚠️ STEP 01 IS NOT MISSING — IT MOVED. The client is chosen once in
+    // `IngestPanel` and applies to whichever tab is open (S4), so the staff-facing
+    // numbering is unchanged: 01 client, 02 CSV, 03 submit. This form owns 02–03.
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
-    expect(screen.getByText("01")).toBeInTheDocument();
+    expect(screen.queryByText("01")).not.toBeInTheDocument();
     expect(screen.getByText("02")).toBeInTheDocument();
     expect(screen.getByText("03")).toBeInTheDocument();
     expect(screen.queryByText("04")).not.toBeInTheDocument();
   });
 
-  it("offers a client selector", () => {
-    render(<OutreachUploadForm clients={clients} />);
+  it("no longer owns a client selector", () => {
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
-    expect(screen.getByLabelText("Select client")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Select client")).toBeNull();
   });
 
   it("offers NO follower or connection count field", () => {
     // Those are LinkedIn-scrape facts; an outreach snapshot has no such numbers,
     // and a blank box invites somebody to invent one.
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
     expect(screen.queryByLabelText("Follower count")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Connection count")).not.toBeInTheDocument();
   });
 
   it("offers NO paste-JSON option — the source is a CSV export", () => {
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
     expect(screen.queryByRole("button", { name: /paste json/i })).not.toBeInTheDocument();
   });
@@ -78,7 +67,7 @@ describe("OutreachUploadForm — the three steps", () => {
   it("keeps the file input KEYBOARD-FOCUSABLE (sr-only, not hidden)", () => {
     // ⚠️ `hidden` would take the control out of the tab order and make the whole
     // upload mouse-only. The LinkedIn form solves it the same way.
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
     const input = screen.getByLabelText("Outreach CSV file");
     expect(input).toBeInTheDocument();
@@ -87,7 +76,7 @@ describe("OutreachUploadForm — the three steps", () => {
   });
 
   it("names the expected columns as help text", () => {
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
     expect(screen.getByText(/Full Name/)).toBeInTheDocument();
     expect(screen.getByText(/Qualified \(ICP\)/)).toBeInTheDocument();
@@ -96,21 +85,21 @@ describe("OutreachUploadForm — the three steps", () => {
 
 describe("OutreachUploadForm — what it submits", () => {
   it("sends the SELECTED client id, never anything read from the file", async () => {
-    // ⚠️ ADR 0012: attribution is a human choice made here, not an inference. The
-    // form has no path by which file content could reach `clientId`.
+    // ⚠️ ADR 0012: attribution is a human choice, not an inference. That choice now
+    // happens one level up in `IngestPanel` and arrives as a prop — but the
+    // guarantee is unchanged and still worth asserting: there is no path by which
+    // file content can reach `clientId`, because this form never computes it.
     const user = userEvent.setup();
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
-    await user.click(screen.getByLabelText("Select client"));
-    await user.click(await screen.findByRole("option", { name: "Grace Hopper" }));
     await user.click(screen.getByRole("button", { name: /upload snapshot/i }));
 
-    expect(lastSubmission().get("clientId")).toBe("c2");
+    expect(lastSubmission().get("clientId")).toBe(CLIENT);
   });
 
   it("sends the file's text as rawText", async () => {
     const user = userEvent.setup();
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
     const csv = "Full Name,LinkedIn URL\nDana Reyes,https://linkedin.com/in/dana";
     await user.upload(
@@ -127,7 +116,7 @@ describe("OutreachUploadForm — what it submits", () => {
 
   it("shows the chosen file's name so a mis-drop is visible before submitting", async () => {
     const user = userEvent.setup();
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
 
     expect(screen.getByText(/no file selected/i)).toBeInTheDocument();
 
@@ -141,12 +130,15 @@ describe("OutreachUploadForm — what it submits", () => {
 });
 
 describe("OutreachUploadForm — errors", () => {
-  it("shows a field error against the client selector", () => {
+  it("still has somewhere to render a clientId error after the selector moved", () => {
+    // ⚠️ THE CONTROL LEFT; THE ERROR PATH MUST NOT. The action still validates
+    // `clientId`, so a result with nowhere to render would be a validation failure
+    // nobody can see. The full assertion is in the result-panel block below.
     actionMock.mockResolvedValue(null);
-    render(<OutreachUploadForm clients={clients} />);
-    // Rendered from action state; asserted through the success/error panels below
-    // rather than by faking React's useActionState internals.
-    expect(screen.getByLabelText("Select client")).toBeInTheDocument();
+    render(<OutreachUploadForm clientId={CLIENT} />);
+
+    expect(screen.queryByLabelText("Select client")).toBeNull();
+    expect(screen.getByRole("button", { name: /upload snapshot/i })).toBeInTheDocument();
   });
 });
 
@@ -155,7 +147,7 @@ describe("OutreachUploadForm — the result panel", () => {
   async function submitWith(result: unknown) {
     actionMock.mockResolvedValue(result);
     const user = userEvent.setup();
-    render(<OutreachUploadForm clients={clients} />);
+    render(<OutreachUploadForm clientId={CLIENT} />);
     await user.click(screen.getByRole("button", { name: /upload snapshot/i }));
     return user;
   }
@@ -198,9 +190,11 @@ describe("OutreachUploadForm — the result panel", () => {
 
     await user.click(await screen.findByRole("button", { name: /upload another/i }));
 
-    // Back to step 01 with a clean slate — the key-bump remount.
-    expect(await screen.findByLabelText("Select client")).toBeInTheDocument();
-    expect(screen.getByText(/no file selected/i)).toBeInTheDocument();
+    // Back to the form with a clean slate — the key-bump remount. The CLIENT is
+    // deliberately not part of that slate any more (D12): it lives above this
+    // component, so uploading again for the same person costs no re-selection.
+    expect(await screen.findByText(/no file selected/i)).toBeInTheDocument();
+    expect(screen.getByText("02")).toBeInTheDocument();
   });
 
   it("surfaces a payload parse error instead of a success panel", async () => {
@@ -219,9 +213,11 @@ describe("OutreachUploadForm — the result panel", () => {
       errors: { clientId: ["Choose a client to attach this snapshot to."] },
     });
 
-    // ⚠️ MATCHED IN FULL, NOT LOOSELY. The trigger's placeholder is also
-    // "Choose a client…", so a /choose a client/i matcher passes whether or not
-    // the error ever rendered.
+    // ⚠️ MATCHED IN FULL, NOT LOOSELY. This used to guard against the Select's
+    // "Choose a client…" placeholder making a loose matcher pass vacuously. The
+    // placeholder left with the selector, but the full match stays: it is the
+    // stronger assertion, and it proves the clientId error still has somewhere to
+    // render now that the control it sat under is gone.
     expect(
       await screen.findByText("Choose a client to attach this snapshot to."),
     ).toBeInTheDocument();

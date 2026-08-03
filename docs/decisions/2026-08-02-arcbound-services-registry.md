@@ -360,10 +360,119 @@ the absence, but still leaves a live engagement unable to record a final scrape)
   person back-to-back is the common case; clearing it would re-ask a question
   already answered.
 
+### D13 — The registry is absolute: un-assigning hides the data too
+
+**Asked and answered 2026-08-03.** A Client can hold data for a Service they are
+not assigned — an admin un-assigns Outreach from a Client who already has prospect
+snapshots, or the S1 backfill missed someone. The tab is hidden anyway, and the
+direct URL says they are not assigned rather than rendering the rows.
+
+```
+JANE DOE
+OVERVIEW   POSTS   LINKEDIN REPORT
+──────────────────────────────────────────────────
+(no Outreach tab — not assigned)
+
+─── direct URL /clients/jane/outreach ───
+Jane Doe is not signed up for Outreach System.
+An admin can assign it on this client's Overview.
+
+(the 3 existing snapshots are not shown)
+```
+
+⚠️ **THE COST, STATED PLAINLY BECAUSE IT IS REAL:** existing data becomes
+unreachable through the UI. That is accepted — the assignment is the single source
+of truth for what Arcbound does for a Client, and a tab row that argues with it is
+worse than one that is occasionally too short. **It is reversible**: re-assigning
+the Service restores the tab and every row instantly, and nothing is deleted.
+
+⚠️ **THE COPY MUST SAY "NOT ASSIGNED", NEVER "NO DATA".** The row count is not
+zero, it is WITHHELD, and those are different sentences. Claiming there is no
+outreach data for a Client who has three snapshots would be the absent-vs-zero
+collapse wearing the opposite mask.
+
+⚠️ **CORRECTION TO D6's MOCKUP COPY.** D6 wrote "Assign it in Settings → Services".
+That is wrong as of S3: Settings → Services is the REGISTRY (which Services exist);
+assignment happens on the **Client's Overview**. The not-signed-up copy must point
+at the Overview.
+
+Rejected: _data outranks the registry_ (show the tab whenever rows exist — never
+makes data unreachable, but lets a stale row resurrect a tab the registry says is
+gone, and re-introduces the tab row arguing with the assignment); _registry
+decides but the URL still renders the data_ (nothing unreachable, but staff would
+have to know a URL that nothing links to, which is a secret feature).
+
+### D14 — A failed Services read shows every tab AND says so on every page
+
+**Asked and answered 2026-08-03.** All four tabs render, and the "could not be
+read" notice is repeated **above the data on each tab's own page** — not only under
+the tab row.
+
+The second half is the whole point. D6 exists because an unqualified Outreach tab
+loading an empty funnel reads as _"we ran outreach and got nothing"_. A notice that
+lives only on the tab row is absent the moment a staff member lands directly on
+`/clients/<id>/outreach`, which would re-create the exact bug this slice is meant
+to kill — for the duration of every read failure.
+
+```
+─── on /clients/jane/outreach, registry unreadable ───
+⚠ This client's services could not be read. An empty
+  result below may mean Arcbound does not run outreach
+  for them — not that it ran and found nothing.
+
+  PROSPECTS  0     SENT  0     REPLIES  0
+```
+
+This is **not a rare edge case today**: with `supabase/arcbound-services.sql` still
+unapplied, it is what every staff member sees on every Client the day S5 ships.
+
+Rejected: _notice on the tab row only_ (cheapest and matches S4 exactly, but a
+direct hit on `/outreach` gets a bare empty funnel with no notice at all);
+_fail closed to Overview_ (nothing can lie, but a read failure would strip Posts,
+Report and Outreach from every Client including ones who certainly have them —
+punishing the whole book for a database hiccup).
+
+### D15 — `/r/[token]` is NOT gated in S5, and the reason is structural
+
+The public Report Link renders the LinkedIn report **and** an `OutreachSummary`, so
+D13 implies it should respect assignment. It cannot, in this slice:
+`/r/[token]` reads through a SECURITY DEFINER RPC as an **unauthenticated** viewer,
+and `client_services` SELECT is granted by `client_services_select_authenticated`.
+An app-side read there would be denied by RLS. The only correct gate lives inside
+the definer RPC — i.e. **new SQL**, and S1's twins are declared final and not yet
+applied.
+
+Out of scope by construction, not by preference. Recorded as the follow-up: a live
+Report Link keeps serving a report for a Service the Client is no longer assigned,
+until a later slice moves the gate into the RPC.
+
+### D16 — Planner's calls for S5 (stated, not asked; vetoable)
+
+- **Gate on `handler`, NEVER on `slug`.** S2 lets an admin edit a slug; the handler
+  is a database enum. Matching `slug === "outreach-system"` would let a rename
+  silently strip a Client of their Outreach tab.
+- **`ClientTabs` splits into an async server wrapper + the existing client
+  component.** The four call sites stay `<ClientTabs clientId={…} />`, the read
+  happens in one place, and `usePathname` stays where it belongs. Same View /
+  connected split S3 and S4 already use — and S4's untested-wiring defect (row 12
+  of its log) is the reason S5 must mount the _connected_ component in a test.
+- **One React-`cache()`d helper serves both the tabs and the pages.** Each route
+  needs the assignment twice (the tab row, and its own gate); `getClient` in the
+  same file family already sets the `cache()` precedent. This REPLACES the local
+  `loadServices` in `clients/[id]/page.tsx` rather than adding a fourth copy.
+- **The print export `/clients/[id]/report/print` is gated too.** It is how the
+  report reaches a client on paper; leaving it open would let staff produce a
+  client-facing PDF for a Service the Client is not assigned.
+- **The Overview card keeps its "Services" title.** D6's "Engagements" was a mockup
+  label, not a decision, and "Services" matches both Settings → Services and the
+  verb staff use to assign them.
+
 ## Out of scope / not decided here
 
 - The Service → **Dataset** second level (F1's north star). This registry is the
   Service level only; Dataset remains deferred.
+- **Gating `/r/[token]` on assignment** — see D15. Needs SQL inside the definer
+  RPC, which this workstream's S1 twins are closed to.
 - Retiring the mock `customers.ts` / `resources.ts` template leftovers.
 
 ## Side matter handled this session (not part of this workstream)
@@ -400,3 +509,8 @@ once the secret is set.
 | 2026-08-02 | **S1 LANDED and planner-verified** at 107 files / 1,625 tests, exit 0. Inert as specified. See the S1 handoff's revisions log for the four corrections that came out of the run. **SQL NOT YET APPLIED.**                                                                                                                                                                                                             |
 | 2026-08-02 | ⚠️ **APPLY ORDER IS NOW LOAD-BEARING.** S2's screen calls `list_services_admin()` and the five mutating RPCs. Until a human pastes `supabase/arcbound-services.sql` into the Supabase SQL editor, `/settings/services` will error against the live database no matter how green the gate is. S2's brief must say so, and S2 must render a distinguishable state for "registry unavailable" rather than an empty list. |
 | 2026-08-02 | **Housekeeping carried forward from the RBAC workstream, still open:** `graphify-out/cache/last_query_stamp` is dirty on every `graphify query` and still has no `.gitignore` entry — it was swept into `f379882` once already.                                                                                                                                                                                       |
+| 2026-08-03 | **S3 LANDED and planner-verified** at 114 files / 1,710 tests, exit 0. **D10, D11, D12 settled** (see above) after the S1 backfill's chicken-and-egg trap surfaced: the backfill attributes Services only to Clients that already have upload rows, so a Client registered and never uploaded to gets nothing — and after S4 would have had no upload path at all. D10 is the resolution. S4 handoff emitted.         |
+| 2026-08-03 | **S3 was COMMITTED BY THE USER, not by an agent** — `6ca2d32 feat: arcbound services migration and tests` on `feat--implement-RBAC` (2026-08-03 09:32, pushed). It carries S1–S3 plus every planning doc, and it swept `graphify-out/cache/last_query_stamp` in again — the second time now. The `.gitignore` entry is still missing.                                                                                 |
+| 2026-08-03 | **S4 LANDED and planner-verified** at 117 files / 1,754 tests, exit 0. Four mutations re-applied by the planner, all four red, all files restored byte-identical. **One coverage gap found and carried to S5:** the connected `IngestPanel` wrapper is never mounted, so unwiring the Client picker entirely leaves the whole suite green. Full detail in the S4 handoff's revisions log, row 12.                     |
+| 2026-08-03 | **D13–D16 settled for S5.** D13 (registry absolute) and D14 (failed read → all tabs + a notice on every page) were asked; D15 (`/r/[token]` cannot be gated — RLS + definer RPC) and D16 (planner's calls) were stated. D6's mockup copy corrected: assignment lives on the Client's Overview, not Settings → Services.                                                                                               |
+| 2026-08-03 | ⚠️ **THE SQL IS STILL NOT APPLIED, AND IT NOW BLOCKS THREE SLICES.** S2's screen errors, S3's card errors, and S4's `/upload` runs entirely on its registry-unreadable fallback — both pipeline tabs for every Client plus a red "could not be read" notice, no filtering at all. Every one of those is a designed, honest degrade rather than a crash, which is the whole reason S4 shipped that branch first.       |

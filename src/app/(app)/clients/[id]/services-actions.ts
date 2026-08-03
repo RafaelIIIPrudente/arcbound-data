@@ -54,6 +54,13 @@ export async function setClientServicesAction(
   try {
     await setClientServices(clientId, serviceIds);
     revalidatePath(paths.clients.details(clientId));
+    // ⚠️ /upload TOO — ITS TABS ARE DERIVED FROM THIS ASSIGNMENT (S4).
+    //
+    // An admin can assign Services inline from the upload page itself. Revalidating
+    // only the client's overview would leave them looking at the cached, tab-less
+    // render of the page they are standing on — so the fix they just applied would
+    // appear to have done nothing, and the obvious next move is to do it again.
+    revalidatePath(paths.upload);
     return {
       status: "saved",
       message:
