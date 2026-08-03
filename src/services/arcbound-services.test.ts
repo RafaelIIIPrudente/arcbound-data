@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hermetic: the Supabase seam is mocked. Nothing hits Postgres — see the note in
@@ -20,6 +22,7 @@ vi.mock("@/lib/supabase/paged", async (importOriginal) => ({
 import {
   createService,
   deleteService,
+  getClientServices,
   listAllClientServices,
   listClientServices,
   listServices,
@@ -372,5 +375,106 @@ describe("listAllClientServices — every engagement, for the upload screen", ()
     });
 
     await expect(listAllClientServices()).rejects.toThrow(/incomplete/i);
+  });
+});
+
+describe("getClientServices — the cached read behind the tabs and gates", () => {
+  const HELD_SERVICE = {
+    id: "s-linkedin",
+    slug: "linkedin-growth",
+    name: "LinkedIn Growth",
+    description: "Weekly scrapes.",
+    handler: "linkedin_post_metrics",
+    status: "active",
+    sort_order: 10,
+  };
+  const UNHELD_SERVICE = {
+    id: "s-outreach",
+    slug: "outreach-system",
+    name: "Outreach System",
+    description: null,
+    handler: "outreach_prospects",
+    status: "active",
+    sort_order: 20,
+  };
+
+  beforeEach(() => {
+    fromMock.mockReset();
+  });
+
+  it("⚠️ returns the FULL registry AND the held subset — one read, two consumers", async () => {
+    // ⚠️ WIDER THAN A BARE `{ held }` ON PURPOSE. `ClientServicesCard` on the
+    // Overview needs the WHOLE registry (to offer new assignments and preserve a
+    // held-but-archived one), while the tab strip and every gated page need only
+    // `held` (to answer `canSee`). Both read the SAME `client_services` +
+    // `services` pair for the SAME Client on the SAME render — splitting that into
+    // two functions would mean two independent Supabase round trips (or worse, one
+    // wrapped in `cache()` and one not, so they could disagree mid-request).
+    // `services` replaces the old local `loadServices`' first field; `held` is new.
+    fromMock
+      .mockReturnValueOnce(table({ data: [HELD_SERVICE, UNHELD_SERVICE], error: null }))
+      .mockReturnValueOnce(
+        table({
+          data: [
+            {
+              client_id: "c1",
+              service_id: HELD_SERVICE.id,
+              created_at: "2026-08-03T00:00:00.000Z",
+              created_by: null,
+            },
+          ],
+          error: null,
+        }),
+      );
+
+    const result = await getClientServices("c1");
+
+    expect(result?.services.map((s) => s.id)).toEqual([HELD_SERVICE.id, UNHELD_SERVICE.id]);
+    expect(result?.held.map((s) => s.id)).toEqual([HELD_SERVICE.id]);
+  });
+
+  it("held is an empty array, never null, when the Client is assigned nothing", async () => {
+    fromMock
+      .mockReturnValueOnce(table({ data: [HELD_SERVICE], error: null }))
+      .mockReturnValueOnce(table({ data: [], error: null }));
+
+    const result = await getClientServices("c1");
+
+    expect(result?.held).toEqual([]);
+    expect(result?.services).toHaveLength(1);
+  });
+
+  it("⚠️ degrades to null — never to an empty registry — when either read fails", async () => {
+    // ⚠️ SAME DISCIPLINE AS THE LOCAL `loadServices` IT REPLACES. `null` means
+    // "could not be read"; every gated page and the tab strip must fail OPEN on
+    // this, not fail closed — see `canSee(null, …)`.
+    fromMock
+      .mockReturnValueOnce(table({ data: null, error: { message: "boom" } }))
+      .mockReturnValueOnce(table({ data: [], error: null }));
+
+    await expect(getClientServices("c1")).resolves.toBeNull();
+  });
+});
+
+describe("⚠️ getClientServices' memoisation is REQUEST-scoped", () => {
+  // Same reasoning as `getClient` in src/services/clients.ts — see its own source
+  // guard. React's `cache()` only memoises inside a server render, so vitest
+  // cannot behaviourally prove the memo; what IS provable, and matters, is that it
+  // never becomes a CROSS-request store. This read is cookie-bound and
+  // RLS-enforced (via `listServices`/`listClientServices`'s own Supabase client);
+  // `unstable_cache` would move that boundary out of the database.
+  const source = readFileSync(join(process.cwd(), "src/services/arcbound-services.ts"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("uses React cache(), not a cross-request store", () => {
+    expect(code).toMatch(/import\s*\{\s*cache\s*\}\s*from\s*["']react["']/);
+    expect(code).toMatch(/export const getClientServices = cache\(/);
+    expect(code).not.toMatch(/unstable_cache/);
+  });
+
+  it("strips comments without stripping the code it is checking", () => {
+    // Guard the guard: proves the stripping left real code behind.
+    expect(code).toContain("listServices()");
+    expect(code).not.toContain("move an RLS-enforced boundary");
   });
 });

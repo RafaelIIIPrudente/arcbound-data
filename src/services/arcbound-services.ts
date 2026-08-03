@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 
 import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
@@ -120,6 +121,64 @@ export async function listClientServices(clientId: string): Promise<ClientServic
 
   return ((data ?? []) as ClientServiceRow[]).map(toAssignment);
 }
+
+/** The registry plus one Client's slice of it — what the tabs and the Overview both need. */
+export interface ClientServiceAccess {
+  /**
+   * EVERY Service in the registry, active and archived. `ClientServicesCard` on
+   * the Overview needs this full list — to offer new assignments and to keep
+   * rendering a held-but-archived Service — not just what is currently held.
+   */
+  services: ArcboundService[];
+  /**
+   * The Services this Client is actually assigned. This is what `canSee()` and
+   * `visibleTabHandlers()` (`src/lib/service-access.ts`) operate on: an ARCHIVED
+   * Service still appears here if held (D11), and a NULL-handler Service still
+   * appears here too — it grants no section, but it is a real assignment.
+   */
+  held: ArcboundService[];
+}
+
+/**
+ * The registry and this Client's slice of it — BOTH reads or NEITHER.
+ *
+ * ⚠️ `null` MEANS "COULD NOT BE READ"; `{ services: [...], held: [] }` MEANS
+ * "READ, AND ASSIGNED NOTHING". NEVER COLLAPSE THEM. Every gated page and the tab
+ * strip turn on this difference: `canSee(null, …)` answers `true` to everything
+ * (fail OPEN — an unreadable registry must not silently strip access), while
+ * `canSee([], …)` answers `false` (a real, correct "not assigned"). Returning `[]`
+ * here for a failed read would make every database hiccup look exactly like every
+ * Client having no Services at once.
+ *
+ * ⚠️ THIS IS THE LIVE PATH TODAY. `supabase/arcbound-services.sql` is not applied,
+ * so both reads below throw on every request against the real database, and every
+ * Client's tabs and gated pages run on the `null` branch until it is.
+ *
+ * ⚠️ MEMOISED WITH REACT `cache()` — REQUEST-SCOPED ONLY, NEVER `unstable_cache`.
+ * Same reasoning as `getClient` in `src/services/clients.ts`: the read is
+ * cookie-bound and RLS-enforced (via `listServices`/`listClientServices`'s own
+ * Supabase client). `unstable_cache` persists BETWEEN requests, which would move
+ * that RLS boundary out of the database and into application code — one visitor's
+ * Client-Service assignment could then be served to another. `cache()` costs
+ * nothing extra when only one caller on a page needs it, and saves a round trip
+ * the moment a second one does — `ClientTabs` and the Overview page both call this
+ * for the same Client on the same render.
+ */
+export const getClientServices = cache(
+  async (clientId: string): Promise<ClientServiceAccess | null> => {
+    try {
+      const [services, assigned] = await Promise.all([
+        listServices(),
+        listClientServices(clientId),
+      ]);
+      const heldIds = new Set(assigned.map((row) => row.serviceId));
+      const held = services.filter((service) => heldIds.has(service.id));
+      return { services, held };
+    } catch {
+      return null;
+    }
+  },
+);
 
 /**
  * A `PageReader` over the whole `client_services` table.

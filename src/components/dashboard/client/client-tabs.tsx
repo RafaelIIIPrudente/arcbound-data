@@ -1,61 +1,59 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-
-import { cn } from "@/lib/utils";
+import { canSee } from "@/lib/service-access";
 import { paths } from "@/paths";
+import { getClientServices } from "@/services/arcbound-services";
+import type { ArcboundService, ServiceHandler } from "@/services/types";
+
+import { ClientTabsView, type TabSpec } from "./client-tabs-view";
+
+// Re-exported so every existing consumer of this module keeps one import path.
+export { ClientTabsView };
+export type { TabSpec };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client sub-navigation: Overview ⇄ Posts ⇄ LinkedIn Report ⇄ Outreach.
+//
+// ⚠️ THE TAB LIST IS NOW A FUNCTION OF WHAT THE CLIENT HOLDS (ADR 0015). Before
+// this slice all four tabs rendered unconditionally, so a Client Arcbound never
+// ran Outreach for still got an Outreach tab — which loaded an EMPTY FUNNEL,
+// reading as "we ran this and found nothing" rather than "we do not do this for
+// them". The current live bug this slice closes.
+//
+// ⚠️ ASYNC SERVER PIECE HERE, "use client" PIECE IN `client-tabs-view.tsx`.
+// `usePathname` needs `"use client"`; this component needs `async` to read
+// `getClientServices`. Next.js does not support async Client Components, and the
+// directive is file-scoped, so the two cannot share a module.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Overview is unconditional; every other tab gates on the handler that unlocks it. */
+function tabsFor(clientId: string, held: ArcboundService[] | null): TabSpec[] {
+  const tabs: TabSpec[] = [{ href: paths.clients.details(clientId), label: "Overview" }];
+
+  const section = (handler: ServiceHandler, tab: TabSpec) => {
+    if (canSee(held, handler)) tabs.push(tab);
+  };
+
+  section("linkedin_post_metrics", { href: paths.clients.posts(clientId), label: "Posts" });
+  section("linkedin_post_metrics", {
+    href: paths.clients.report(clientId),
+    label: "LinkedIn Report",
+  });
+  section("outreach_prospects", { href: paths.clients.outreach(clientId), label: "Outreach" });
+
+  return tabs;
+}
 
 /**
- * Client sub-navigation: Overview ⇄ Posts ⇄ LinkedIn Report ⇄ Outreach.
- *
- * Deliberately NOT the shadcn <Tabs> primitive (see settings-tabs.tsx, where it
- * IS correct). Each tab here is a separate SERVER route with its own data fetch
- * and its own search params, so these must be real links — a stateful tab would
- * have to hold both pages' data in one client component and would drop the
- * period from the URL. Styled to match the TabsList/TabsTrigger look.
+ * The connected piece: reads this Client's Services (via `getClientServices`,
+ * memoised with React `cache()` — a call here and one on the same Overview page
+ * for `ClientServicesCard` cost one round trip, not two) and computes the tab
+ * list before handing it to the pathname-aware view.
  */
-export function ClientTabs({ clientId }: { clientId: string }) {
-  const pathname = usePathname();
+export async function ClientTabs({ clientId }: { clientId: string }) {
+  const access = await getClientServices(clientId);
+  // `access` is `null` when the registry could not be read. `tabsFor` passes
+  // that straight to `canSee`, which fails OPEN — every tab shows — rather than
+  // closed, so a database read failure cannot silently strip a working screen.
+  const tabs = tabsFor(clientId, access?.held ?? null);
 
-  // `isActive` below is an EXACT pathname match, so every href here must be a
-  // distinct path — never a prefix of another, or two tabs would light up.
-  const tabs = [
-    { href: paths.clients.details(clientId), label: "Overview" },
-    { href: paths.clients.posts(clientId), label: "Posts" },
-    { href: paths.clients.report(clientId), label: "LinkedIn Report" },
-    // `/clients/<id>/outreach` — a sibling of /posts and /report, so no href is a
-    // prefix of another and the exact match above still lights exactly one tab.
-    { href: paths.clients.outreach(clientId), label: "Outreach" },
-  ];
-
-  return (
-    // A ruled row with an accent marker on the active tab, not a grey pill.
-    // The pill was stock shadcn and the one element on the page speaking a
-    // different language than every mono-uppercase eyebrow around it.
-    <nav
-      aria-label="Client sections"
-      className="flex max-w-full items-center gap-7 overflow-x-auto border-b"
-    >
-      {tabs.map((tab) => {
-        const isActive = pathname === tab.href;
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "-mb-px border-b-2 pb-2.5 font-mono text-[11px] tracking-[0.12em] whitespace-nowrap uppercase transition-colors",
-              "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-              isActive
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  return <ClientTabsView tabs={tabs} />;
 }

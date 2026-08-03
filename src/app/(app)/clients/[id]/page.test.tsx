@@ -1,21 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  getClientMock,
-  listUploadsMock,
-  getReportLinkMock,
-  getRoleMock,
-  servicesMock,
-  assignedMock,
-} = vi.hoisted(() => ({
-  getClientMock: vi.fn(),
-  listUploadsMock: vi.fn(),
-  getReportLinkMock: vi.fn(),
-  getRoleMock: vi.fn(),
-  servicesMock: vi.fn(),
-  assignedMock: vi.fn(),
-}));
+const { getClientMock, listUploadsMock, getReportLinkMock, getRoleMock, getClientServicesMock } =
+  vi.hoisted(() => ({
+    getClientMock: vi.fn(),
+    listUploadsMock: vi.fn(),
+    getReportLinkMock: vi.fn(),
+    getRoleMock: vi.fn(),
+    getClientServicesMock: vi.fn(),
+  }));
 
 vi.mock("@/services/clients", () => ({ getClient: getClientMock }));
 vi.mock("@/services/uploads", () => ({ listUploads: listUploadsMock }));
@@ -24,10 +17,11 @@ vi.mock("@/lib/auth/roles", () => ({
   getRole: getRoleMock,
   isAdmin: (role: string | null) => role === "admin",
 }));
-vi.mock("@/services/arcbound-services", () => ({
-  listServices: servicesMock,
-  listClientServices: assignedMock,
-}));
+// ⚠️ ONE cached read now — `getClientServices` REPLACES the page's own local
+// `loadServices` (which used to call `listServices` + `listClientServices`
+// itself). Mocking the seam at this single function is what proves the page
+// actually made the switch rather than keeping a second, parallel read alive.
+vi.mock("@/services/arcbound-services", () => ({ getClientServices: getClientServicesMock }));
 
 // Heavy children stubbed — this test is about what the page READS and PASSES.
 vi.mock("@/components/dashboard/client/client-tabs", () => ({ ClientTabs: () => null }));
@@ -81,12 +75,8 @@ beforeEach(() => {
   getReportLinkMock.mockResolvedValue(null);
   getRoleMock.mockReset();
   getRoleMock.mockResolvedValue("admin");
-  servicesMock.mockReset();
-  servicesMock.mockResolvedValue([SERVICE]);
-  assignedMock.mockReset();
-  assignedMock.mockResolvedValue([
-    { clientId: CLIENT_ID, serviceId: SERVICE_A, createdAt: "2026-08-02", createdBy: null },
-  ]);
+  getClientServicesMock.mockReset();
+  getClientServicesMock.mockResolvedValue({ services: [SERVICE], held: [SERVICE] });
 });
 
 describe("the Client Overview — Services", () => {
@@ -108,11 +98,11 @@ describe("the Client Overview — Services", () => {
   });
 
   it("⚠️ survives a services read failure instead of taking the whole page down", async () => {
-    // ⚠️ THIS IS NOT HYPOTHETICAL: S1's SQL is not applied yet, so `listServices()`
-    // throws against the live database TODAY. The Client Overview is an existing,
-    // working screen — adding a card to it must not make an unapplied migration
-    // break the client's uploads, KPIs and report link too.
-    servicesMock.mockRejectedValueOnce(new Error('relation "services" does not exist'));
+    // ⚠️ THIS IS NOT HYPOTHETICAL: S1's SQL is not applied yet, so
+    // `getClientServices()` throws against the live database TODAY. The Client
+    // Overview is an existing, working screen — this must not let an unapplied
+    // migration break the client's uploads, KPIs and report link too.
+    getClientServicesMock.mockResolvedValueOnce(null);
 
     render(await ClientDetailPage(params()));
 
@@ -125,13 +115,20 @@ describe("the Client Overview — Services", () => {
 
   it("⚠️ does not report 'no services' when the read failed", async () => {
     // ⚠️ ABSENT IS NOT ZERO. Passing `[]` on failure would tell an admin this
-    // client has no services — and once S4 lands, that reads as "cannot upload",
-    // which would send them off to fix a problem that does not exist.
-    assignedMock.mockRejectedValueOnce(new Error("boom"));
+    // client has no services — which, since S4/S5, reads as "cannot upload" and
+    // "no sections available", sending them off to fix a problem that may not
+    // exist.
+    getClientServicesMock.mockResolvedValueOnce(null);
 
     render(await ClientDetailPage(params()));
 
     expect(screen.queryByTestId("services-card")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent(/could not be read/i);
+  });
+
+  it("calls getClientServices with the Client's id", async () => {
+    render(await ClientDetailPage(params()));
+
+    expect(getClientServicesMock).toHaveBeenCalledWith(CLIENT_ID);
   });
 });

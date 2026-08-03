@@ -4,6 +4,10 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
+import {
+  NotAssignedGate,
+  ServicesUnreadableNotice,
+} from "@/components/dashboard/client/service-gate";
 import { OutreachBreakdownChart } from "@/components/dashboard/outreach/outreach-breakdown-chart";
 import { OutreachDisclosure } from "@/components/dashboard/outreach/outreach-disclosure";
 import { OutreachFunnel } from "@/components/dashboard/outreach/outreach-funnel";
@@ -16,6 +20,8 @@ import {
   OutreachUnavailable,
 } from "@/components/dashboard/outreach/outreach-states";
 import { ProspectTable } from "@/components/dashboard/outreach/prospect-table";
+import { canSee } from "@/lib/service-access";
+import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
 import { latestSnapshot, listOutreachUploads, snapshotById } from "@/services/outreach";
 import { buildOutreachAnalytics, outreachMovement, sentTrend } from "@/services/outreach-analytics";
@@ -62,16 +68,26 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
   // The upload history rides along even though only the movement panel wants it:
   // it depends on nothing above, so issuing it here costs no wall clock, and
   // waiting for the snapshot first would put a second round-trip in series.
-  const [client, snapshot, uploads] = await Promise.all([
+  const [client, snapshot, uploads, access] = await Promise.all([
     getClient(id),
     latestSnapshot(id),
     listOutreachUploads(id),
+    getClientServices(id),
   ]);
   if (!client) notFound();
 
-  const analytics = snapshot.status === "ok" ? buildOutreachAnalytics(snapshot.prospects) : null;
+  // ⚠️ `access?.held ?? null` PRESERVES THE "COULD NOT BE READ" STATE — see the
+  // identical comment on the Posts and Report pages. `canSee` fails OPEN on a
+  // null read, so an unreadable registry still shows the real snapshot below.
+  const assigned = canSee(access?.held ?? null, "outreach_prospects");
+
+  // Movement needs a SECOND snapshot read (see `readMovement` below); skip it
+  // entirely for an unassigned Client rather than fetching data this render will
+  // not show.
+  const analytics =
+    assigned && snapshot.status === "ok" ? buildOutreachAnalytics(snapshot.prospects) : null;
   const movement =
-    snapshot.status === "ok" && analytics
+    assigned && snapshot.status === "ok" && analytics
       ? await readMovement(id, snapshot, analytics, uploads)
       : null;
 
@@ -99,7 +115,17 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
 
       <ClientTabs clientId={client.id} />
 
-      {snapshot.status === "unavailable" ? (
+      {/* ⚠️ ONLY WHEN THE REGISTRY ITSELF COULD NOT BE READ. `assigned` fails OPEN
+          in that case (see `canSee`), so the real snapshot still renders below —
+          this banner is what stops an empty result there from being read as "ran
+          and found nothing" when the truth is "we do not know whether this
+          applies" (D14). The original production bug this slice exists to close
+          was exactly this collapse, unlabelled, for every Client. */}
+      {access === null ? <ServicesUnreadableNotice /> : null}
+
+      {!assigned ? (
+        <NotAssignedGate clientId={client.id} clientName={client.name} sectionName="Outreach" />
+      ) : snapshot.status === "unavailable" ? (
         <OutreachUnavailable />
       ) : snapshot.status === "empty" ? (
         <OutreachNoSnapshot />

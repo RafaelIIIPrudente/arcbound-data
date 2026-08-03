@@ -37,6 +37,23 @@ export function shouldCloseAfter(state: ClientFormState): boolean {
   return state.status === "created";
 }
 
+/**
+ * Whether the Client this form was submitting already EXISTS.
+ *
+ * ⚠️ ONCE TRUE, THE SUBMIT BUTTON MUST STAY DISABLED FOR GOOD — this is the fix
+ * for a real bug, not a style choice. `created_without_services` and
+ * `created_services_failed` deliberately leave the dialog OPEN so the message can
+ * be read (see `shouldCloseAfter`), but the name/URL fields below are
+ * UNCONTROLLED, so they still hold whatever was typed. A second click on "Add
+ * client" at that point would resubmit the SAME name and URL and register a
+ * SECOND Client — `clients` carries no unique constraint (ADR 0009), so nothing
+ * downstream would catch it; it would simply exist. "Done" is the only correct
+ * next action once this is true, which is why its label already changes here.
+ */
+function alreadyCreated(state: ClientFormState): boolean {
+  return state.status === "created_without_services" || state.status === "created_services_failed";
+}
+
 export function AddClientDialog({ services }: { services: ArcboundService[] | null }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -175,13 +192,10 @@ export function AddClientFormView({ state, formAction, pending, services }: Form
       <DialogFooter>
         <DialogClose asChild>
           <Button type="button" variant="outline">
-            {state.status === "created_without_services" ||
-            state.status === "created_services_failed"
-              ? "Done"
-              : "Cancel"}
+            {alreadyCreated(state) ? "Done" : "Cancel"}
           </Button>
         </DialogClose>
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending || alreadyCreated(state)}>
           {pending ? "Adding…" : "Add client"}
         </Button>
       </DialogFooter>

@@ -8,6 +8,10 @@ import {
   AnalyticsUnavailable,
 } from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
+import {
+  NotAssignedGate,
+  ServicesUnreadableNotice,
+} from "@/components/dashboard/client/service-gate";
 import { ImpressionsByMonthChart } from "@/components/dashboard/report/impressions-by-month-chart";
 import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impressions-by-weekday-chart";
 import { InteractionsByAssetChart } from "@/components/dashboard/report/interactions-by-asset-chart";
@@ -18,7 +22,9 @@ import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
+import { canSee } from "@/lib/service-access";
 import { paths } from "@/paths";
+import { getClientServices } from "@/services/arcbound-services";
 import { getClientReport } from "@/services/client-report";
 import { getClient } from "@/services/clients";
 
@@ -56,15 +62,21 @@ export default async function ClientReportPage({
 }) {
   const [{ id }, { period }] = await Promise.all([params, searchParams]);
 
-  // Independent reads — `getClientReport` takes the id, not the client — so they
-  // go out together rather than one waiting on the other. Fetching a report for
-  // a client that turns out not to exist is harmless: the rows come back empty
-  // and the result is discarded by the notFound() below.
-  const [client, report] = await Promise.all([
+  // Independent reads — `getClientReport` and `getClientServices` both take the
+  // id, not the client — so all three go out together rather than one waiting on
+  // another. Fetching a report (and the registry) for a client that turns out not
+  // to exist is harmless: the results come back empty/unused and are discarded by
+  // the notFound() below.
+  const [client, report, access] = await Promise.all([
     getClient(id),
     getClientReport({ clientId: id, period }),
+    getClientServices(id),
   ]);
   if (!client) notFound();
+
+  // ⚠️ `access?.held ?? null` PRESERVES THE "COULD NOT BE READ" STATE — see the
+  // identical comment on the Posts page. `canSee` fails OPEN on a null read.
+  const assigned = canSee(access?.held ?? null, "linkedin_post_metrics");
 
   return (
     <div className="space-y-8">
@@ -116,7 +128,20 @@ export default async function ClientReportPage({
 
       <ClientTabs clientId={client.id} />
 
-      {report.unavailable ? (
+      {/* ⚠️ ONLY WHEN THE REGISTRY ITSELF COULD NOT BE READ. `assigned` fails OPEN
+          in that case (see `canSee`), so the real report still renders — this
+          banner is what stops an empty section below from being read as "ran and
+          found nothing" when the truth is "we do not know whether this applies"
+          (D14). */}
+      {access === null ? <ServicesUnreadableNotice /> : null}
+
+      {!assigned ? (
+        <NotAssignedGate
+          clientId={client.id}
+          clientName={client.name}
+          sectionName="LinkedIn Report"
+        />
+      ) : report.unavailable ? (
         <AnalyticsUnavailable />
       ) : (
         <div className="space-y-10">

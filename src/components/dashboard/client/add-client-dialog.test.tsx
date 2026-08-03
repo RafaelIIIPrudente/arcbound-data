@@ -150,3 +150,77 @@ describe("⚠️ shouldCloseAfter — the dialog closes ONLY when nothing needs 
     expect(shouldCloseAfter({ status: "error" })).toBe(false);
   });
 });
+
+describe("⚠️ AddClientFormView — the resubmit guard (carried defect, closed here)", () => {
+  // ⚠️ THE DIALOG STAYS OPEN ON `created_without_services` / `created_services_failed`
+  // BY DESIGN — that is what makes the message readable. But leaving the submit
+  // button live alongside it was a genuine bug: the name/URL fields are
+  // UNCONTROLLED, so they still hold whatever was typed, and a second click on
+  // "Add client" would resubmit the SAME name and URL. `clients` has no unique
+  // constraint (ADR 0009), so nothing downstream would catch the duplicate — it
+  // would just exist, silently, as a second row.
+  it("disables Add client once the client already EXISTS (created_without_services)", () => {
+    render(
+      <AddClientFormView
+        {...baseProps}
+        state={{
+          status: "created_without_services",
+          clientId: "c1",
+          message: "Ada was registered, but has no services yet.",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /add client/i })).toBeDisabled();
+  });
+
+  it("disables Add client once the client already EXISTS (created_services_failed)", () => {
+    render(
+      <AddClientFormView
+        {...baseProps}
+        state={{
+          status: "created_services_failed",
+          clientId: "c1",
+          message: "Ada was registered, but its services could not be saved.",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /add client/i })).toBeDisabled();
+  });
+
+  it("keeps Add client enabled on idle — nothing was created yet", () => {
+    render(<AddClientFormView {...baseProps} state={{ status: "idle" }} />);
+    expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
+  });
+
+  it("keeps Add client enabled on a plain validation error — nothing was created yet", () => {
+    // The guard must not overreach: `error` means NOTHING was created (the
+    // action refuses before calling `createClient` — see clients/actions.ts), so
+    // there is no duplicate risk and the admin must be able to fix the form and
+    // resubmit.
+    render(
+      <AddClientFormView
+        {...baseProps}
+        state={{ status: "error", errors: { name: ["Name is required."] } }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
+  });
+
+  it("the message stays visible while the resubmit is blocked — the fix is 'Done', not 'try again'", () => {
+    render(
+      <AddClientFormView
+        {...baseProps}
+        state={{
+          status: "created_services_failed",
+          clientId: "c1",
+          message: "Ada was registered, but its services could not be saved.",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/services could not be saved/i);
+    expect(screen.getByRole("button", { name: /done/i })).toBeEnabled();
+  });
+});

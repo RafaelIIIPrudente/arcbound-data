@@ -1,5 +1,21 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+
+// Radix Select drives its listbox with Pointer Events + layout APIs that jsdom
+// does not implement. Polyfill them locally so the dropdown can actually open
+// (same stubs as format-review.test.tsx and report-period-picker.test.tsx).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
 
 // Hermetic: both Server Actions are spies. This file is about the BRANCHING —
 // which of the four situations a viewer is in — not about any form's behaviour.
@@ -18,7 +34,7 @@ vi.mock("@/app/(app)/clients/[id]/services-actions", () => ({
 
 import type { ArcboundService, ClientServiceAssignment } from "@/services/types";
 
-import { IngestPanelView } from "./ingest-panel";
+import { IngestPanel, IngestPanelView } from "./ingest-panel";
 
 const ADA = "c1";
 const clients = [
@@ -205,5 +221,71 @@ describe("⚠️ branch 4 — the Client holds Services", () => {
     );
 
     expect(screen.getAllByRole("tab")).toHaveLength(1);
+  });
+});
+
+describe("⚠️ IngestPanel — the CONNECTED component, mounted end to end", () => {
+  // ⚠️ THE CARRIED DEFECT THIS BLOCK CLOSES. S4 tested `IngestPanelView`
+  // exhaustively with `clientId` handed in as a prop, but never mounted the
+  // CONNECTED `IngestPanel` that owns the `useState` and wires
+  // `onClientChange={setClientId}` to the real Select. Every one of those view
+  // tests would have stayed green even if `onClientChange` were unhooked
+  // entirely — nothing exercised the actual picker. This block does.
+  const clients = [
+    { id: "c1", name: "Ada Lovelace" },
+    { id: "c2", name: "Grace Hopper" },
+  ];
+  const LINKEDIN: ArcboundService = {
+    id: "s-linkedin",
+    slug: "linkedin-growth",
+    name: "LinkedIn Growth",
+    description: null,
+    handler: "linkedin_post_metrics",
+    status: "active",
+    sortOrder: 10,
+  };
+  const OUTREACH: ArcboundService = {
+    id: "s-outreach",
+    slug: "outreach-system",
+    name: "Outreach System",
+    description: null,
+    handler: "outreach_prospects",
+    status: "active",
+    sortOrder: 20,
+  };
+
+  function assign(clientId: string, serviceId: string): ClientServiceAssignment {
+    return { clientId, serviceId, createdAt: "2026-08-03T00:00:00.000Z", createdBy: null };
+  }
+
+  it("⚠️ picking a Client in the REAL Select changes which tabs render", async () => {
+    const user = userEvent.setup();
+    render(
+      <IngestPanel
+        clients={clients}
+        isAdmin
+        registry={{
+          services: [LINKEDIN, OUTREACH],
+          // Ada holds only LinkedIn; Grace holds only Outreach — the two must
+          // produce visibly different tab sets, or a fixed/frozen `clientId`
+          // could not be told apart from a genuinely wired one.
+          assignments: [assign("c1", LINKEDIN.id), assign("c2", OUTREACH.id)],
+        }}
+      />,
+    );
+
+    // Before any pick: the invitation, not an error, and no tabs yet.
+    expect(screen.getByText(/select a client/i)).toBeInTheDocument();
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+
+    await user.click(screen.getByLabelText("Select client"));
+    await user.click(await screen.findByRole("option", { name: "Ada Lovelace" }));
+
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["LinkedIn Metrics"]);
+
+    await user.click(screen.getByLabelText("Select client"));
+    await user.click(await screen.findByRole("option", { name: "Grace Hopper" }));
+
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Outreach System"]);
   });
 });

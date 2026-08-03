@@ -2,8 +2,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
+import {
+  NotAssignedGate,
+  ServicesUnreadableNotice,
+} from "@/components/dashboard/client/service-gate";
 import { PrintReport } from "@/components/dashboard/report/print/print-report";
 import { ReportCover } from "@/components/dashboard/report/print/report-cover";
+import { canSee } from "@/lib/service-access";
+import { getClientServices } from "@/services/arcbound-services";
 import { getClientReport } from "@/services/client-report";
 import { getClient } from "@/services/clients";
 
@@ -30,11 +36,32 @@ export default async function ClientReportPrintPage({
 
   // Independent reads — see the on-screen report page for the reasoning. The
   // report for a non-existent client is discarded by the notFound() below.
-  const [client, report] = await Promise.all([
+  const [client, report, access] = await Promise.all([
     getClient(id),
     getClientReport({ clientId: id, period }),
+    getClientServices(id),
   ]);
   if (!client) notFound();
+
+  // ⚠️ THE SAME GATE AS THE ON-SCREEN REPORT, BECAUSE THIS IS WHERE A REPORT
+  // LEAVES THE BUILDING. The on-screen page is seen by staff only; this document
+  // is what staff hand or send to a Client. An ungated print export would let a
+  // report be produced — and exported — for an engagement that does not exist,
+  // reachable by a staff member pasting this URL directly regardless of what the
+  // on-screen page shows. `canSee` fails OPEN on a null (unreadable) read, so an
+  // unreadable registry still renders the real report, with the same warning
+  // banner the on-screen page carries.
+  const assigned = canSee(access?.held ?? null, "linkedin_post_metrics");
+
+  if (!assigned) {
+    return (
+      <NotAssignedGate
+        clientId={client.id}
+        clientName={client.name}
+        sectionName="LinkedIn Report"
+      />
+    );
+  }
 
   if (report.unavailable) {
     return <AnalyticsUnavailable />;
@@ -42,6 +69,7 @@ export default async function ClientReportPrintPage({
 
   return (
     <>
+      {access === null ? <ServicesUnreadableNotice /> : null}
       <ReportCover
         clientName={client.name}
         linkedinUrl={client.linkedin_url}

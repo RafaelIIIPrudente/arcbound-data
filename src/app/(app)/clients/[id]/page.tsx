@@ -16,7 +16,7 @@ import { connectionsTrend, followerTrend } from "@/lib/follower-trend";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
 import { connectionsDelta, followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
 import { paths } from "@/paths";
-import { listClientServices, listServices } from "@/services/arcbound-services";
+import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
 import { getReportLink } from "@/services/report-links";
 import { listUploads } from "@/services/uploads";
@@ -100,27 +100,6 @@ function KpiCard({
   );
 }
 
-/**
- * The registry and this Client's slice of it — BOTH reads or NEITHER.
- *
- * ⚠️ IT DEGRADES TO `null`, NEVER TO AN EMPTY LIST. The Client Overview is an
- * existing, working screen; a services read that throws must not take the uploads,
- * KPIs and report link down with it. Equally, returning `[]` on failure would
- * report "no services assigned" — a claim about the Client rather than about
- * ArcBase, and one the reader has no way to tell apart from the truth.
- *
- * This matters today, not hypothetically: `supabase/arcbound-services.sql` has not
- * been applied, so both reads throw against the live database right now.
- */
-async function loadServices(clientId: string) {
-  try {
-    const [services, assigned] = await Promise.all([listServices(), listClientServices(clientId)]);
-    return { services, assignedIds: assigned.map((row) => row.serviceId) };
-  } catch {
-    return null;
-  }
-}
-
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   // `getReportLink` is a metadata-only read that degrades to null on failure, so
@@ -128,12 +107,20 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // The role joins the same parallel fetch — it is one indexed lookup and, like
   // `getReportLink`, cannot fail the page: `getRole()` never throws and resolves
   // to the least-privileged answer when it cannot tell (ADR 0013).
-  const [client, uploads, reportLink, role, servicesPanel] = await Promise.all([
+  // ⚠️ `getClientServices` REPLACES A LOCAL loadServices THIS PAGE USED TO OWN.
+  // It is now the SAME cache()-memoised read `ClientTabs` calls for this same
+  // Client on this same render — one round trip, not two — and it degrades to
+  // `null` (never `[]`) on failure, for the same reason the removed local
+  // function did: a services read must not take the uploads, KPIs and report
+  // link down with it, and `[]` would assert "no services" for a read that
+  // simply failed. `supabase/arcbound-services.sql` is not applied today, so
+  // this is the live path on every request, not a hypothetical.
+  const [client, uploads, reportLink, role, access] = await Promise.all([
     getClient(id),
     listUploads(id),
     getReportLink(id),
     getRole(),
-    loadServices(id),
+    getClientServices(id),
   ]);
   if (!client) notFound();
 
@@ -212,24 +199,21 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
 
       <ClientTabs clientId={client.id} />
 
-      {/* Sits right after the report/posts nav: this is how staff hand that same
-          report to the client — a private link + an out-of-band Access Code.
-          `status` is null when no link exists (→ Create); the Access Code is shown
-          once at Create/Rotate and never re-rendered from here (it isn't on
-          ReportLinkStatus). See components/report-link + supabase/report-links.sql. */}
       {/* Which Arcbound Services this Client receives (ADR 0015). Admin-editable;
-          an analyst sees the same assignment read-only. */}
-      {servicesPanel ? (
+          an analyst sees the same assignment read-only. Also what decides the tab
+          row above and every gated section (Posts, LinkedIn Report, Outreach) —
+          this card is where that assignment is actually changed. */}
+      {access ? (
         <ClientServicesCard
           clientId={client.id}
-          services={servicesPanel.services}
-          assignedIds={servicesPanel.assignedIds}
+          services={access.services}
+          assignedIds={access.held.map((service) => service.id)}
           isAdmin={isAdmin(role)}
         />
       ) : (
         // ⚠️ NOT AN EMPTY CARD. Rendering the card with `[]` would tell an admin
-        // this Client has no services — which, once /upload filters by them (S4),
-        // reads as "cannot upload" and sends someone to fix a problem that may not
+        // this Client has no services — which reads as "cannot upload" and "no
+        // sections available" and sends someone to fix a problem that may not
         // exist. A failed read is its own state and says so.
         <p
           role="alert"
@@ -240,6 +224,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </p>
       )}
 
+      {/* The private link + out-of-band Access Code staff hand this Client their
+          own report through. `status` is null when no link exists (→ Create); the
+          Access Code is shown once at Create/Rotate and never re-rendered from
+          here (it isn't on ReportLinkStatus). See components/report-link +
+          supabase/report-links.sql. */}
       <ReportLinkCard clientId={client.id} status={reportLink} isAdmin={isAdmin(role)} />
 
       {/* Both derived from the SAME `uploads` array the cards above read, with no

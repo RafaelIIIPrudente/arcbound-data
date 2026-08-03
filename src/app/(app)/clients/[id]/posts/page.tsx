@@ -8,10 +8,16 @@ import {
   AnalyticsUnavailable,
 } from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
+import {
+  NotAssignedGate,
+  ServicesUnreadableNotice,
+} from "@/components/dashboard/client/service-gate";
 import { PostsTable } from "@/components/dashboard/posts/posts-table";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
+import { canSee } from "@/lib/service-access";
 import { paths } from "@/paths";
+import { getClientServices } from "@/services/arcbound-services";
 import { getClientPosts } from "@/services/client-posts";
 import { getClient } from "@/services/clients";
 
@@ -26,15 +32,23 @@ export default async function ClientPostsPage({
 }) {
   const [{ id }, { period }] = await Promise.all([params, searchParams]);
 
-  // Independent reads — `getClientPosts` takes the id, not the client — so they
-  // go out together rather than one waiting on the other. Fetching posts for a
-  // client that turns out not to exist is harmless: the rows come back empty and
-  // the result is discarded by the notFound() below.
-  const [client, posts] = await Promise.all([
+  // Independent reads — `getClientPosts` and `getClientServices` both take the
+  // id, not the client — so all three go out together rather than one waiting on
+  // another. Fetching posts (and the registry) for a client that turns out not to
+  // exist is harmless: the results come back empty/unused and are discarded by
+  // the notFound() below.
+  const [client, posts, access] = await Promise.all([
     getClient(id),
     getClientPosts({ clientId: id, period }),
+    getClientServices(id),
   ]);
   if (!client) notFound();
+
+  // ⚠️ `access?.held ?? null` PRESERVES THE "COULD NOT BE READ" STATE. `access`
+  // is `null` on a failed registry read; `canSee` fails OPEN on that (see
+  // service-access.ts), so this page still renders the real data below — the
+  // banner is what warns that an empty result may not mean what it looks like.
+  const assigned = canSee(access?.held ?? null, "linkedin_post_metrics");
 
   return (
     <div className="space-y-8">
@@ -57,7 +71,9 @@ export default async function ClientPostsPage({
           </h2>
           {/* The SAME picker, reading the same `?period=` param and the same
               `availablePeriods`, so this screen and the report always offer the
-              same windows for the same client. */}
+              same windows for the same client. Rendered even when not assigned —
+              the picker is cheap chrome, and hiding it would make the gate below
+              look like a different, more broken page than it is. */}
           <ReportPeriodPicker
             periods={posts.availablePeriods}
             value={posts.period.key}
@@ -71,7 +87,16 @@ export default async function ClientPostsPage({
 
       <ClientTabs clientId={client.id} />
 
-      {posts.unavailable ? (
+      {/* ⚠️ ONLY WHEN THE REGISTRY ITSELF COULD NOT BE READ (`access === null`).
+          `assigned` already fails OPEN in that case (see `canSee`), so the real
+          content below still renders — this banner is what stops an empty result
+          there from being read as "ran and found nothing" when the truth is "we
+          do not know whether this even applies" (D14). */}
+      {access === null ? <ServicesUnreadableNotice /> : null}
+
+      {!assigned ? (
+        <NotAssignedGate clientId={client.id} clientName={client.name} sectionName="Posts" />
+      ) : posts.unavailable ? (
         // "Could not be read" — deliberately NOT the empty table, which would
         // read as "this client has no posts".
         <AnalyticsUnavailable />
