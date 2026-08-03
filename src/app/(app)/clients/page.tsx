@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AddClientDialog } from "@/components/dashboard/client/add-client-dialog";
 import { ClientsTable } from "@/components/dashboard/client/clients-table";
 import { getRole, isAdmin } from "@/lib/auth/roles";
+import { listServices } from "@/services/arcbound-services";
 import { listClients } from "@/services/clients";
 
 export const metadata: Metadata = { title: "Client list" };
@@ -31,6 +32,16 @@ export default async function ClientsPage({
   // honest about what the viewer can do.
   const admin = isAdmin(await getRole());
 
+  // The registry the Add-Client dialog offers, or `null` when it cannot be read.
+  //
+  // ⚠️ DEGRADES TO `null`, NEVER TO `[]`, AND NEVER THROWS. This is a working
+  // screen; `supabase/arcbound-services.sql` is not applied yet, so `listServices()`
+  // throws against the live database today. Letting that propagate would take the
+  // whole Client List down over an unrelated migration, and `[]` would claim
+  // Arcbound sells nothing. The dialog says it could not load them and still
+  // registers the client (ADR 0015).
+  const services = admin ? await listServices().catch(() => null) : null;
+
   // The table shows every row it is given and has no pagination (neither does
   // the comp). If the fetch ever caps below the real total, the page SAYS SO —
   // a row that vanishes silently is the failure mode this codebase has been
@@ -49,7 +60,7 @@ export default async function ClientsPage({
             {total} {total === 1 ? "client" : "clients"} · records are immutable
           </p>
         </div>
-        {admin ? <AddClientDialog /> : null}
+        {admin ? <AddClientDialog services={services} /> : null}
       </div>
       {truncated ? (
         <p

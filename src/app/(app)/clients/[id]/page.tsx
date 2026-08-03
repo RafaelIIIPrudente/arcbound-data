@@ -8,6 +8,7 @@ import {
   ConnectionsTrendPanel,
   FollowerTrendPanel,
 } from "@/components/dashboard/client/follower-trend";
+import { ClientServicesCard } from "@/components/dashboard/client/client-services-card";
 import { ReportLinkCard } from "@/components/dashboard/client/report-link-card";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
 import { getRole, isAdmin } from "@/lib/auth/roles";
@@ -15,6 +16,7 @@ import { connectionsTrend, followerTrend } from "@/lib/follower-trend";
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
 import { connectionsDelta, followersDelta, postsDelta, type UploadDelta } from "@/lib/upload-delta";
 import { paths } from "@/paths";
+import { listClientServices, listServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
 import { getReportLink } from "@/services/report-links";
 import { listUploads } from "@/services/uploads";
@@ -98,6 +100,27 @@ function KpiCard({
   );
 }
 
+/**
+ * The registry and this Client's slice of it — BOTH reads or NEITHER.
+ *
+ * ⚠️ IT DEGRADES TO `null`, NEVER TO AN EMPTY LIST. The Client Overview is an
+ * existing, working screen; a services read that throws must not take the uploads,
+ * KPIs and report link down with it. Equally, returning `[]` on failure would
+ * report "no services assigned" — a claim about the Client rather than about
+ * ArcBase, and one the reader has no way to tell apart from the truth.
+ *
+ * This matters today, not hypothetically: `supabase/arcbound-services.sql` has not
+ * been applied, so both reads throw against the live database right now.
+ */
+async function loadServices(clientId: string) {
+  try {
+    const [services, assigned] = await Promise.all([listServices(), listClientServices(clientId)]);
+    return { services, assignedIds: assigned.map((row) => row.serviceId) };
+  } catch {
+    return null;
+  }
+}
+
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   // `getReportLink` is a metadata-only read that degrades to null on failure, so
@@ -105,11 +128,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // The role joins the same parallel fetch — it is one indexed lookup and, like
   // `getReportLink`, cannot fail the page: `getRole()` never throws and resolves
   // to the least-privileged answer when it cannot tell (ADR 0013).
-  const [client, uploads, reportLink, role] = await Promise.all([
+  const [client, uploads, reportLink, role, servicesPanel] = await Promise.all([
     getClient(id),
     listUploads(id),
     getReportLink(id),
     getRole(),
+    loadServices(id),
   ]);
   if (!client) notFound();
 
@@ -193,6 +217,29 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           `status` is null when no link exists (→ Create); the Access Code is shown
           once at Create/Rotate and never re-rendered from here (it isn't on
           ReportLinkStatus). See components/report-link + supabase/report-links.sql. */}
+      {/* Which Arcbound Services this Client receives (ADR 0015). Admin-editable;
+          an analyst sees the same assignment read-only. */}
+      {servicesPanel ? (
+        <ClientServicesCard
+          clientId={client.id}
+          services={servicesPanel.services}
+          assignedIds={servicesPanel.assignedIds}
+          isAdmin={isAdmin(role)}
+        />
+      ) : (
+        // ⚠️ NOT AN EMPTY CARD. Rendering the card with `[]` would tell an admin
+        // this Client has no services — which, once /upload filters by them (S4),
+        // reads as "cannot upload" and sends someone to fix a problem that may not
+        // exist. A failed read is its own state and says so.
+        <p
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-5 text-sm text-destructive"
+        >
+          This client&apos;s services could not be read, so they are not shown. This is not the same
+          as having none.
+        </p>
+      )}
+
       <ReportLinkCard clientId={client.id} status={reportLink} isAdmin={isAdmin(role)} />
 
       {/* Both derived from the SAME `uploads` array the cards above read, with no

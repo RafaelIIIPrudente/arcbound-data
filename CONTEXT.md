@@ -113,7 +113,34 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 
 - **Immutability** — the rule that Clients and Uploads are never edited or
   deleted, and Posts change only through re-Ingestion. ArcBase exposes no
-  edit/delete affordances for these records.
+  edit/delete affordances for these records. **Arcbound Services are the
+  deliberate exception** — see below and
+  [ADR 0015](docs/adr/0015-arcbound-services-registry.md). A Client's **Services
+  are assignable** while the Client RECORD stays immutable: the assignment is an
+  Engagement, a row in a separate relation, and changing it alters nothing about
+  the Client's identity, name, or LinkedIn URL. Which services a Client receives
+  is a fact about the relationship, not about the Client.
+
+- **Arcbound Service** — an offering Arcbound sells to its Clients (e.g. LinkedIn
+  Growth, Outreach System). A registry entry, editable and archivable by an Admin.
+
+  ⚠️ **Not the [Service Seam](#application)**, which is the UI↔data boundary and
+  the meaning of `src/services/`. The two senses of "service" are unrelated: this
+  one is a product Arcbound delivers. Code names it `ArcboundService` and
+  `arcbound-services.ts`, never bare `Service`, so the two cannot be confused at a
+  call site.
+
+- **Handler** — the identifier on an Arcbound Service naming the ingestion
+  pipeline that implements it. The valid set is fixed in code (and mirrored by a
+  database constraint), so an Admin chooses from it and can never invent one:
+  **visibility is data, capability is code**. A Service with **no** Handler is a
+  real, listed offering — countable and reportable — that simply has no upload
+  path and no data tab. "Has a pipeline" and "listed but not ingestible" are
+  different facts and are never collapsed.
+
+- **Engagement** — the record that one Client receives one Arcbound Service. What
+  makes a Service visible on that Client, and what the delete guard protects: a
+  Service any Client is engaged with cannot be deleted, only archived.
 
 ### Application
 
@@ -125,6 +152,11 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Service Seam** — the boundary between the UI and its data source. Screens read
   and write through it and never touch a data source directly. Some features are
   wired to a real Supabase backend; un-wired features return mock data.
+
+  ⚠️ **This is the `src/services/` sense of "service", and it is NOT an
+  [Arcbound Service](#domain)** — the thing Arcbound sells. Both words appear in
+  this codebase and they name unrelated concepts; the offering always carries the
+  `Arcbound` prefix in code for exactly this reason.
 
 - **Auth Strategy** — the pluggable authentication-provider abstraction. ArcBase
   wires exactly one strategy (**Supabase**).

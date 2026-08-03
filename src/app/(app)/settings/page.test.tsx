@@ -38,6 +38,17 @@ describe("the Settings page", () => {
     );
   });
 
+  it("offers an admin a way into the Services registry", async () => {
+    getRoleMock.mockResolvedValue("admin");
+
+    render(await SettingsPage());
+
+    expect(screen.getByRole("link", { name: /services/i })).toHaveAttribute(
+      "href",
+      paths.settings.services,
+    );
+  });
+
   it("⚠️ shows an analyst NO TRACE of the roles screen, but keeps their own settings", async () => {
     // ⚠️ BOTH HALVES IN ONE TEST, ON PURPOSE.
     //
@@ -51,6 +62,8 @@ describe("the Settings page", () => {
     render(await SettingsPage());
 
     expect(screen.queryByRole("link", { name: /staff roles/i })).toBeNull();
+    // Two admin-only screens now live behind this page; neither may leak.
+    expect(screen.queryByRole("link", { name: /services/i })).toBeNull();
     expect(screen.getByTestId("settings-tabs")).toBeInTheDocument();
   });
 });

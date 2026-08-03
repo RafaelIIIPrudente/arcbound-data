@@ -60,6 +60,68 @@ export interface Paginated<T> {
   total: number;
 }
 
+// ── Arcbound Services ────────────────────────────────────────────────────────
+// The registry of what Arcbound SELLS, and which Clients receive each offering
+// (ADR 0015).
+//
+// ⚠️ "SERVICE" HERE IS AN ARCBOUND OFFERING, NOT THE SERVICE SEAM. `src/services/`
+// is the UI↔data boundary defined in CONTEXT.md; these types describe a product
+// Arcbound delivers to a Client. The names carry the `Arcbound` prefix precisely
+// so the two senses cannot be confused at a call site.
+
+/**
+ * An ingestion pipeline that EXISTS in code.
+ *
+ * ⚠️ THIS UNION IS ONE HALF OF A PAIR. The other half is the `services_handler_known`
+ * CHECK constraint in `supabase/arcbound-services.sql`. They must agree: this type
+ * is what stops a screen offering a handler nobody implemented, and the constraint
+ * is the half that cannot be bypassed. Adding a pipeline means editing BOTH, plus
+ * writing the pipeline itself.
+ */
+export type ServiceHandler = "linkedin_post_metrics" | "outreach_prospects";
+
+/** An offering Arcbound sells. */
+export interface ArcboundService {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+
+  /**
+   * The ingestion pipeline behind this offering, or `null`.
+   *
+   * ⚠️ `null` IS A REAL, MEANINGFUL STATE — NOT AN ERROR AND NOT AN ABSENCE OF
+   * DATA. It means "a listed offering with no ingestion pipeline": the Service is
+   * genuinely sold, appears on the Client, and is countable and reportable, but it
+   * has no upload path and no data tab. Consumers must render that plainly rather
+   * than treating it as missing, exactly as this codebase refuses to collapse
+   * "absent" into "zero" anywhere else.
+   *
+   * ⚠️ IMMUTABLE AFTER CREATION. `update_service` takes no handler parameter —
+   * repointing a live Service would silently reinterpret every engagement already
+   * attached to it. To change it, archive the Service and create a new one.
+   */
+  handler: ServiceHandler | null;
+
+  /** `archived` retires an offering without touching existing engagements. */
+  status: "active" | "archived";
+  sortOrder: number;
+}
+
+/**
+ * One Client receiving one Service — an **Engagement**.
+ *
+ * `createdBy` is the admin who made the assignment, or `null` for rows written by
+ * the migration's backfill, which derived them from upload history rather than
+ * from any person's decision.
+ */
+export interface ClientServiceAssignment {
+  clientId: string;
+  serviceId: string;
+  createdAt: string;
+  createdBy: string | null;
+}
+
 // ── Dashboard analytics ──────────────────────────────────────────────────────
 // Read-model for the analytics dashboard (route `/`). Mock-derived today.
 

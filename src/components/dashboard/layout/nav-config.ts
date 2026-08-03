@@ -36,8 +36,11 @@ export const navItems: NavItem[] = [
   { title: "Resources", href: paths.resources },
   { title: "Data Quality", href: paths.dataQuality },
   // LAST, and not alphabetically: the five above are the work, this is the
-  // account. `/settings/roles` (ADR 0013) is reached from inside this screen, not
-  // from its own nav item — it is admin-only, and the nav is not.
+  // account. TWO admin-only screens now live inside this one — Staff Roles
+  // (ADR 0013) and the Arcbound Services registry (ADR 0015) — and neither gets
+  // its own nav item. The nav is NOT role-aware, so an item for an admin-only
+  // screen would either advertise it to analysts or make this list conditional;
+  // linking from inside `/settings` keeps the sidebar the same for everyone.
   { title: "Settings", href: paths.settings.profile },
 ];
 
@@ -83,11 +86,16 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname === paths.resources) return { lead: "", accent: "Resources" };
   if (pathname === paths.dataQuality) return { lead: "Data", accent: "quality" };
   if (pathname.startsWith(paths.customers.list)) return { lead: "", accent: "Customers" };
-  // ⚠️ BEFORE THE GENERIC SETTINGS RULE, FOR THE THIRD TIME IN THIS FILE.
-  // `paths.settings.roles` ("/settings/roles") starts with `paths.settings.profile`
-  // ("/settings"), so the rule below matches it too and returns "Settings". A
-  // branch placed after it never runs — dead code that looks alive.
+  // ⚠️ BEFORE THE GENERIC SETTINGS RULE, FOR THE FOURTH TIME IN THIS FILE.
+  // `paths.settings.roles` ("/settings/roles") and `paths.settings.services`
+  // ("/settings/services") both start with `paths.settings.profile` ("/settings"),
+  // so the rule below matches them too and returns "Settings". A branch placed
+  // after it never runs — dead code that looks alive. EVERY nested settings route
+  // added from here on must go above that line, not below it.
   if (pathname.startsWith(paths.settings.roles)) return { lead: "Staff", accent: "roles" };
+  if (pathname.startsWith(paths.settings.services)) {
+    return { lead: "Arcbound", accent: "services" };
+  }
   if (pathname.startsWith(paths.settings.profile)) return { lead: "", accent: "Settings" };
   return { lead: "", accent: "ArcBase" };
 }

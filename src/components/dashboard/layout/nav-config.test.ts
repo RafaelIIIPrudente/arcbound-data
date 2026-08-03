@@ -110,6 +110,32 @@ describe("resolvePageTitle", () => {
     expect(resolvePageTitle(paths.settings.roles)).toEqual({ lead: "Staff", accent: "roles" });
   });
 
+  it("matches the SERVICES route before the generic settings rule", () => {
+    // ⚠️ THE SAME ORDERING TRAP AS /settings/roles, ON THE SAME PREFIX — the
+    // FOURTH time this file has had to be told. `startsWith("/settings")` also
+    // matches "/settings/services" and returns the generic Settings title, so a
+    // branch placed after it never runs. Asserting the OUTCOME (not the source
+    // order) means this fails if the branch is ever moved below.
+    expect(resolvePageTitle(paths.settings.services)).not.toEqual({
+      lead: "",
+      accent: "Settings",
+    });
+    expect(resolvePageTitle(paths.settings.services)).toEqual({
+      lead: "Arcbound",
+      accent: "services",
+    });
+  });
+
+  it("keeps the two admin settings routes distinct from each other", () => {
+    // Neither nested branch may swallow the other: both start with "/settings",
+    // and a `startsWith` written against the wrong one would match both.
+    expect(resolvePageTitle(paths.settings.roles)).toEqual({ lead: "Staff", accent: "roles" });
+    expect(resolvePageTitle(paths.settings.services)).toEqual({
+      lead: "Arcbound",
+      accent: "services",
+    });
+  });
+
   it("still returns the generic Settings title for the profile route", () => {
     // The new branch must not swallow its neighbour in the other direction.
     expect(resolvePageTitle(paths.settings.profile)).toEqual({ lead: "", accent: "Settings" });

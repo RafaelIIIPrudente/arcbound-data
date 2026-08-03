@@ -29,6 +29,11 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    name: "arcbound-services",
+    script: "arcbound-services.sql",
+    migration: "migrations/20260802150000_arcbound_services.sql",
+  },
+  {
     name: "staff-roles-admin",
     script: "staff-roles-admin.sql",
     migration: "migrations/20260802140000_staff_roles_admin.sql",
