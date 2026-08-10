@@ -15,6 +15,7 @@ function outreach(over: Partial<ReportLinkOutreach> = {}): ReportLinkOutreach {
     connected: 217,
     replied: 39,
     meetingsBooked: 8,
+    email: { status: "not-in-export" },
     ...over,
   };
 }
@@ -100,5 +101,120 @@ describe("OutreachSummary — aggregate counts only", () => {
     expect(text).not.toMatch(/linkedin\.com|https?:\/\//i);
     // Every visible token is a label, a formatted number, or the dated caption.
     expect(text).not.toMatch(/\b(Requested|In Conversation|Closed|Passed|Qualified)\b/);
+  });
+});
+
+describe("OutreachSummary — the Email channel (S4, D9)", () => {
+  it("renders the three Email figures when the channel is present", () => {
+    render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 645, replied: 39, meetingsBooked: 13, combinedMeetings: 19 },
+        })}
+      />,
+    );
+
+    for (const [label, value] of [
+      ["Emails sent", "645"],
+      ["Email replies", "39"],
+      ["Email meetings booked", "13"],
+    ] as const) {
+      const block = screen.getByTestId(`outreach-${label.toLowerCase().replace(/ /g, "-")}`);
+      expect(within(block).getByText(label)).toBeInTheDocument();
+      expect(within(block).getByText(value)).toBeInTheDocument();
+    }
+  });
+
+  it("⚠️ labels the combined-meetings figure as a count of PEOPLE, never a total or a sum", () => {
+    render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 645, replied: 39, meetingsBooked: 13, combinedMeetings: 19 },
+        })}
+      />,
+    );
+
+    const text = spacedText(screen.getByTestId("outreach-combined-meetings"));
+    expect(text).toMatch(/19/);
+    expect(text).toMatch(/people|either|or both/i);
+    expect(text.toLowerCase()).not.toMatch(/\btotal\b/);
+  });
+
+  it("⚠️ STATES ZERO for every Email figure — it never drops the row, exactly like the LinkedIn side", () => {
+    render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 0, replied: 0, meetingsBooked: 0, combinedMeetings: 8 },
+        })}
+      />,
+    );
+
+    expect(within(screen.getByTestId("outreach-emails-sent")).getByText("0")).toBeInTheDocument();
+    expect(within(screen.getByTestId("outreach-email-replies")).getByText("0")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("outreach-email-meetings-booked")).getByText("0"),
+    ).toBeInTheDocument();
+  });
+
+  it("⚠️ renders 'not in this export' — NEVER a zeroed Email funnel — when the channel is absent", () => {
+    // ⚠️ THE TEST THAT MUST FAIL IF SOMEONE 'SIMPLIFIES THE UNION AWAY'. A
+    // future edit that collapsed `not-in-export` into a same-shaped zeroed
+    // block would still render three figures; asserting their ABSENCE, not
+    // merely the sentence's presence, is what actually catches it.
+    render(<OutreachSummary outreach={outreach({ email: { status: "not-in-export" } })} />);
+
+    expect(screen.getByText(/not in this export|did not carry/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("outreach-emails-sent")).toBeNull();
+    expect(screen.queryByTestId("outreach-email-replies")).toBeNull();
+    expect(screen.queryByTestId("outreach-email-meetings-booked")).toBeNull();
+    expect(screen.queryByTestId("outreach-combined-meetings")).toBeNull();
+  });
+
+  it("prints no '0' anywhere in the not-in-export sentence — absence is not a measurement", () => {
+    const { container } = render(
+      <OutreachSummary outreach={outreach({ email: { status: "not-in-export" } })} />,
+    );
+
+    // The five LinkedIn figures still render (they are not zero in this
+    // fixture), so this scopes to the Email section specifically.
+    const emailSection = screen.getByText(/not in this export|did not carry/i).closest("div");
+    expect(emailSection?.textContent ?? "").not.toMatch(/\b0\b/);
+  });
+
+  it("still shows the five LinkedIn figures when the Email channel is absent — the two sides are independent", () => {
+    render(<OutreachSummary outreach={outreach({ email: { status: "not-in-export" } })} />);
+
+    expect(screen.getByTestId("outreach-requests-sent")).toBeInTheDocument();
+    expect(screen.getByTestId("outreach-meetings-booked")).toBeInTheDocument();
+  });
+
+  it("contains no rate, percentage, score, rank or benchmark in the Email section either", () => {
+    const { container } = render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 645, replied: 39, meetingsBooked: 13, combinedMeetings: 19 },
+        })}
+      />,
+    );
+
+    const text = spacedText(container);
+    expect(text).not.toMatch(
+      /\b(rate|percent|percentage|score|rank(ing|ed)?|benchmark|conversion|average|best|top|optimal|recommended?|momentum|improv\w*)\b/i,
+    );
+    expect(text).not.toMatch(/%/);
+  });
+
+  it("shows no prospect string in the Email section — the address/mobile/message columns never map here", () => {
+    const { container } = render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 645, replied: 39, meetingsBooked: 13, combinedMeetings: 19 },
+        })}
+      />,
+    );
+    // ⚠️ NOT A BEHAVIOURAL GUARANTEE — `ReportLinkEmailOutreach` structurally
+    // has no field to hold a prospect string, so this documents the type-level
+    // guard rather than testing a runtime filter that does not exist.
+    expect(spacedText(container)).not.toMatch(/@|linkedin\.com/i);
   });
 });

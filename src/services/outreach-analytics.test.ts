@@ -977,3 +977,153 @@ describe("⚠️ the funnel rule is DUPLICATED in supabase/outreach-report-link.
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ S4 (2026-08-10) — THE SAME DUPLICATION, NOW FOR THE EMAIL CHANNEL. This
+// slice's SQL lives in a NEW file — supabase/outreach-email-report-link.sql —
+// because supabase/outreach-report-link.sql is already applied to the live
+// database and must not be edited in place (its `create or replace` is
+// replaced AGAIN by the new script's body). The new file is now the one live
+// definition of `report_link_read`, so it is pinned here, not the old one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EMAIL_OUTREACH_SQL = normaliseSql(
+  readFileSync(join(process.cwd(), "supabase", "outreach-email-report-link.sql"), "utf8"),
+);
+
+describe("⚠️ the Email funnel rule is DUPLICATED in supabase/outreach-email-report-link.sql — change one, change the other", () => {
+  it("reproduces the FOUR LinkedIn predicates VERBATIM — a full-body replace must carry them forward unchanged", () => {
+    // ⚠️ THE GAP THIS TEST CLOSES. `create or replace` replaces the WHOLE body,
+    // so a script that "forgot" to copy a LinkedIn predicate across would still
+    // parse and apply cleanly — it would just silently change what a live
+    // Client's report has always shown. The header comment claims these are
+    // carried over VERBATIM; this proves the claim rather than trusting it.
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "count(*) filter (where op.date_sent is not null and btrim(op.date_sent) <> '')",
+    );
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "count(*) filter (where lower(btrim(op.connection_status)) = 'connected')",
+    );
+    expect(EMAIL_OUTREACH_SQL).toContain("op.reply_status is not null");
+    expect(EMAIL_OUTREACH_SQL).toContain("btrim(op.reply_status) <> ''");
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "lower(regexp_replace(btrim(op.reply_status), '\\s+', ' ', 'g')) <> 'no reply'",
+    );
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "count(*) filter (where op.meeting_booked_date is not null and btrim(op.meeting_booked_date) <> '')",
+    );
+  });
+
+  it("EMAIL SENT: the SQL counts a non-blank email_date_emailed, exactly as buildEmailAnalytics does", () => {
+    // TS: prospects.filter((p) => !isBlank(p.emailDateEmailed))
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "count(*) filter (where op.email_date_emailed is not null and btrim(op.email_date_emailed) <> '')",
+    );
+  });
+
+  it("EMAIL REPLIED: the SQL excludes BOTH a blank status AND 'no reply', mirroring the LinkedIn predicate's exact shape", () => {
+    // TS: canonicalReply(p.emailReplyStatus) is neither "no-reply" nor "not-recorded".
+    expect(EMAIL_OUTREACH_SQL).toContain("op.email_reply_status is not null");
+    expect(EMAIL_OUTREACH_SQL).toContain("btrim(op.email_reply_status) <> ''");
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "lower(regexp_replace(btrim(op.email_reply_status), '\\s+', ' ', 'g')) <> 'no reply'",
+    );
+  });
+
+  it("EMAIL MEETINGS BOOKED: the SQL counts a non-blank email_meeting_booked_date", () => {
+    // TS: prospects.filter((p) => !isBlank(p.emailMeetingBookedDate))
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "count(*) filter (where op.email_meeting_booked_date is not null and btrim(op.email_meeting_booked_date) <> '')",
+    );
+  });
+
+  it("⚠️ COMBINED MEETINGS is a UNION (OR over both columns), never a sum — proven by the exact clause, not just presence", () => {
+    // ⚠️ D1/D8. A mutation that rewrote this as `meetings_booked +
+    // email_meetings_booked` would still be valid SQL and would still return a
+    // number — only asserting the literal OR-shaped clause catches it.
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "'combined_meetings', count(*) filter ( where (op.meeting_booked_date is not null and btrim(op.meeting_booked_date) <> '') or (op.email_meeting_booked_date is not null and btrim(op.email_meeting_booked_date) <> '') )",
+    );
+    // And the addition shape must NOT appear anywhere in the file.
+    expect(EMAIL_OUTREACH_SQL).not.toMatch(/meetings_booked\s*\+\s*.*email_meetings_booked/);
+  });
+
+  it("has_email_channel travels WITH the aggregate, read from the SAME snapshot — no second query", () => {
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "select ou.id, ou.created_at, ou.has_email_channel into v_snapshot_id, v_snapshot_at, v_has_email_channel",
+    );
+    expect(EMAIL_OUTREACH_SQL).toContain("'has_email_channel', v_has_email_channel");
+  });
+
+  it("⚠️ the function's SIGNATURE is unchanged — no drop function anywhere in this script (D9)", () => {
+    // Unlike S1's ingest_outreach change, this is a body-only replace: no
+    // argument list changed, so no drop is needed and none may appear — a drop
+    // here would strip the anon/authenticated grants this script restates.
+    expect(EMAIL_OUTREACH_SQL).not.toContain("drop function");
+    expect(EMAIL_OUTREACH_SQL).toContain(
+      "create or replace function public.report_link_read(p_token text, p_grant text)",
+    );
+  });
+
+  it("⚠️ RETURNS NULL ON FAILURE, WITH NO NEW ERROR PATH — no oracle for a token-probing attacker", () => {
+    expect(EMAIL_OUTREACH_SQL).toContain("return null");
+    // Exactly the same two `return null` guards as the original script — a
+    // third, differently-worded failure path would be a distinguishable signal.
+    expect(EMAIL_OUTREACH_SQL.split("return null;").length - 1).toBe(2);
+  });
+
+  it("returns COUNTS AND ONE FLAG ONLY — no prospect string column, including the new email ones, appears in the aggregate", () => {
+    const aggregate = EMAIL_OUTREACH_SQL.slice(
+      EMAIL_OUTREACH_SQL.indexOf("'snapshot_at'"),
+      EMAIL_OUTREACH_SQL.indexOf("into v_outreach"),
+    );
+    expect(aggregate.length).toBeGreaterThan(0);
+    for (const column of [
+      "full_name",
+      "title",
+      "company",
+      "linkedin_url",
+      "location",
+      "linkedin_message",
+      "notes",
+      "rationale",
+      "owner",
+      "stage",
+      "email_best_email",
+      "email_mobile",
+      "email_subject_line",
+      "email_message",
+      "email_notes",
+      "email_owner",
+      "email_stage",
+    ]) {
+      expect(aggregate).not.toContain(column);
+    }
+  });
+
+  it("names buildEmailAnalytics in the SQL, so the obligation is readable from the other side", () => {
+    expect(EMAIL_OUTREACH_SQL).toContain("buildEmailAnalytics");
+  });
+
+  it("names supabase/outreach-email-report-link.sql in outreach-analytics.ts, so it is readable from THIS side", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src", "services", "outreach-analytics.ts"),
+      "utf8",
+    );
+    // ⚠️ NOT REQUIRED. The S4 SQL's own duplication obligation is against
+    // buildEmailAnalytics in email-analytics.ts (untouched, out of S4's scope),
+    // not against this file — so unlike the LinkedIn pin above, there is no
+    // matching back-reference to assert here. Documented, not enforced.
+    expect(source).toContain("supabase/outreach-report-link.sql");
+  });
+
+  it("⚠️ records the known reply-predicate divergence with S2's qualifier/date stripping, and that it is currently zero", () => {
+    // The brief's own inherited-divergence disclosure: the SQL `replied`
+    // predicates test the near-raw value while `canonicalReply` strips a
+    // trailing qualifier and date first. This asserts the comment recording
+    // that gap actually exists, not merely that the code behaves a certain way
+    // — the SQL cannot be executed here, so the comment IS the guard.
+    expect(EMAIL_OUTREACH_SQL).toMatch(/KNOWN, DELIBERATE DIVERGENCE/);
+    expect(EMAIL_OUTREACH_SQL).toMatch(/ZERO rows diverge today/);
+  });
+});

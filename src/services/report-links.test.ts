@@ -344,6 +344,9 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
       connected: 217,
       replied: 39,
       meetingsBooked: 8,
+      // ⚠️ S4: no `has_email_channel` key at all in this bundle — the SQL-first
+      // OR pre-S4-SQL state. Never a crash, never zeros.
+      email: { status: "not-in-export" },
     });
   });
 
@@ -464,11 +467,170 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
     );
     expect(Object.keys(src!.outreach!).sort()).toEqual([
       "connected",
+      "email",
       "meetingsBooked",
       "replied",
       "sent",
       "snapshotAt",
       "totalProspects",
     ]);
+  });
+});
+
+describe("readReportLinkSource — the EMAIL block, parsed as OPTIONAL (S4, D9)", () => {
+  function withEmailOutreach(over: Record<string, unknown> = {}) {
+    return {
+      client_id: CLIENT,
+      client_name: "Acme Corp",
+      posts: [],
+      uploads: [],
+      attributes: [],
+      outreach: {
+        snapshot_at: "2026-07-27T09:00:00.000Z",
+        total_prospects: 1435,
+        sent: 1230,
+        connected: 217,
+        replied: 39,
+        meetings_booked: 8,
+        ...over,
+      },
+    };
+  }
+
+  it("⚠️ CODE-FIRST DEPLOY: no has_email_channel key at all → email is not-in-export, and the LinkedIn side is UNAFFECTED", async () => {
+    // ⚠️ THE DEPLOY-ORDER CASE D9 EXISTS FOR. The new TypeScript build reads a
+    // payload from the OLD SQL, which carries none of the five new keys. This
+    // must not crash, must not zero the email figures, and — critically — must
+    // not fail the whole outreach object; the LinkedIn side is still complete
+    // and must still render.
+    rpcMock.mockResolvedValueOnce({ data: withEmailOutreach(), error: null });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.outreach!.email).toEqual({ status: "not-in-export" });
+    expect(src!.outreach!.totalProspects).toBe(1435);
+    expect(src!.outreach!.sent).toBe(1230);
+  });
+
+  it("has_email_channel: false → email is not-in-export, identically to the absent-key case", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: false,
+        email_sent: 0,
+        email_replied: 0,
+        email_meetings_booked: 0,
+        combined_meetings: 8,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    // ⚠️ EVEN THOUGH THE SQL SENT NUMBERS. The flag decides, not whether the
+    // numeric keys happen to be present — a pre-S1 snapshot's columns are all
+    // NULL, so the SQL's own counts would already read 0 there, but a snapshot
+    // rebuilt for this test with real-looking zeros must STILL be ignored.
+    expect(src!.outreach!.email).toEqual({ status: "not-in-export" });
+  });
+
+  it("has_email_channel: true with all four counts present → email is ok, mapped field by field", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 645,
+        email_replied: 39,
+        email_meetings_booked: 13,
+        combined_meetings: 19,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.outreach!.email).toEqual({
+      status: "ok",
+      sent: 645,
+      replied: 39,
+      meetingsBooked: 13,
+      combinedMeetings: 19,
+    });
+  });
+
+  it("⚠️ has_email_channel: true but a count is missing → falls back to not-in-export, WITHOUT failing the LinkedIn side", async () => {
+    // A malformed email block degrades only the email side — the LinkedIn
+    // figures came from the SAME query and are independently valid.
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 645,
+        email_replied: 39,
+        // email_meetings_booked and combined_meetings absent
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.outreach!.email).toEqual({ status: "not-in-export" });
+    expect(src!.outreach!.totalProspects).toBe(1435);
+  });
+
+  it("has_email_channel: true but a count is non-numeric → falls back to not-in-export, never a coerced figure", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: "645",
+        email_replied: 39,
+        email_meetings_booked: 13,
+        combined_meetings: 19,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.outreach!.email).toEqual({ status: "not-in-export" });
+  });
+
+  it("keeps a genuine zero in the email block as a zero", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 0,
+        email_replied: 0,
+        email_meetings_booked: 0,
+        combined_meetings: 8,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(src!.outreach!.email).toEqual({
+      status: "ok",
+      sent: 0,
+      replied: 0,
+      meetingsBooked: 0,
+      combinedMeetings: 8,
+    });
+  });
+
+  it("carries no prospect string through the email block either, whatever the RPC sends", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 645,
+        email_replied: 39,
+        email_meetings_booked: 13,
+        combined_meetings: 19,
+        email_best_email: "dana@northwind.io",
+        email_notes: "called twice",
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(JSON.stringify(src!.outreach!.email)).not.toMatch(/dana@northwind\.io|called twice/);
   });
 });

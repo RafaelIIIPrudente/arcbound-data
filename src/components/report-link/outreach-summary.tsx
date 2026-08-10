@@ -1,11 +1,12 @@
-import type { ReportLinkOutreach } from "@/services/report-links";
+import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/report-links";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Outreach summary — the Client's own outreach, on the Client's own report.
 //
 // ⚠️ COUNTS AND A DATE. NOTHING ELSE EXISTS TO SHOW. The aggregation happens
-// inside the SECURITY DEFINER read (supabase/outreach-report-link.sql), so no
-// prospect name, company, LinkedIn URL, message, note or stage ever reaches this
+// inside the SECURITY DEFINER read (supabase/outreach-report-link.sql, extended
+// by supabase/outreach-email-report-link.sql), so no prospect name, company,
+// LinkedIn URL, message, note, stage or email address ever reaches this
 // component (ADR 0012). This is not a filter applied here — it is a boundary
 // enforced in the database, and this block is downstream of it.
 //
@@ -19,6 +20,12 @@ import type { ReportLinkOutreach } from "@/services/report-links";
 // the row when it is zero would make the report flatter BY SELECTION: a reader
 // could not tell "no meetings" from "we do not report meetings", and every Client
 // who did have one would be silently marked out.
+//
+// ⚠️ THE EMAIL BLOCK IS ITS OWN THREE-STATE READ, S4/D9. `email.status ===
+// "not-in-export"` means this snapshot's export predates the Email columns —
+// rendered as one sentence, never a zeroed row of figures, exactly like the
+// staff tab's `EmailFunnelPanel`. It degrades independently of the five
+// LinkedIn figures above, which keep rendering regardless.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SHORT_MONTHS = [
@@ -84,6 +91,57 @@ export function OutreachSummary({ outreach }: { outreach: ReportLinkOutreach | n
         {/* Stated at zero. See the header note. */}
         <Figure label="Meetings booked" value={outreach.meetingsBooked} />
       </div>
+
+      <EmailBlock email={outreach.email} />
     </section>
+  );
+}
+
+function EmailBlock({ email }: { email: ReportLinkEmailOutreach }) {
+  const heading = (
+    <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+      Email
+    </div>
+  );
+
+  if (email.status === "not-in-export") {
+    return (
+      <div className="space-y-2 border-t pt-4">
+        {heading}
+        {/* ⚠️ NOT "0 sent / 0 replied / 0 meetings". This snapshot's export
+            predates the Email columns, so there are no Email figures to fund a
+            row with — a different fact from a row that measured zero activity. */}
+        <p className="text-sm text-muted-foreground">
+          This snapshot&rsquo;s export did not carry the Email columns, so there are no Email
+          figures to show for it.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 border-t pt-4">
+      {heading}
+      <div className="grid gap-5 sm:grid-cols-3">
+        <Figure label="Emails sent" value={email.sent} />
+        <Figure label="Email replies" value={email.replied} />
+        <Figure label="Email meetings booked" value={email.meetingsBooked} />
+      </div>
+      <div className="space-y-1" data-testid="outreach-combined-meetings">
+        <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+          Combined meetings
+        </div>
+        <div className="text-2xl leading-none font-semibold text-foreground tabular-nums">
+          {email.combinedMeetings.toLocaleString()}
+        </div>
+        {/* ⚠️ A COUNT OF PEOPLE, NEVER A TOTAL OR A SUM (D1, D8). Someone booked
+            through both channels counts once here — stating it as a sum of the
+            two figures above would overstate by exactly that overlap. */}
+        <p className="text-xs text-muted-foreground">
+          {email.combinedMeetings.toLocaleString()} people booked a meeting on LinkedIn, Email, or
+          both — not a sum of the two figures above.
+        </p>
+      </div>
+    </div>
   );
 }
