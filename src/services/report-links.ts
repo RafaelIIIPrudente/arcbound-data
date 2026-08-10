@@ -156,25 +156,34 @@ export interface ReportLinkSource {
   posts: BiPostRow[];
   uploads: ReportLinkUpload[];
   attributes: PostAttributes[];
-  /**
-   * This Client's outreach as AGGREGATE COUNTS, or null when they have no
-   * snapshot (or the S6 SQL is not yet applied). Never a partial, never zeros.
-   */
-  outreach: ReportLinkOutreach | null;
+  /** This Client's outreach — see `ReportLinkOutreach`'s own comment for its three states. */
+  outreach: ReportLinkOutreach;
 }
 
 /**
- * The Client-facing Email-channel aggregate, or the fact that this snapshot
- * carries none (S4, D9).
+ * The Client-facing Email-channel aggregate: one of THREE states, not two.
  *
  * ⚠️ A DISCRIMINATED UNION, NOT A NULLABLE OBJECT — THE SAME REASON
  * `EmailAnalytics` (staff side, S2/S3) IS ONE. "This snapshot's export had no
- * Email columns" and "the Email figures happen to be zero" license different
- * sentences, and collapsing them would let a pre-S1 snapshot render a false
- * zeroed Email funnel under a real upload date.
+ * Email columns", "the Email figures happen to be zero", and "we received an
+ * Email block and could not read the numbers" license three different
+ * sentences, and collapsing any two would let one masquerade as another.
+ *
+ * ⚠️ F1 (2026-08-10) ADDED `unavailable`. The branch that decides this always
+ * had three causes — `has_email_channel` false, an absent key, and a
+ * malformed count — but only the first two were named in the comment that
+ * used to sit above `mapEmailOutreach`, and the code answered `not-in-export`
+ * for all three. "The export carried the Email block and we could not read
+ * the numbers" is not "the export did not carry the Email block". The third
+ * cause is unreachable against the currently-deployed SQL (every key in the
+ * aggregate is built by one `jsonb_build_object`, so the counts arrive
+ * together or not at all) — which is exactly why it must still answer
+ * correctly: it is the code that runs precisely when the contract has already
+ * broken.
  */
 export type ReportLinkEmailOutreach =
   | { status: "not-in-export" }
+  | { status: "unavailable" }
   | {
       status: "ok";
       sent: number;
@@ -184,47 +193,64 @@ export type ReportLinkEmailOutreach =
     };
 
 /**
- * The Client-facing outreach aggregate: five LinkedIn counts, the date they
- * describe, and the Email channel's own block.
+ * The Client-facing outreach aggregate. THREE STATES, mirroring
+ * `LatestSnapshot` (staff side) exactly — `ok` / `empty` / `unavailable` — so
+ * this codebase keeps ONE vocabulary for "we have it" / "there is none" / "we
+ * could not read it", not a second one invented here.
+ *
+ * ⚠️ F1 (2026-08-10) REPLACED `ReportLinkOutreach | null`. Before this, a
+ * malformed non-null aggregate (a count of the wrong type, a missing key)
+ * fell through to the SAME `null` that "this Client has no outreach uploaded"
+ * produces — the worst available outcome, because a Client was told nothing
+ * was done for them when the truth was that the read failed. `empty` now
+ * covers ONLY a genuine "no snapshot" fact (SQL's own explicit jsonb null, or
+ * an absent key on a pre-S1 database); anything else that fails to parse is
+ * `unavailable`.
  *
  * ⚠️ COUNTS ONLY, BY CONSTRUCTION AT THE DATABASE BOUNDARY. ADR 0012: prospect
  * rows never leave the database on the public path, so the aggregation happens
  * inside `report_link_read` (supabase/outreach-report-link.sql, extended by
  * supabase/outreach-email-report-link.sql) and what arrives here is already
  * scalars. No name, company, URL, message, note, stage or email address value
- * exists to map — and nothing may be added to this interface that would change
- * that.
+ * exists to map — and nothing may be added to this type that would change that.
  */
-export interface ReportLinkOutreach {
-  /** ISO 8601 — when the snapshot these figures describe was uploaded. */
-  snapshotAt: string;
-  totalProspects: number;
-  sent: number;
-  connected: number;
-  replied: number;
-  meetingsBooked: number;
-  /**
-   * ⚠️ D9 — PARSED AS OPTIONAL, DELIBERATELY, BECAUSE THIS IS WHAT MAKES THE
-   * S4 SQL DEPLOY SAFE IN EITHER ORDER. `report_link_read`'s signature never
-   * changed, so there is no call-side hazard — the hazard is entirely in the
-   * returned JSON shape. A CODE-FIRST deploy calls OLD SQL that carries none
-   * of the five new keys; `mapEmailOutreach` reads that absence the same way
-   * it reads `has_email_channel: false` — as `not-in-export`, never a crash
-   * and never a coerced zero. A malformed email block degrades ONLY this
-   * field; the five LinkedIn counts above are independently valid because
-   * they come from a query that has not changed shape.
-   */
-  email: ReportLinkEmailOutreach;
-}
+export type ReportLinkOutreach =
+  | {
+      status: "ok";
+      /** ISO 8601 — when the snapshot these figures describe was uploaded. */
+      snapshotAt: string;
+      totalProspects: number;
+      sent: number;
+      connected: number;
+      replied: number;
+      meetingsBooked: number;
+      /**
+       * ⚠️ D9 — PARSED AS OPTIONAL, DELIBERATELY, BECAUSE THIS IS WHAT MAKES
+       * THE S4 SQL DEPLOY SAFE IN EITHER ORDER. `report_link_read`'s
+       * signature never changed, so there is no call-side hazard — the
+       * hazard is entirely in the returned JSON shape. A CODE-FIRST deploy
+       * calls OLD SQL that carries none of the five new keys;
+       * `mapEmailOutreach` reads that absence the same way it reads
+       * `has_email_channel: false` — as `not-in-export`, never a crash and
+       * never a coerced zero. A malformed email block degrades ONLY this
+       * field; the five LinkedIn counts above are independently valid
+       * because they come from a query that has not changed shape.
+       */
+      email: ReportLinkEmailOutreach;
+    }
+  | { status: "empty" }
+  | { status: "unavailable" };
 
 /**
  * Map the Email block within one outreach aggregate, from the SAME raw object
  * `mapOutreach` already validated the LinkedIn side of.
  *
- * ⚠️ `has_email_channel !== true` IS THE ONLY CONDITION THAT MATTERS. It is
- * `false` for a pre-S1 snapshot AND FOR AN ABSENT KEY, and both mean the same
- * thing — see this file's `ReportLinkOutreach.email` comment for why that
- * union of two causes is deliberate rather than an oversight.
+ * ⚠️ THREE CAUSES, THREE ANSWERS. `has_email_channel !== true` is `false` for
+ * a pre-S1 snapshot AND for an absent key, and both correctly answer
+ * `not-in-export` — see this file's `ReportLinkEmailOutreach` comment for why
+ * that union of two causes is deliberate. A THIRD cause — `has_email_channel`
+ * true but a count that will not parse — answers `unavailable` instead: the
+ * export genuinely carried the Email block, and the read failed.
  */
 function mapEmailOutreach(o: Record<string, unknown>): ReportLinkEmailOutreach {
   if (o.has_email_channel !== true) return { status: "not-in-export" };
@@ -236,7 +262,7 @@ function mapEmailOutreach(o: Record<string, unknown>): ReportLinkEmailOutreach {
     "combined_meetings",
   ] as const;
   for (const key of counts) {
-    if (typeof o[key] !== "number" || !Number.isFinite(o[key])) return { status: "not-in-export" };
+    if (typeof o[key] !== "number" || !Number.isFinite(o[key])) return { status: "unavailable" };
   }
 
   return {
@@ -249,28 +275,34 @@ function mapEmailOutreach(o: Record<string, unknown>): ReportLinkEmailOutreach {
 }
 
 /**
- * Map the outreach aggregate, or null.
+ * Map the outreach aggregate to its three states.
  *
- * ⚠️ AN ABSENT OR MALFORMED KEY IS `null`, NEVER ZEROS. Until staff apply
- * supabase/outreach-report-link.sql the key does not exist at all, and a report
- * telling a Client with 1,230 requests sent that they sent 0 is worse than one
- * that shows nothing. Every LinkedIn field is therefore required to be present
- * and of the right type; one missing count fails the WHOLE object rather than
- * defaulting — the email block is the one exception, and it fails only itself
- * (see `mapEmailOutreach`).
+ * ⚠️ `empty` IS FOR A GENUINE ABSENCE ONLY — SQL's OWN EXPLICIT jsonb null, OR
+ * AN ABSENT KEY (a pre-S1 database). `unavailable` IS FOR EVERYTHING ELSE THAT
+ * FAILS TO PARSE: a non-object, a missing/non-string `snapshot_at`, or any of
+ * the five LinkedIn counts not a finite number. Before F1, ALL of these
+ * collapsed to the same `null` that `empty` alone should mean — telling a
+ * Client with 1,230 requests sent that "nothing has been done for them" is
+ * worse than telling them their figures could not be read; this function is
+ * the fix. Every LinkedIn field is required to be present and of the right
+ * type for `ok`; one missing count fails the WHOLE object to `unavailable`
+ * rather than defaulting — the email block is the one exception, and it
+ * fails only itself (see `mapEmailOutreach`).
  */
-function mapOutreach(raw: unknown): ReportLinkOutreach | null {
-  if (raw === null || typeof raw !== "object") return null;
+function mapOutreach(raw: unknown): ReportLinkOutreach {
+  if (raw === null) return { status: "empty" };
+  if (typeof raw !== "object") return { status: "unavailable" };
   const o = raw as Record<string, unknown>;
-  if (typeof o.snapshot_at !== "string") return null;
+  if (typeof o.snapshot_at !== "string") return { status: "unavailable" };
 
   const counts = ["total_prospects", "sent", "connected", "replied", "meetings_booked"] as const;
   for (const key of counts) {
     // `typeof "0" === "string"` — a coerced count would be a fabricated figure.
-    if (typeof o[key] !== "number" || !Number.isFinite(o[key])) return null;
+    if (typeof o[key] !== "number" || !Number.isFinite(o[key])) return { status: "unavailable" };
   }
 
   return {
+    status: "ok",
     snapshotAt: o.snapshot_at,
     totalProspects: o.total_prospects as number,
     sent: o.sent as number,

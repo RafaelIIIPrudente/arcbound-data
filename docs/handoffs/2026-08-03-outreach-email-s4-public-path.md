@@ -1,7 +1,10 @@
 # Handoff — Outreach Email channel, S4: the public path (final slice)
 
-**Status:** 🟠 LANDED with one minor finding (A4) and one caveat about the gate.
-Uncommitted, as instructed. **SQL NOT YET APPLIED.**
+**Status:** 🟢 LANDED. **SQL APPLIED 2026-08-10** by the operator via the SQL editor.
+Committed by the operator as `bda22c4`. A4 and the gate caveat are both **closed out in
+[F1/F2](./2026-08-10-outreach-email-f1-f2-fixes.md)** — A4 fixed (and found to be the
+smaller half of a worse defect); the timeout caveat investigated, its stated cause
+**disproved**, and left unresolved on the evidence.
 **Branch:** `feat-outreach-email-channel`, on top of `554bb63` (S3, committed by the
 operator between slices).
 **Decision record:** [`docs/decisions/2026-08-03-outreach-email-channel.md`](../decisions/2026-08-03-outreach-email-channel.md) (D1–D7) + D8/D9 set in this brief.
@@ -103,20 +106,36 @@ this file next.
 
 ## Open
 
-- **THE SQL IS NOT APPLIED.** `supabase/outreach-email-report-link.sql` must be pasted into
-  the Supabase SQL editor by staff — never `db push`. Until then `/r/[token]` shows only
-  the five LinkedIn-era figures, which is a correct additive no-op, not a break.
-- ⚠️ **Verify after applying**, in a separate SQL-editor pass (the editor renders only the
-  last result set — this workstream has hit that trap once already):
-  `select pg_get_function_identity_arguments(oid) from pg_proc where proname = 'report_link_read';`
-  → must be exactly ONE row, `p_token text, p_grant text`.
-- A4 above.
-- The 15 s test-timeout ceiling.
+- ~~THE SQL IS NOT APPLIED.~~ **Applied 2026-08-10** by the operator via the SQL editor.
+- ~~The post-apply signature check.~~ ✅ **RUN AND CLEAN, 2026-08-10** — result grid on
+  project `jozdugwmmyxacmksqjdl` returned **1 row**, `p_token text, p_grant text`. No
+  orphaned overload survives, so the S1 drop/create trap did not recur here (as D9
+  predicted: the signature never changed, so `create or replace` was atomic).
+  ⚠️ **A signature check does NOT prove the NEW body landed** — an identical signature
+  means an old body returns the same single row. So the body was checked separately:
+- ✅ **BODY CHECK RUN AND CLEAN, 2026-08-11.**
+  `select position('has_email_channel' in prosrc) > 0 as new_body_live from pg_proc where proname = 'report_link_read';`
+  → **1 row, `true`.** The S4 body is live, so `/r/[token]` is serving the five new
+  aggregate keys rather than silently degrading to `not-in-export`.
+
+**S4 is fully verified: signature clean, body live, code landed and green. Nothing open.**
+
+- ~~A4~~ — **fixed** in [F1/F2](./2026-08-10-outreach-email-f1-f2-fixes.md), where it turned
+  out to be the milder half of the same defect in `mapOutreach`.
+- ~~The 15 s test-timeout ceiling.~~ — investigated in F1/F2 and **left unresolved on the
+  evidence**. ⚠️ This doc's diagnosis above ("a dynamic `import()` pulls a multi-second Vite
+  transform inside the test's own timeout") is **wrong about the cause**: measured
+  `transform` for the whole suite is 5.02 s, and the per-file cost doubles when a second
+  calendar-touching file joins a run. The cost is per-file module instantiation, which no
+  warming strategy can remove. See F1/F2 for the measurements and the two real options.
 
 ---
 
 ## Feedback & revisions log
 
-| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 2026-08-10 | Created from the S4 run report and its independent verification. Lineage of `554bb63` confirmed; SQL pair, `PAIRS` entry, union shape, privacy boundary and `has_email_channel` sourcing all verified against the source; the union→sum mutation re-applied by the planner and confirmed red on both the pin and `sql-sync`. Gate caveat recorded with evidence that the two timeouts are load-dependent and unrelated. A4 raised. |
+| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 4   | 2026-08-11 | **Body check run — `new_body_live` = `true`.** The `prosrc` query confirms the S4 body is the one live on `jozdugwmmyxacmksqjdl`, closing the one gap the signature check could not cover. S4 now has nothing open.                                                                                                                                                                                                                                                                                                                                                                  |
+| 3   | 2026-08-10 | Signature check run — 1 row, `p_token text, p_grant text`, clean. Noted that an unchanged signature cannot distinguish the new body from the old, and recorded the `prosrc` query that can.                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2   | 2026-08-10 | **Closed out.** SQL applied by the operator; S4 committed as `bda22c4` (verified descendant of `554bb63`, same author, diff byte-for-byte the S4 deliverable). A4 fixed in the F1/F2 slice — and found there to be the _milder_ half of the same collapse in `mapOutreach`, where a malformed aggregate told a Client nothing had been done for them. The gate caveat's stated cause is **retracted**: it blamed a Vite transform, and measurement shows the cost is per-file module instantiation that nothing can cache. The signature check is the one item still genuinely open. |
+| 1   | 2026-08-10 | Created from the S4 run report and its independent verification. Lineage of `554bb63` confirmed; SQL pair, `PAIRS` entry, union shape, privacy boundary and `has_email_channel` sourcing all verified against the source; the union→sum mutation re-applied by the planner and confirmed red on both the pin and `sql-sync`. Gate caveat recorded with evidence that the two timeouts are load-dependent and unrelated. A4 raised.                                                                                                                                                   |

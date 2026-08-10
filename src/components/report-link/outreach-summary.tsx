@@ -26,6 +26,14 @@ import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/rep
 // rendered as one sentence, never a zeroed row of figures, exactly like the
 // staff tab's `EmailFunnelPanel`. It degrades independently of the five
 // LinkedIn figures above, which keep rendering regardless.
+//
+// ⚠️ F1 (2026-08-10) — THE WHOLE READ IS THREE STATES, NOT TWO, MIRRORING
+// `ReportLinkOutreach` (which mirrors `LatestSnapshot`, staff side): `ok` /
+// `empty` / `unavailable`. Before F1 a malformed aggregate arrived here as
+// `null` — identical to "this Client has never had an outreach snapshot" —
+// so a Client whose read had genuinely broken was told nothing had been done
+// for them. `unavailable` renders a sentence saying the figures could not be
+// read: never a zero, never an empty block, and never the `empty` wording.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SHORT_MONTHS = [
@@ -64,10 +72,27 @@ function Figure({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function OutreachSummary({ outreach }: { outreach: ReportLinkOutreach | null }) {
+export function OutreachSummary({ outreach }: { outreach: ReportLinkOutreach }) {
   // No snapshot for this Client → nothing to say, so nothing is said. Not a
   // heading over an empty card, and certainly not a card of zeros.
-  if (!outreach) return null;
+  if (outreach.status === "empty") return null;
+
+  // ⚠️ F1 — THE READ FAILED, AND THAT IS ITS OWN SENTENCE. Never the silence
+  // above (that means "genuinely no snapshot") and never the figures below
+  // (that means "we read real numbers").
+  if (outreach.status === "unavailable") {
+    return (
+      <section className="print-block space-y-2 rounded-lg border border-dashed bg-muted/20 p-5">
+        <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
+          <span className="text-primary">—</span>
+          Outreach
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Outreach figures could not be read right now.
+        </p>
+      </section>
+    );
+  }
 
   const asAt = formatIsoDate(outreach.snapshotAt);
 
@@ -115,6 +140,19 @@ function EmailBlock({ email }: { email: ReportLinkEmailOutreach }) {
           This snapshot&rsquo;s export did not carry the Email columns, so there are no Email
           figures to show for it.
         </p>
+      </div>
+    );
+  }
+
+  if (email.status === "unavailable") {
+    // ⚠️ F1 — NOT THE SAME SENTENCE AS not-in-export. "The export carried the
+    // Email block and we could not read the numbers" is a different fact from
+    // "the export did not carry the Email block" — and a different fact again
+    // from a zeroed row.
+    return (
+      <div className="space-y-2 border-t pt-4">
+        {heading}
+        <p className="text-sm text-muted-foreground">Email figures could not be read right now.</p>
       </div>
     );
   }
