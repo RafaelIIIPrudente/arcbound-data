@@ -52,7 +52,7 @@ const envelopeSchema = z.object({
  * the reader to assume it landed somewhere; the point of this notice is that it
  * did not, and that storing it needs a schema change rather than another upload.
  *
- * Returns `null` for the ordinary 24-column export. A notice on every good file
+ * Returns `null` for the ordinary 39-column export. A notice on every good file
  * is a notice nobody reads, and the one time it mattered it would be invisible.
  */
 function unknownColumnWarning(unknownHeaders: string[]): string | null {

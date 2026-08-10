@@ -30,6 +30,7 @@ const ANALYTICS: OutreachAnalytics = {
   unreadableFollowUpCounts: 0,
   unrecognisedReplyValues: [],
   unrecognisedStageValues: [],
+  strippedReplyQualifiers: [],
   sentOverTime: [],
   undatedSent: 0,
   unreadableSentValues: [],

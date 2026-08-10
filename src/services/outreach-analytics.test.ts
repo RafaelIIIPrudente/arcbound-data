@@ -340,11 +340,67 @@ describe("buildOutreachAnalytics — nothing is bucketed into 'other'", () => {
   });
 });
 
+describe("buildOutreachAnalytics — A3: the qualifier disclosure REGRESSION S2 introduced (2026-08-10)", () => {
+  // ⚠️ S2 taught `canonicalReply` to strip a trailing parenthetical qualifier
+  // on BOTH channels (D6), but only wired the disclosure into the Email
+  // builder. These two exact values — measured in the real export — used to
+  // reach `unrecognisedReplyValues` verbatim because `canonicalReply` could
+  // not read them; S2 made them bucket silently, and the qualifier vanished.
+  // This is the whole point of the A3 repair.
+  it("⚠️ 'Replied - Positive (via email; meeting canceled)' buckets Positive AND surfaces the qualifier — the case the rule exists for", () => {
+    const rows = [prospect({ replyStatus: "Replied - Positive (via email; meeting canceled)" })];
+    const a = buildOutreachAnalytics(rows);
+
+    // The funnel count is unaffected — this value already counted as replied
+    // before S2, via `unrecognised`, and still counts as replied now.
+    expect(step(a, /replied/i).count).toBe(1);
+    expect(a.replyStatus.find((r) => /positive/i.test(r.label))?.count).toBe(1);
+    expect(a.strippedReplyQualifiers).toEqual(["via email; meeting canceled"]);
+  });
+
+  it("'Replied 2026-07-30 (declined)' buckets replied-unspecified AND surfaces 'declined'", () => {
+    const rows = [prospect({ replyStatus: "Replied 2026-07-30 (declined)" })];
+    const a = buildOutreachAnalytics(rows);
+
+    expect(step(a, /replied/i).count).toBe(1);
+    const unspecified = a.replyStatus.find((r) => /sentiment not stated/i.test(r.label));
+    expect(unspecified?.count).toBe(1);
+    expect(a.strippedReplyQualifiers).toEqual(["declined"]);
+  });
+
+  it("is empty when no reply status carries a trailing qualifier", () => {
+    const rows = [
+      prospect({ replyStatus: "Replied - Positive" }),
+      prospect({ replyStatus: "No Reply" }),
+    ];
+
+    expect(buildOutreachAnalytics(rows).strippedReplyQualifiers).toEqual([]);
+  });
+
+  it("de-duplicates a repeated qualifier, verbatim and first-seen order", () => {
+    const rows = [
+      prospect({ replyStatus: "Replied - Positive (booked 2026-07-27)" }),
+      prospect({ replyStatus: "Replied - Neutral (booked 2026-07-27)" }),
+      prospect({ replyStatus: "Replied 2026-07-30 (declined)" }),
+    ];
+
+    expect(buildOutreachAnalytics(rows).strippedReplyQualifiers).toEqual([
+      "booked 2026-07-27",
+      "declined",
+    ]);
+  });
+});
+
 describe("buildOutreachAnalytics — NO RATES, SCORES OR RANKINGS", () => {
   it("exposes no percentage, rate, score, rank or benchmark field", () => {
     // ⚠️ A WHITELIST, SO A DERIVED FIGURE CANNOT BE ADDED QUIETLY. Meetings
     // booked is ~8 of ~1,220: any rate computed here reads as a verdict the
     // sample cannot support.
+    //
+    // ⚠️ 2026-08-10 (A3): `strippedReplyQualifiers` was added KNOWINGLY, to
+    // repair a disclosure regression S2 introduced — see the describe block
+    // above. It is a list of verbatim strings, not a derived figure, and does
+    // not weaken this whitelist's purpose.
     const a = buildOutreachAnalytics([prospect()]);
 
     expect(Object.keys(a).sort()).toEqual(
@@ -356,6 +412,7 @@ describe("buildOutreachAnalytics — NO RATES, SCORES OR RANKINGS", () => {
         "sentDateRange",
         "sentOverTime",
         "stage",
+        "strippedReplyQualifiers",
         "totalProspects",
         "undatedSent",
         "unreadableFollowUpCounts",

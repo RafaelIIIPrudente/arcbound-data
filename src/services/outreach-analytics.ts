@@ -3,6 +3,7 @@ import {
   canonicalStage,
   isKnownStage,
   parseCount,
+  replyQualifier,
   REPLY_BUCKET_LABELS,
   type ReplyBucket,
 } from "@/lib/outreach-vocab";
@@ -225,6 +226,16 @@ export function buildOutreachAnalytics(prospects: OutreachProspect[]): OutreachA
       .map((p) => p.stage!.trim()),
   );
 
+  // ⚠️ A3 REPAIR (2026-08-10) — RECOVERABLE AND DISCLOSED, LIKE THE EMAIL SIDE.
+  // `canonicalReply` strips a trailing qualifier on this column too (D6); this
+  // is what makes that safe here as well — see the type's own comment for the
+  // regression this closes.
+  const strippedReplyQualifiers = distinct(
+    prospects
+      .map((p) => replyQualifier(p.replyStatus))
+      .filter((qualifier): qualifier is string => qualifier !== null),
+  );
+
   // ── Date Sent, outlier included ───────────────────────────────────────────
   //
   // ⚠️ NOTHING IS FILTERED OUT OF THIS SERIES. One real row sits at `2020-12-04`
@@ -302,6 +313,7 @@ export function buildOutreachAnalytics(prospects: OutreachProspect[]): OutreachA
     unreadableFollowUpCounts,
     unrecognisedReplyValues,
     unrecognisedStageValues,
+    strippedReplyQualifiers,
     sentOverTime,
     undatedSent,
     unreadableSentValues: distinct(unreadableSent),

@@ -10,6 +10,7 @@ import {
   useReactTable,
   type ColumnFiltersState,
   type SortingState,
+  type VisibilityState,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 
@@ -37,7 +38,7 @@ import type { OutreachProspect } from "@/services/types";
 import { prospectColumns, type ProspectColumnMeta } from "./prospect-columns";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The prospect table: every row of the latest snapshot, all 24 source columns,
+// The prospect table: every row of the latest snapshot, all 39 source columns,
 // searchable, filterable and sortable entirely in the browser.
 //
 // ⚠️ NO NEW DATABASE READ. The page already fetched every row to compute the
@@ -50,9 +51,15 @@ import { prospectColumns, type ProspectColumnMeta } from "./prospect-columns";
 // or the sort resets to page 1 — the same contract `posts-table.tsx` documents.
 //
 // ⚠️ NOTHING HERE MAY LEAVE THE STAFF SURFACE. Prospect names, LinkedIn URLs,
-// locations, drafted messages and the email addresses inside Notes are
+// locations, drafted messages, the email addresses inside Notes, and now the
+// 15 Email columns' own contact details (Email Address, Mobile) are
 // third-party personal data (ADR 0012). There is deliberately no export, no
 // download, and no copy-all control.
+//
+// ⚠️ THE LinkedIn / Email / All TOGGLE DEFAULTS TO LinkedIn, AND THAT DEFAULT
+// IS A PRIVACY BOUNDARY (D5, 2026-08-03). All 39 columns exist in
+// `prospectColumns` always; only VISIBILITY changes, via TanStack's
+// `columnVisibility`. See the toggle's own comment below for why.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -68,6 +75,45 @@ const PAGE_SIZE = 100;
 
 /** The "no filter" sentinel. Radix Select forbids an empty-string item value. */
 const ALL = "__all__";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The LinkedIn / Email / All column-visibility toggle (D5, 2026-08-03).
+//
+// ⚠️ A PRIVACY BOUNDARY, NOT ONLY A LAYOUT CHOICE. Two of the 15 Email columns
+// — `Email — Best Email`, `Email — Mobile` — are direct contact details for
+// third parties who never agreed to be in ArcBase. Defaulting to LinkedIn
+// keeps them hidden until a staffer deliberately asks for them; this is why
+// `DEFAULT_CHANNEL_VIEW` below is `"linkedin"` and must stay that way.
+//
+// ⚠️ COLUMN IDS ARE DERIVED FROM `prospectColumns`' OWN `meta.channel`, NEVER
+// HAND-TYPED HERE. A second list that must stay in step with the column
+// definitions is exactly the `PROSPECT_COLUMNS` / `ProspectRow` drift risk
+// this codebase has already been burned by once.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ChannelView = "linkedin" | "email" | "all";
+
+const DEFAULT_CHANNEL_VIEW: ChannelView = "linkedin";
+
+const EMAIL_COLUMN_IDS = prospectColumns
+  .filter((c) => (c.meta as ProspectColumnMeta).channel === "email")
+  .map((c) => c.id as string);
+
+/**
+ * LinkedIn columns MINUS `fullName`. `fullName` is the one identity column
+ * shared by every view — an Email-only table with no name column would show
+ * contact details with no way to say whose they are, which defeats the point
+ * of switching to that view at all.
+ */
+const LINKEDIN_ONLY_COLUMN_IDS = prospectColumns
+  .filter((c) => (c.meta as ProspectColumnMeta).channel === "linkedin" && c.id !== "fullName")
+  .map((c) => c.id as string);
+
+function visibilityFor(view: ChannelView): VisibilityState {
+  if (view === "all") return {};
+  const hidden = view === "linkedin" ? EMAIL_COLUMN_IDS : LINKEDIN_ONLY_COLUMN_IDS;
+  return Object.fromEntries(hidden.map((id) => [id, false]));
+}
 
 /** Trimmed, non-blank values of one field, sorted, de-duplicated. */
 function presentValues(
@@ -86,6 +132,8 @@ export function ProspectTable({ prospects }: { prospects: OutreachProspect[] }) 
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const [channelView, setChannelView] = React.useState<ChannelView>(DEFAULT_CHANNEL_VIEW);
+  const columnVisibility = React.useMemo(() => visibilityFor(channelView), [channelView]);
 
   // ⚠️ EVERY DROPDOWN IS BUILT FROM THIS SNAPSHOT, NOT FROM A FIXED LIST. A
   // Client whose sheet has never used "Closed - Low Fit" should not be offered
@@ -115,7 +163,7 @@ export function ProspectTable({ prospects }: { prospects: OutreachProspect[] }) 
   const table = useReactTable({
     data: prospects,
     columns: prospectColumns,
-    state: { sorting, columnFilters, globalFilter },
+    state: { sorting, columnFilters, globalFilter, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
@@ -191,6 +239,17 @@ export function ProspectTable({ prospects }: { prospects: OutreachProspect[] }) 
           options={icpOptions}
           onChange={(v) => setFilter("icpSeg", v)}
         />
+
+        <Select value={channelView} onValueChange={(v) => setChannelView(v as ChannelView)}>
+          <SelectTrigger className="w-[9rem]" aria-label="Choose which columns to show">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="linkedin">LinkedIn</SelectItem>
+            <SelectItem value="email">Email</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
 
         <p
           data-testid="prospect-count"

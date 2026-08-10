@@ -1371,6 +1371,22 @@ export interface OutreachAnalytics {
   /** The same, for Stage. */
   unrecognisedStageValues: string[];
   /**
+   * Trailing qualifiers stripped from `Reply Status` while bucketing it (D6,
+   * via {@link replyQualifier}), VERBATIM and de-duplicated — e.g. `"via
+   * email; meeting canceled"` out of `Replied - Positive (via email; meeting
+   * canceled)`.
+   *
+   * ⚠️ ADDED 2026-08-10 TO REPAIR A3 — A REGRESSION S2 INTRODUCED. S2 taught
+   * `canonicalReply` to strip a trailing parenthetical on BOTH channels, but
+   * wired the disclosure into `buildEmailAnalytics` only, so two LinkedIn
+   * values that used to reach `unrecognisedReplyValues` verbatim (because
+   * `canonicalReply` could not read them) now bucket silently and their
+   * qualifier — including one that arguably reverses the outcome — vanishes.
+   * This field is what makes stripping the qualifier safe on the LinkedIn
+   * side too, exactly as `EmailAnalytics.strippedQualifiers` does for email.
+   */
+  strippedReplyQualifiers: string[];
+  /**
    * Requests sent per calendar month, ascending, keyed `YYYY-MM`.
    *
    * ⚠️ NOTHING IS FILTERED OUT OF THIS SERIES, INCLUDING THE 2020 OUTLIER. See

@@ -1,13 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getClientMock, latestSnapshotMock, listOutreachUploadsMock, getClientServicesMock } =
-  vi.hoisted(() => ({
-    getClientMock: vi.fn(),
-    latestSnapshotMock: vi.fn(),
-    listOutreachUploadsMock: vi.fn(),
-    getClientServicesMock: vi.fn(),
-  }));
+const {
+  getClientMock,
+  latestSnapshotMock,
+  listOutreachUploadsMock,
+  getClientServicesMock,
+  buildEmailAnalyticsMock,
+} = vi.hoisted(() => ({
+  getClientMock: vi.fn(),
+  latestSnapshotMock: vi.fn(),
+  listOutreachUploadsMock: vi.fn(),
+  getClientServicesMock: vi.fn(),
+  buildEmailAnalyticsMock: vi.fn(() => ({ status: "not-in-export" })),
+}));
 vi.mock("@/services/clients", () => ({ getClient: getClientMock }));
 vi.mock("@/services/outreach", () => ({
   latestSnapshot: latestSnapshotMock,
@@ -42,6 +48,11 @@ vi.mock("@/components/dashboard/outreach/outreach-disclosure", () => ({
 vi.mock("@/components/dashboard/outreach/prospect-table", () => ({
   ProspectTable: () => <div data-testid="prospect-table" />,
 }));
+vi.mock("@/components/dashboard/outreach/email-funnel-panel", () => ({
+  EmailFunnelPanel: ({ emailAnalytics }: { emailAnalytics: { status: string } }) => (
+    <div data-testid="email-funnel-panel" data-status={emailAnalytics.status} />
+  ),
+}));
 vi.mock("@/services/outreach-analytics", () => ({
   buildOutreachAnalytics: () => ({
     funnel: [],
@@ -57,6 +68,7 @@ vi.mock("@/services/outreach-analytics", () => ({
   outreachMovement: vi.fn(),
   sentTrend: () => [],
 }));
+vi.mock("@/services/email-analytics", () => ({ buildEmailAnalytics: buildEmailAnalyticsMock }));
 
 import type { ArcboundService } from "@/services/types";
 
@@ -92,7 +104,7 @@ const SNAPSHOT_OK = {
   prospects: [{ id: "p1" }],
   truncated: false,
   total: 1,
-  upload: { id: "u1", createdAt: "2026-08-03" },
+  upload: { id: "u1", createdAt: "2026-08-03", hasEmailChannel: true },
 };
 
 beforeEach(() => {
@@ -107,6 +119,8 @@ beforeEach(() => {
   listOutreachUploadsMock.mockReset();
   listOutreachUploadsMock.mockResolvedValue([{ id: "u1", createdAt: "2026-08-03" }]);
   getClientServicesMock.mockReset();
+  buildEmailAnalyticsMock.mockReset();
+  buildEmailAnalyticsMock.mockReturnValue({ status: "not-in-export" });
 });
 
 describe("ClientOutreachPage — gated on outreach_prospects (ADR 0015)", () => {
@@ -159,5 +173,44 @@ describe("ClientOutreachPage — gated on outreach_prospects (ADR 0015)", () => 
     const { container } = render(await ClientOutreachPage(params()));
 
     expect(container.firstChild).not.toBeNull();
+  });
+});
+
+describe("ClientOutreachPage — the Email funnel panel (S3, 2026-08-10)", () => {
+  it("⚠️ calls buildEmailAnalytics with the snapshot's rows AND upload.hasEmailChannel", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+
+    await ClientOutreachPage(params());
+
+    expect(buildEmailAnalyticsMock).toHaveBeenCalledWith(SNAPSHOT_OK.prospects, true);
+  });
+
+  it("passes a `false` hasEmailChannel through untouched — never defaulted to true", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+    latestSnapshotMock.mockResolvedValue({
+      ...SNAPSHOT_OK,
+      upload: { ...SNAPSHOT_OK.upload, hasEmailChannel: false },
+    });
+
+    await ClientOutreachPage(params());
+
+    expect(buildEmailAnalyticsMock).toHaveBeenCalledWith(SNAPSHOT_OK.prospects, false);
+  });
+
+  it("renders the Email panel beside the LinkedIn funnel for an assigned Client", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+
+    render(await ClientOutreachPage(params()));
+
+    expect(screen.getByTestId("email-funnel-panel")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Email panel for an unassigned Client", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [LINKEDIN], held: [LINKEDIN] });
+
+    render(await ClientOutreachPage(params()));
+
+    expect(screen.queryByTestId("email-funnel-panel")).toBeNull();
+    expect(buildEmailAnalyticsMock).not.toHaveBeenCalled();
   });
 });

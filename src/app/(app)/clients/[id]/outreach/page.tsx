@@ -8,6 +8,7 @@ import {
   NotAssignedGate,
   ServicesUnreadableNotice,
 } from "@/components/dashboard/client/service-gate";
+import { EmailFunnelPanel } from "@/components/dashboard/outreach/email-funnel-panel";
 import { OutreachBreakdownChart } from "@/components/dashboard/outreach/outreach-breakdown-chart";
 import { OutreachDisclosure } from "@/components/dashboard/outreach/outreach-disclosure";
 import { OutreachFunnel } from "@/components/dashboard/outreach/outreach-funnel";
@@ -23,9 +24,11 @@ import { ProspectTable } from "@/components/dashboard/outreach/prospect-table";
 import { canSee } from "@/lib/service-access";
 import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
+import { buildEmailAnalytics } from "@/services/email-analytics";
 import { latestSnapshot, listOutreachUploads, snapshotById } from "@/services/outreach";
 import { buildOutreachAnalytics, outreachMovement, sentTrend } from "@/services/outreach-analytics";
 import type {
+  EmailAnalytics,
   LatestSnapshot,
   OutreachAnalytics,
   OutreachMovementState,
@@ -86,6 +89,13 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
   // not show.
   const analytics =
     assigned && snapshot.status === "ok" ? buildOutreachAnalytics(snapshot.prospects) : null;
+  // ⚠️ `hasEmailChannel` DECIDES THIS, NOT THE ROWS (D3). A snapshot uploaded
+  // before the email channel existed renders "not in this export" rather than
+  // a zeroed funnel — see `buildEmailAnalytics`'s own comment.
+  const emailAnalytics: EmailAnalytics | null =
+    assigned && snapshot.status === "ok"
+      ? buildEmailAnalytics(snapshot.prospects, snapshot.upload.hasEmailChannel)
+      : null;
   const movement =
     assigned && snapshot.status === "ok" && analytics
       ? await readMovement(id, snapshot, analytics, uploads)
@@ -139,22 +149,32 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
 
           <OutreachKpis analytics={analytics} />
 
+          {/* ⚠️ TWO FUNNELS, SIDE BY SIDE, NEVER SUMMED (D1). Each panel is
+              labelled with its own channel — LinkedIn here, Email inside
+              `EmailFunnelPanel` — so the pairing can never be misread as one
+              funnel with seven steps. */}
           <div className="grid gap-3.5 xl:grid-cols-2">
-            <OutreachFunnel funnel={analytics.funnel} />
-
-            {/* ⚠️ SITS BESIDE THE FUNNEL AND DISAGREES WITH IT ON PURPOSE. Stage
-                is CURRENT STANDING — the furthest point each prospect reached —
-                so Stage "Replied" counts only those who stopped there, while the
-                funnel's Replied counts everyone who ever answered. The caption
-                says which, because the numbers differ and a reader is owed the
-                reason. */}
-            <OutreachBreakdownChart
-              title="Stage — where each prospect stands now"
-              data={analytics.stage}
-              caption={`${analytics.totalProspects.toLocaleString("en-US")} prospects`}
-              note="Stage is the furthest point a prospect reached, so these are current standings rather than pipeline steps. A prospect who replied and then booked a meeting appears under Meeting Booked only — which is why these counts differ from the pipeline panel, and why neither should be reconciled with the other."
-            />
+            <div>
+              <div className="mb-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
+                LinkedIn
+              </div>
+              <OutreachFunnel funnel={analytics.funnel} />
+            </div>
+            <EmailFunnelPanel emailAnalytics={emailAnalytics!} />
           </div>
+
+          {/* ⚠️ SITS BELOW THE FUNNELS AND DISAGREES WITH THE LINKEDIN ONE ON
+              PURPOSE. Stage is CURRENT STANDING — the furthest point each
+              prospect reached — so Stage "Replied" counts only those who
+              stopped there, while the funnel's Replied counts everyone who
+              ever answered. The caption says which, because the numbers
+              differ and a reader is owed the reason. */}
+          <OutreachBreakdownChart
+            title="Stage — where each prospect stands now"
+            data={analytics.stage}
+            caption={`${analytics.totalProspects.toLocaleString("en-US")} prospects`}
+            note="Stage is the furthest point a prospect reached, so these are current standings rather than pipeline steps. A prospect who replied and then booked a meeting appears under Meeting Booked only — which is why these counts differ from the pipeline panel, and why neither should be reconciled with the other."
+          />
 
           <div className="grid gap-3.5 xl:grid-cols-2">
             <OutreachBreakdownChart
@@ -201,7 +221,11 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
               `null` here means the current snapshot itself never rendered. */}
           {movement ? <OutreachMovementPanel state={movement} /> : null}
 
-          <OutreachDisclosure analytics={analytics} />
+          {/* `emailAnalytics` is computed from the identical condition as
+              `analytics` above (`assigned && snapshot.status === "ok"`), so it
+              is never null on this branch — the assertion below states that,
+              it does not paper over an unreachable case. */}
+          <OutreachDisclosure analytics={analytics} emailAnalytics={emailAnalytics!} />
 
           {/* ⚠️ THE SAME ARRAY THE AGGREGATES WERE BUILT FROM — NO SECOND READ.
               `latestSnapshot` already fetched every row, paged past the 1,000-row
