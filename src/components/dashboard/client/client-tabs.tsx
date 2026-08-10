@@ -1,61 +1,95 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-
-import { cn } from "@/lib/utils";
+import { visibleTabServices } from "@/lib/service-access";
 import { paths } from "@/paths";
+import { getClientServices } from "@/services/arcbound-services";
+import type { ArcboundService, ServiceHandler } from "@/services/types";
+
+import { ClientTabsView, type TabSpec } from "./client-tabs-view";
+
+// Re-exported so every existing consumer of this module keeps one import path.
+export { ClientTabsView };
+export type { TabSpec };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client sub-navigation: Overview + one tab per Service the Client holds,
+// LABELLED FROM THE REGISTRY (D17, ADR 0015). Posts is a sub-nav item inside
+// the LinkedIn section now (`section-tabs.tsx`), not a top-level tab (D18).
+//
+// ⚠️ THE TAB LIST IS A FUNCTION OF WHAT THE CLIENT HOLDS. Before S5 all four
+// tabs rendered unconditionally, so a Client Arcbound never ran Outreach for
+// still got an Outreach tab — which loaded an EMPTY FUNNEL, reading as "we ran
+// this and found nothing" rather than "we do not do this for them". S5 closed
+// that; S6 (this slice) finishes it by naming each tab after the Service that
+// unlocks it, rather than a fixed section label — so the row reads as "the
+// services offered" instead of "the sections that happen to exist".
+//
+// ⚠️ ASYNC SERVER PIECE HERE, "use client" PIECE IN `client-tabs-view.tsx`.
+// `usePathname` needs `"use client"`; this component needs `async` to read
+// `getClientServices`. Next.js does not support async Client Components, and the
+// directive is file-scoped, so the two cannot share a module.
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Client sub-navigation: Overview ⇄ Posts ⇄ LinkedIn Report ⇄ Outreach.
+ * The route each pipeline's tab links to, and every pathname that counts as
+ * "on this tab" (D18). A `Record<ServiceHandler, …>` for the same reason
+ * `FORMS` in `upload-tabs.tsx` is one: exhaustive by construction, so a new
+ * handler with no route here is a TYPE ERROR, not a tab that silently goes
+ * nowhere.
  *
- * Deliberately NOT the shadcn <Tabs> primitive (see settings-tabs.tsx, where it
- * IS correct). Each tab here is a separate SERVER route with its own data fetch
- * and its own search params, so these must be real links — a stateful tab would
- * have to hold both pages' data in one client component and would drop the
- * period from the URL. Styled to match the TabsList/TabsTrigger look.
+ * ⚠️ LINKEDIN'S `activePaths` HOLDS TWO ROUTES. Posts is a sub-nav item inside
+ * the LinkedIn section (D17/D18) — it keeps its own URL (`paths.clients.posts`,
+ * unchanged), but the PARENT tab must stay lit while a visitor is on it, or
+ * Posts would read as a dead end with no way back into the section it is
+ * actually inside.
  */
-export function ClientTabs({ clientId }: { clientId: string }) {
-  const pathname = usePathname();
+type SectionRoute = Omit<TabSpec, "label">;
 
-  // `isActive` below is an EXACT pathname match, so every href here must be a
-  // distinct path — never a prefix of another, or two tabs would light up.
-  const tabs = [
-    { href: paths.clients.details(clientId), label: "Overview" },
-    { href: paths.clients.posts(clientId), label: "Posts" },
-    { href: paths.clients.report(clientId), label: "LinkedIn Report" },
-    // `/clients/<id>/outreach` — a sibling of /posts and /report, so no href is a
-    // prefix of another and the exact match above still lights exactly one tab.
-    { href: paths.clients.outreach(clientId), label: "Outreach" },
-  ];
+function sectionRoutes(clientId: string): Record<ServiceHandler, SectionRoute> {
+  return {
+    linkedin_post_metrics: {
+      href: paths.clients.report(clientId),
+      activePaths: [paths.clients.report(clientId), paths.clients.posts(clientId)],
+    },
+    outreach_prospects: {
+      href: paths.clients.outreach(clientId),
+      activePaths: [paths.clients.outreach(clientId)],
+    },
+  };
+}
 
-  return (
-    // A ruled row with an accent marker on the active tab, not a grey pill.
-    // The pill was stock shadcn and the one element on the page speaking a
-    // different language than every mono-uppercase eyebrow around it.
-    <nav
-      aria-label="Client sections"
-      className="flex max-w-full items-center gap-7 overflow-x-auto border-b"
-    >
-      {tabs.map((tab) => {
-        const isActive = pathname === tab.href;
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "-mb-px border-b-2 pb-2.5 font-mono text-[11px] tracking-[0.12em] whitespace-nowrap uppercase transition-colors",
-              "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-              isActive
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+/**
+ * Overview, plus one tab per Service the Client holds — labelled from the
+ * Service's OWN `name`, in `HANDLER_ORDER` (never `sortOrder`).
+ */
+function tabsFor(clientId: string, held: ArcboundService[] | null): TabSpec[] {
+  const routes = sectionRoutes(clientId);
+
+  const overview: TabSpec = {
+    href: paths.clients.details(clientId),
+    label: "Overview",
+    activePaths: [paths.clients.details(clientId)],
+  };
+
+  const serviceTabs = visibleTabServices(held).map((service) => ({
+    ...routes[service.handler!],
+    label: service.name,
+  }));
+
+  return [overview, ...serviceTabs];
+}
+
+/**
+ * The connected piece: reads this Client's Services (via `getClientServices`,
+ * memoised with React `cache()` — a call here and one on the same Overview page
+ * for `ClientServicesCard` cost one round trip, not two) and computes the tab
+ * list before handing it to the pathname-aware view.
+ */
+export async function ClientTabs({ clientId }: { clientId: string }) {
+  const access = await getClientServices(clientId);
+  // `access` is `null` when the registry could not be read. `tabsFor` passes
+  // that straight to `visibleTabServices`, which returns the code-side
+  // fallback list rather than an empty one (same fail-OPEN policy, D14) — a
+  // database read failure cannot silently strip a working screen.
+  const tabs = tabsFor(clientId, access?.held ?? null);
+
+  return <ClientTabsView tabs={tabs} />;
 }

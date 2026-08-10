@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { AnalyticsUnavailable } from "@/components/dashboard/analytics/analytics-unavailable";
 import { PrintReport } from "@/components/dashboard/report/print/print-report";
 import { ReportCover } from "@/components/dashboard/report/print/report-cover";
+import { canSee } from "@/lib/service-access";
+import { getClientServices } from "@/services/arcbound-services";
 import { getClientReport } from "@/services/client-report";
 import { getClient } from "@/services/clients";
 
@@ -30,16 +32,49 @@ export default async function ClientReportPrintPage({
 
   // Independent reads — see the on-screen report page for the reasoning. The
   // report for a non-existent client is discarded by the notFound() below.
-  const [client, report] = await Promise.all([
+  const [client, report, access] = await Promise.all([
     getClient(id),
     getClientReport({ clientId: id, period }),
+    getClientServices(id),
   ]);
   if (!client) notFound();
+
+  // ⚠️ THE SAME GATE AS THE ON-SCREEN REPORT, BECAUSE THIS IS WHERE A REPORT
+  // LEAVES THE BUILDING. The on-screen page is seen by staff only; this document
+  // is what staff hand or send to a Client. An ungated print export would let a
+  // report be produced — and exported — for an engagement that does not exist,
+  // reachable by a staff member pasting this URL directly regardless of what the
+  // on-screen page shows. `canSee` fails OPEN on a null (unreadable) read, so an
+  // unreadable registry still renders the real report — see the comment below,
+  // where that is the diagnostic that must NOT print.
+  const assigned = canSee(access?.held ?? null, "linkedin_post_metrics");
+
+  // ⚠️ A PRINT-LOCAL REFUSAL, NOT THE SHARED `NotAssignedGate`. That component
+  // carries a `<Link>` to `/clients/<id>` — a staff-only route — and
+  // `(print)/layout.tsx` promises "nothing that would end up on paper or in a
+  // client's hands". The GATE stays: an unassigned Service still produces no
+  // report content here (mutation-proved by the test suite). Only the
+  // navigational chrome is dropped, for this one surface.
+  if (!assigned) {
+    return (
+      <p className="py-20 text-center text-sm text-muted-foreground">
+        {client.name} is not assigned LinkedIn Report.
+      </p>
+    );
+  }
 
   if (report.unavailable) {
     return <AnalyticsUnavailable />;
   }
 
+  // ⚠️ NO `ServicesUnreadableNotice` HERE, UNLIKE THE ON-SCREEN REPORT. That
+  // notice is an internal diagnostic ("...the check itself failed. Try again
+  // shortly") written for STAFF reading the app — printed into a document
+  // handed to a Client, it reads as an error on the CLIENT'S OWN report. The
+  // access decision above is unchanged (still fails OPEN on `access === null`,
+  // D14), so the real report still renders; only the on-page disclosure of the
+  // read failure is gone, because paper has no later chance to retry and no
+  // reader who is staff.
   return (
     <>
       <ReportCover

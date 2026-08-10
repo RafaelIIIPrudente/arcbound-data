@@ -7,10 +7,17 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/clients/abc123" }));
 import { SideNav } from "./side-nav";
 
 describe("SideNav", () => {
-  it("renders exactly the five ArcBase nav items", () => {
+  it("renders exactly the six ArcBase nav items", () => {
     render(<SideNav />);
 
-    const labels = ["Dashboard", "Client List", "Add Data", "Resources", "Data Quality"];
+    const labels = [
+      "Dashboard",
+      "Client List",
+      "Add Data",
+      "Resources",
+      "Data Quality",
+      "Settings",
+    ];
     for (const label of labels) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }

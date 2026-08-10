@@ -36,6 +36,21 @@ function prospect(over: Partial<OutreachProspect> = {}): OutreachProspect {
     owner: "Bryan",
     notes: "dana@northwind.io",
     qualifiedIcp: "Yes",
+    emailBestEmail: null,
+    emailMobile: null,
+    emailSubjectLine: null,
+    emailMessage: null,
+    emailStatus: null,
+    emailDateEmailed: null,
+    emailReplyStatus: null,
+    emailFollowUpCount: null,
+    emailLastFollowUpDate: null,
+    emailNextTouchDate: null,
+    emailWebinarRegistered: null,
+    emailMeetingBookedDate: null,
+    emailStage: null,
+    emailOwner: null,
+    emailNotes: null,
     ...over,
   };
 }
@@ -54,8 +69,8 @@ function cell(id: string, row: OutreachProspect) {
   return render(<>{renderer({ row: { original: row } })}</>);
 }
 
-/** The 24 source columns, in the order the export writes them. */
-const SOURCE_ORDER = [
+/** The original 24 source columns, in the order the export writes them. */
+const LINKEDIN_SOURCE_ORDER = [
   ["fullName", "Full Name", "Full Name"],
   ["title", "Title", "Title"],
   ["company", "Company", "Company"],
@@ -82,13 +97,34 @@ const SOURCE_ORDER = [
   ["qualifiedIcp", "Qualified (ICP)", "Qualified (ICP)"],
 ] as const;
 
-describe("prospectColumns — all 24, in SOURCE ORDER", () => {
-  it("defines exactly the 24 source columns and nothing else", () => {
+/** The 15 `Email — *` columns, appended 2026-08-03, in the export's own order. */
+const EMAIL_SOURCE_ORDER = [
+  ["emailBestEmail", "Email Address", "Email — Best Email"],
+  ["emailMobile", "Email Mobile", "Email — Mobile"],
+  ["emailSubjectLine", "Email Subject", "Email — Subject Line"],
+  ["emailMessage", "Email Message", "Email — Message"],
+  ["emailStatus", "Email Status", "Email — Status"],
+  ["emailDateEmailed", "Email Date Emailed", "Email — Date Emailed"],
+  ["emailReplyStatus", "Email Reply Status", "Email — Reply Status"],
+  ["emailFollowUpCount", "Email Follow-up Count", "Email — Follow-up Count"],
+  ["emailLastFollowUpDate", "Email Last Follow-up", "Email — Last Follow-up Date"],
+  ["emailNextTouchDate", "Email Next Touch", "Email — Next Touch Date"],
+  ["emailWebinarRegistered", "Email Webinar Registered", "Email — Webinar Registered"],
+  ["emailMeetingBookedDate", "Email Meeting Booked", "Email — Meeting Booked (date)"],
+  ["emailStage", "Email Stage", "Email — Stage"],
+  ["emailOwner", "Email Owner", "Email — Owner"],
+  ["emailNotes", "Email Notes", "Email — Notes"],
+] as const;
+
+const SOURCE_ORDER = [...LINKEDIN_SOURCE_ORDER, ...EMAIL_SOURCE_ORDER];
+
+describe("prospectColumns — all 39, in SOURCE ORDER", () => {
+  it("defines exactly the 39 source columns and nothing else", () => {
     // ⚠️ NO id, outreachUploadId, clientId OR rowIndex. Those are ArcBase's own
     // bookkeeping, not the sheet's; showing them would put database identifiers
     // in a table staff read against a spreadsheet.
     expect(prospectColumns.map((c) => c.id)).toEqual(SOURCE_ORDER.map(([id]) => id));
-    expect(prospectColumns).toHaveLength(24);
+    expect(prospectColumns).toHaveLength(39);
   });
 
   it("labels every header with the name staff see in the spreadsheet", () => {
@@ -96,7 +132,7 @@ describe("prospectColumns — all 24, in SOURCE ORDER", () => {
   });
 
   it("carries the EXACT source header for every column, for hover-matching", () => {
-    // ⚠️ THE VISIBLE LABEL DROPS SOME PARENTHETICALS so 24 headers fit; the exact
+    // ⚠️ THE VISIBLE LABEL DROPS SOME PARENTHETICALS so headers fit; the exact
     // spreadsheet spelling is kept in meta and surfaced as a tooltip, so a
     // staffer reconciling against the file can always get the literal name.
     for (const [id, , sourceHeader] of SOURCE_ORDER) {
@@ -109,6 +145,49 @@ describe("prospectColumns — all 24, in SOURCE ORDER", () => {
       expect(column.enableSorting, String(column.id)).not.toBe(false);
     }
   });
+
+  it("⚠️ channels every column LinkedIn or Email, and it matches the field's own prefix", () => {
+    // The single source of truth the LinkedIn / Email / All toggle is built
+    // from (D5) — this pins that it cannot silently drift from the field name.
+    for (const [id] of LINKEDIN_SOURCE_ORDER) {
+      expect(meta(id).channel, id).toBe("linkedin");
+    }
+    for (const [id] of EMAIL_SOURCE_ORDER) {
+      expect(meta(id).channel, id).toBe("email");
+    }
+  });
+});
+
+describe("prospectColumns — the 15 Email columns", () => {
+  it("shows Email Status as PLAIN TEXT, never a pill or a canonicalised value (D2)", () => {
+    // ⚠️ `Email — Status` IS STALE. No classification may be invented for a
+    // column D2 says nothing may ever be derived from — not even a colour.
+    const { container } = cell("emailStatus", prospect({ emailStatus: "Drafted" }));
+
+    expect(screen.getByText("Drafted")).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="outreach-pill"]')).toBeNull();
+  });
+
+  it("renders Email Reply Status as a pill, coloured by the SAME canonical bucket as LinkedIn's", () => {
+    cell("emailReplyStatus", prospect({ emailReplyStatus: "Not Interested" }));
+
+    expect(screen.getByTestId("outreach-pill")).toHaveAttribute("data-tone", "unclassified");
+  });
+
+  it("renders the Email address and mobile as plain values — no masking, this is a staff-only surface", () => {
+    cell("emailBestEmail", prospect({ emailBestEmail: "dana@northwind.io" }));
+
+    expect(screen.getByText("dana@northwind.io")).toBeInTheDocument();
+  });
+
+  it.each(EMAIL_SOURCE_ORDER.map(([id]) => id))(
+    "%s renders nothing when the value is null",
+    (id) => {
+      const { container } = cell(id, prospect({ [id]: null } as Partial<OutreachProspect>));
+
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
 });
 
 describe("prospectColumns — a null cell renders EMPTY", () => {

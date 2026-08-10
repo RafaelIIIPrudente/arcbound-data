@@ -38,6 +38,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+import type { ReportLinkOutreach, ReportLinkSource } from "./report-links";
 import {
   getReportLink,
   issueReportLink,
@@ -48,6 +49,14 @@ import {
 } from "./report-links";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
+
+/** Narrow `src.outreach` to its "ok" arm, or fail loudly saying which status it actually was. */
+function okOutreach(src: ReportLinkSource): Extract<ReportLinkOutreach, { status: "ok" }> {
+  if (src.outreach.status !== "ok") {
+    throw new Error(`expected outreach status "ok", got "${src.outreach.status}"`);
+  }
+  return src.outreach;
+}
 
 beforeEach(() => {
   rpcMock.mockReset();
@@ -244,7 +253,9 @@ describe("readReportLinkSource (token + grant → the report source, fails close
       attributes: bundle.attributes,
       // This bundle predates the S6 SQL, so it carries no `outreach` key at all —
       // which is exactly the state of every database until staff apply the script.
-      outreach: null,
+      // An absent key is a genuine "no snapshot" fact, not a read failure, so it
+      // maps to `empty` — the same state an explicit SQL `null` maps to.
+      outreach: { status: "empty" },
     });
   });
 
@@ -338,19 +349,26 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
     const src = await readReportLinkSource("tok", "grant");
 
     expect(src!.outreach).toEqual({
+      status: "ok",
       snapshotAt: "2026-07-27T09:00:00.000Z",
       totalProspects: 1435,
       sent: 1230,
       connected: 217,
       replied: 39,
       meetingsBooked: 8,
+      // ⚠️ S4: no `has_email_channel` key at all in this bundle — the SQL-first
+      // OR pre-S4-SQL state. Never a crash, never zeros.
+      email: { status: "not-in-export" },
     });
   });
 
-  it("maps an ABSENT outreach key to null — NEVER to zeros", async () => {
+  it("maps an ABSENT outreach key to EMPTY — NEVER to zeros, never to unavailable", async () => {
     // ⚠️ THE STATE OF EVERY DATABASE UNTIL STAFF APPLY THE S6 SCRIPT. The key does
     // not exist at all. A Client with 1,230 requests sent would then read "0
     // requests sent" — a false statement, and worse than rendering nothing.
+    // ⚠️ MIRRORS `LatestSnapshot`. This is a genuine "no snapshot exists" fact,
+    // not a read failure — so it is `empty`, not `unavailable`. Confusing the
+    // two would tell a brand-new Client their read is broken.
     rpcMock.mockResolvedValueOnce({
       data: {
         client_id: CLIENT,
@@ -364,20 +382,25 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
 
     const src = await readReportLinkSource("tok", "grant");
 
-    expect(src!.outreach).toBeNull();
+    expect(src!.outreach).toEqual({ status: "empty" });
     expect(src!.outreach).not.toEqual(
       expect.objectContaining({ sent: 0, connected: 0, replied: 0, meetingsBooked: 0 }),
     );
   });
 
-  it("maps an explicit null outreach (the Client has no snapshot) to null", async () => {
+  it("maps an explicit null outreach (the Client has no snapshot) to EMPTY", async () => {
     // "This Client has no outreach uploaded" — a different sentence from "this
-    // Client's outreach shows zero", and the SQL says which one is true.
+    // Client's outreach shows zero" AND from "we could not read it", and the SQL
+    // says which of the three is true by sending exactly jsonb null for this one.
     rpcMock.mockResolvedValueOnce({ data: withOutreach(null), error: null });
-    expect((await readReportLinkSource("tok", "grant"))!.outreach).toBeNull();
+    expect((await readReportLinkSource("tok", "grant"))!.outreach).toEqual({ status: "empty" });
   });
 
-  it("maps a MALFORMED outreach (a count missing) to null — never a partial of zeros", async () => {
+  it("⚠️ F1 — maps a MALFORMED outreach (a count missing) to UNAVAILABLE — never null/'empty', never a partial of zeros", async () => {
+    // ⚠️ THE CONSEQUENTIAL DEFECT THIS SLICE REPAIRS. Before F1 this collapsed
+    // to the SAME `null` that "no outreach uploaded" produces — telling a Client
+    // nothing was done for them, when the truth is that the read failed. Every
+    // key here is present EXCEPT the two that decide the failure.
     rpcMock.mockResolvedValueOnce({
       data: withOutreach({
         snapshot_at: "2026-07-27T09:00:00.000Z",
@@ -389,10 +412,14 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
       error: null,
     });
 
-    expect((await readReportLinkSource("tok", "grant"))!.outreach).toBeNull();
+    const outreach = (await readReportLinkSource("tok", "grant"))!.outreach;
+
+    expect(outreach).toEqual({ status: "unavailable" });
+    expect(outreach).not.toEqual({ status: "empty" });
+    expect(outreach).not.toBeNull();
   });
 
-  it("maps a non-numeric count to null rather than coercing it", async () => {
+  it("⚠️ a wrong-TYPE count is UNAVAILABLE, never coerced and never dropped to empty", async () => {
     rpcMock.mockResolvedValueOnce({
       data: withOutreach({
         snapshot_at: "2026-07-27T09:00:00.000Z",
@@ -405,10 +432,34 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
       error: null,
     });
 
-    expect((await readReportLinkSource("tok", "grant"))!.outreach).toBeNull();
+    expect((await readReportLinkSource("tok", "grant"))!.outreach).toEqual({
+      status: "unavailable",
+    });
   });
 
-  it("maps a missing snapshot_at to null — an undated figure states nothing", async () => {
+  it("⚠️ a NON-FINITE count (NaN/Infinity) is UNAVAILABLE — `typeof` alone is not enough", async () => {
+    // ⚠️ THE GAP A `typeof === "number"` CHECK ALONE WOULD LEAVE OPEN. `NaN` and
+    // `Infinity` are both `typeof "number"` in JS; only `Number.isFinite` catches
+    // them. Real JSON can never carry either value, but this function must not
+    // rely on that — it is the last line of defence, not a formality.
+    rpcMock.mockResolvedValueOnce({
+      data: withOutreach({
+        snapshot_at: "2026-07-27T09:00:00.000Z",
+        total_prospects: 1435,
+        sent: Number.NaN,
+        connected: 217,
+        replied: 39,
+        meetings_booked: 8,
+      }),
+      error: null,
+    });
+
+    expect((await readReportLinkSource("tok", "grant"))!.outreach).toEqual({
+      status: "unavailable",
+    });
+  });
+
+  it("a missing snapshot_at is UNAVAILABLE — an undated figure states nothing", async () => {
     rpcMock.mockResolvedValueOnce({
       data: withOutreach({
         total_prospects: 1435,
@@ -420,7 +471,9 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
       error: null,
     });
 
-    expect((await readReportLinkSource("tok", "grant"))!.outreach).toBeNull();
+    expect((await readReportLinkSource("tok", "grant"))!.outreach).toEqual({
+      status: "unavailable",
+    });
   });
 
   it("keeps a genuine zero as a zero — zero meetings is a measurement, not an absence", async () => {
@@ -436,7 +489,8 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
       error: null,
     });
 
-    expect((await readReportLinkSource("tok", "grant"))!.outreach!.meetingsBooked).toBe(0);
+    const src = await readReportLinkSource("tok", "grant");
+    expect(okOutreach(src!).meetingsBooked).toBe(0);
   });
 
   it("carries NO prospect string through the seam, whatever the RPC sends", async () => {
@@ -462,13 +516,179 @@ describe("readReportLinkSource — the OUTREACH aggregate (S6, counts only)", ()
     expect(JSON.stringify(src!.outreach)).not.toMatch(
       /Dana Whitfield|linkedin\.com|Meeting Booked/,
     );
-    expect(Object.keys(src!.outreach!).sort()).toEqual([
+    expect(Object.keys(src!.outreach).sort()).toEqual([
       "connected",
+      "email",
       "meetingsBooked",
       "replied",
       "sent",
       "snapshotAt",
+      "status",
       "totalProspects",
     ]);
+  });
+});
+
+describe("readReportLinkSource — the EMAIL block, parsed as OPTIONAL (S4, D9)", () => {
+  function withEmailOutreach(over: Record<string, unknown> = {}) {
+    return {
+      client_id: CLIENT,
+      client_name: "Acme Corp",
+      posts: [],
+      uploads: [],
+      attributes: [],
+      outreach: {
+        snapshot_at: "2026-07-27T09:00:00.000Z",
+        total_prospects: 1435,
+        sent: 1230,
+        connected: 217,
+        replied: 39,
+        meetings_booked: 8,
+        ...over,
+      },
+    };
+  }
+
+  it("⚠️ CODE-FIRST DEPLOY: no has_email_channel key at all → email is not-in-export, and the LinkedIn side is UNAFFECTED", async () => {
+    // ⚠️ THE DEPLOY-ORDER CASE D9 EXISTS FOR. The new TypeScript build reads a
+    // payload from the OLD SQL, which carries none of the five new keys. This
+    // must not crash, must not zero the email figures, and — critically — must
+    // not fail the whole outreach object; the LinkedIn side is still complete
+    // and must still render.
+    rpcMock.mockResolvedValueOnce({ data: withEmailOutreach(), error: null });
+
+    const src = await readReportLinkSource("tok", "grant");
+    const ok = okOutreach(src!);
+
+    expect(ok.email).toEqual({ status: "not-in-export" });
+    expect(ok.totalProspects).toBe(1435);
+    expect(ok.sent).toBe(1230);
+  });
+
+  it("has_email_channel: false → email is not-in-export, identically to the absent-key case", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: false,
+        email_sent: 0,
+        email_replied: 0,
+        email_meetings_booked: 0,
+        combined_meetings: 8,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    // ⚠️ EVEN THOUGH THE SQL SENT NUMBERS. The flag decides, not whether the
+    // numeric keys happen to be present — a pre-S1 snapshot's columns are all
+    // NULL, so the SQL's own counts would already read 0 there, but a snapshot
+    // rebuilt for this test with real-looking zeros must STILL be ignored.
+    expect(okOutreach(src!).email).toEqual({ status: "not-in-export" });
+  });
+
+  it("has_email_channel: true with all four counts present → email is ok, mapped field by field", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 645,
+        email_replied: 39,
+        email_meetings_booked: 13,
+        combined_meetings: 19,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(okOutreach(src!).email).toEqual({
+      status: "ok",
+      sent: 645,
+      replied: 39,
+      meetingsBooked: 13,
+      combinedMeetings: 19,
+    });
+  });
+
+  it("⚠️ F1 — has_email_channel: true but a count is missing → UNAVAILABLE, never not-in-export, WITHOUT failing the LinkedIn side", async () => {
+    // ⚠️ THE SAME DEFECT AS mapOutreach'S, SMALLER BLAST RADIUS. "The export
+    // carried the Email block and we could not read the numbers" is not "the
+    // export did not carry the Email block" — before F1 both collapsed to
+    // `not-in-export`. A malformed email block degrades only the email side;
+    // the LinkedIn figures came from the SAME query and are independently valid.
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 645,
+        email_replied: 39,
+        // email_meetings_booked and combined_meetings absent
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+    const ok = okOutreach(src!);
+
+    expect(ok.email).toEqual({ status: "unavailable" });
+    expect(ok.email).not.toEqual({ status: "not-in-export" });
+    expect(ok.totalProspects).toBe(1435);
+  });
+
+  it("⚠️ has_email_channel: true but a count is non-numeric → UNAVAILABLE, never coerced and never not-in-export", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: "645",
+        email_replied: 39,
+        email_meetings_booked: 13,
+        combined_meetings: 19,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(okOutreach(src!).email).toEqual({ status: "unavailable" });
+  });
+
+  it("keeps a genuine zero in the email block as a zero", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 0,
+        email_replied: 0,
+        email_meetings_booked: 0,
+        combined_meetings: 8,
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(okOutreach(src!).email).toEqual({
+      status: "ok",
+      sent: 0,
+      replied: 0,
+      meetingsBooked: 0,
+      combinedMeetings: 8,
+    });
+  });
+
+  it("carries no prospect string through the email block either, whatever the RPC sends", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: withEmailOutreach({
+        has_email_channel: true,
+        email_sent: 645,
+        email_replied: 39,
+        email_meetings_booked: 13,
+        combined_meetings: 19,
+        email_best_email: "dana@northwind.io",
+        email_notes: "called twice",
+      }),
+      error: null,
+    });
+
+    const src = await readReportLinkSource("tok", "grant");
+
+    expect(JSON.stringify(okOutreach(src!).email)).not.toMatch(/dana@northwind\.io|called twice/);
   });
 });

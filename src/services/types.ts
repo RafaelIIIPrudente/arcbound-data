@@ -60,6 +60,68 @@ export interface Paginated<T> {
   total: number;
 }
 
+// ── Arcbound Services ────────────────────────────────────────────────────────
+// The registry of what Arcbound SELLS, and which Clients receive each offering
+// (ADR 0015).
+//
+// ⚠️ "SERVICE" HERE IS AN ARCBOUND OFFERING, NOT THE SERVICE SEAM. `src/services/`
+// is the UI↔data boundary defined in CONTEXT.md; these types describe a product
+// Arcbound delivers to a Client. The names carry the `Arcbound` prefix precisely
+// so the two senses cannot be confused at a call site.
+
+/**
+ * An ingestion pipeline that EXISTS in code.
+ *
+ * ⚠️ THIS UNION IS ONE HALF OF A PAIR. The other half is the `services_handler_known`
+ * CHECK constraint in `supabase/arcbound-services.sql`. They must agree: this type
+ * is what stops a screen offering a handler nobody implemented, and the constraint
+ * is the half that cannot be bypassed. Adding a pipeline means editing BOTH, plus
+ * writing the pipeline itself.
+ */
+export type ServiceHandler = "linkedin_post_metrics" | "outreach_prospects";
+
+/** An offering Arcbound sells. */
+export interface ArcboundService {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+
+  /**
+   * The ingestion pipeline behind this offering, or `null`.
+   *
+   * ⚠️ `null` IS A REAL, MEANINGFUL STATE — NOT AN ERROR AND NOT AN ABSENCE OF
+   * DATA. It means "a listed offering with no ingestion pipeline": the Service is
+   * genuinely sold, appears on the Client, and is countable and reportable, but it
+   * has no upload path and no data tab. Consumers must render that plainly rather
+   * than treating it as missing, exactly as this codebase refuses to collapse
+   * "absent" into "zero" anywhere else.
+   *
+   * ⚠️ IMMUTABLE AFTER CREATION. `update_service` takes no handler parameter —
+   * repointing a live Service would silently reinterpret every engagement already
+   * attached to it. To change it, archive the Service and create a new one.
+   */
+  handler: ServiceHandler | null;
+
+  /** `archived` retires an offering without touching existing engagements. */
+  status: "active" | "archived";
+  sortOrder: number;
+}
+
+/**
+ * One Client receiving one Service — an **Engagement**.
+ *
+ * `createdBy` is the admin who made the assignment, or `null` for rows written by
+ * the migration's backfill, which derived them from upload history rather than
+ * from any person's decision.
+ */
+export interface ClientServiceAssignment {
+  clientId: string;
+  serviceId: string;
+  createdAt: string;
+  createdBy: string | null;
+}
+
 // ── Dashboard analytics ──────────────────────────────────────────────────────
 // Read-model for the analytics dashboard (route `/`). Mock-derived today.
 
@@ -1061,6 +1123,14 @@ export interface ClientPosts {
  * and `linkedin_url` are guaranteed present; `next_touch_date` is filled on 2
  * rows of 1,435 and `meeting_booked_date` on 8, so absence is the norm here, not
  * an anomaly to be tidied into a zero.
+ *
+ * ⚠️ THE 15 `email_*` FIELDS ARE A SECOND CHANNEL, NOT LINKEDIN DATA REDUNDANTLY
+ * NAMED. Appended 2026-08-03 when the source export grew from 24 to 39 columns
+ * (docs/decisions/2026-08-03-outreach-email-channel.md). They follow the exact
+ * same raw-text, blank-is-null rule as the original 24 — `email_status` is a
+ * KNOWN-STALE field (626 of 650 filled rows read "Drafted" regardless of whether
+ * the email actually sent) and no figure may ever be derived from it; that
+ * caveat belongs to the read layer, not this boundary, which only stores it.
  */
 export interface OutreachRow {
   full_name: string;
@@ -1087,6 +1157,21 @@ export interface OutreachRow {
   owner: string | null;
   notes: string | null;
   qualified_icp: string | null;
+  email_best_email: string | null;
+  email_mobile: string | null;
+  email_subject_line: string | null;
+  email_message: string | null;
+  email_status: string | null;
+  email_date_emailed: string | null;
+  email_reply_status: string | null;
+  email_follow_up_count: string | null;
+  email_last_follow_up_date: string | null;
+  email_next_touch_date: string | null;
+  email_webinar_registered: string | null;
+  email_meeting_booked_date: string | null;
+  email_stage: string | null;
+  email_owner: string | null;
+  email_notes: string | null;
 }
 
 /** The header of one Outreach Snapshot — immutable, one per upload. */
@@ -1102,9 +1187,23 @@ export interface OutreachUpload {
    */
   rowCount: number;
   createdAt: string;
+  /**
+   * Did THIS upload's file carry the 15 `Email — *` columns? (D3, 2026-08-03.)
+   *
+   * ⚠️ THIS IS WHAT LETS A PRE-CHANGE SNAPSHOT RENDER "NOT IN THIS EXPORT"
+   * RATHER THAN A FALSE ZERO. Every snapshot stored before the email channel
+   * existed has NULL email columns on every prospect row; without this flag
+   * that reads as "0 sent / 0 replied / 0 meetings" under a real upload date —
+   * absence rendered as a measurement. `false` is the true historical value for
+   * every such row (the export genuinely was 24 columns wide), never a guess.
+   */
+  hasEmailChannel: boolean;
 }
 
-/** One prospect as stored in a snapshot — the camelCase mirror of the 24 columns. */
+/**
+ * One prospect as stored in a snapshot — the camelCase mirror of the 39 columns
+ * (the original 24 plus the 15 `email*` fields appended 2026-08-03).
+ */
 export interface OutreachProspect {
   id: string;
   outreachUploadId: string;
@@ -1135,6 +1234,21 @@ export interface OutreachProspect {
   owner: string | null;
   notes: string | null;
   qualifiedIcp: string | null;
+  emailBestEmail: string | null;
+  emailMobile: string | null;
+  emailSubjectLine: string | null;
+  emailMessage: string | null;
+  emailStatus: string | null;
+  emailDateEmailed: string | null;
+  emailReplyStatus: string | null;
+  emailFollowUpCount: string | null;
+  emailLastFollowUpDate: string | null;
+  emailNextTouchDate: string | null;
+  emailWebinarRegistered: string | null;
+  emailMeetingBookedDate: string | null;
+  emailStage: string | null;
+  emailOwner: string | null;
+  emailNotes: string | null;
 }
 
 /**
@@ -1257,6 +1371,22 @@ export interface OutreachAnalytics {
   /** The same, for Stage. */
   unrecognisedStageValues: string[];
   /**
+   * Trailing qualifiers stripped from `Reply Status` while bucketing it (D6,
+   * via {@link replyQualifier}), VERBATIM and de-duplicated — e.g. `"via
+   * email; meeting canceled"` out of `Replied - Positive (via email; meeting
+   * canceled)`.
+   *
+   * ⚠️ ADDED 2026-08-10 TO REPAIR A3 — A REGRESSION S2 INTRODUCED. S2 taught
+   * `canonicalReply` to strip a trailing parenthetical on BOTH channels, but
+   * wired the disclosure into `buildEmailAnalytics` only, so two LinkedIn
+   * values that used to reach `unrecognisedReplyValues` verbatim (because
+   * `canonicalReply` could not read them) now bucket silently and their
+   * qualifier — including one that arguably reverses the outcome — vanishes.
+   * This field is what makes stripping the qualifier safe on the LinkedIn
+   * side too, exactly as `EmailAnalytics.strippedQualifiers` does for email.
+   */
+  strippedReplyQualifiers: string[];
+  /**
    * Requests sent per calendar month, ascending, keyed `YYYY-MM`.
    *
    * ⚠️ NOTHING IS FILTERED OUT OF THIS SERIES, INCLUDING THE 2020 OUTLIER. See
@@ -1283,6 +1413,73 @@ export interface OutreachAnalytics {
    */
   sentDateRange: { earliest: string; latest: string } | null;
 }
+
+/**
+ * Everything the Email channel funnel renders, computed from ONE snapshot
+ * (S2, 2026-08-03 — see docs/decisions/2026-08-03-outreach-email-channel.md).
+ *
+ * ⚠️ A DISCRIMINATED UNION, NOT A NULLABLE OBJECT — AND THAT IS THE WHOLE
+ * POINT (D3). A nullable result would fuse "this export had no email block"
+ * with "the email block was empty", and those license different sentences on
+ * screen: the first is `not-in-export` (em dash, disclosed), the second is a
+ * real `ok` funnel that happens to be zero everywhere. Modelled after
+ * {@link LatestSnapshot}'s three-state precedent.
+ *
+ * ⚠️ A SEPARATE TYPE FROM `OutreachAnalytics`, DELIBERATELY (D1). The LinkedIn
+ * funnel and the Email funnel are two funnels, side by side, NEVER summed —
+ * this type existing on its own, rather than as fields bolted onto
+ * `OutreachAnalytics`, is that decision expressed in the shape of the code:
+ * there is no object in which the two could be added by accident.
+ *
+ * ⚠️ COUNTS ONLY — NO RATES, PERCENTAGES, SCORES, RANKINGS OR BENCHMARKS, for
+ * the same reason `OutreachAnalytics` carries none: a sample this size cannot
+ * support a verdict on a Client's performance.
+ */
+export type EmailAnalytics =
+  | { status: "not-in-export" }
+  | {
+      status: "ok";
+      /** THREE steps — there is no acceptance gate over email, unlike LinkedIn's four. */
+      funnel: OutreachFunnelStep[];
+      /**
+       * Prospects with a value in EITHER meeting column — a UNION, computed as
+       * ONE figure (D1).
+       *
+       * ⚠️ NEVER THE SUM OF THE TWO FUNNELS' BOTTOM STEPS. 8 prospects have a
+       * booked meeting recorded in BOTH the LinkedIn and Email columns in the
+       * observed export, so `linkedinMeetings + emailMeetings` overstates the
+       * true union by exactly those 8 (27 where the truth is 19).
+       */
+      combinedMeetings: number;
+      /**
+       * Rows with a value in `Email — Date Emailed` but none in
+       * `Email — Best Email` (21 in the observed export, 3 of which say
+       * outright that no recipient was found).
+       *
+       * ⚠️ A DISCLOSURE, NEVER A FILTER (D2). These rows still count in the
+       * `Emails sent` funnel step above — `Email — Date Emailed` is the one
+       * column that defines "sent" — this figure only surfaces the discrepancy
+       * for a human to see.
+       */
+      sentWithoutAddress: number;
+      /**
+       * `Email — Reply Status` values ArcBase has not been taught to read,
+       * VERBATIM and de-duplicated — the Email-channel twin of
+       * `OutreachAnalytics.unrecognisedReplyValues`.
+       */
+      unrecognisedReplyValues: string[];
+      /**
+       * Trailing qualifiers stripped from `Email — Reply Status` while
+       * bucketing it (D6), VERBATIM and de-duplicated — e.g. `"booked
+       * 2026-07-27"` out of `Replied - Positive (booked 2026-07-27)`.
+       *
+       * ⚠️ WHAT MAKES THE STRIP SAFE AT ALL. One observed value is `Replied -
+       * Positive (via email; meeting canceled)`, where the qualifier arguably
+       * reverses the outcome; it charts as Positive WITH the cancellation
+       * listed here, rather than the cancellation silently vanishing.
+       */
+      strippedQualifiers: string[];
+    };
 
 /**
  * One position on the requests-sent timeline.

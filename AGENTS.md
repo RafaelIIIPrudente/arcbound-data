@@ -18,9 +18,18 @@ shadcn/ui · Supabase auth · Vitest + Playwright · pnpm.
   seam. Mutations live in `'use server'` actions and validate input with `zod`
   before calling the seam. See `src/app/(app)/customers/` as the reference.
 - **Auth is Supabase-only.** Use the clients in `src/lib/supabase/*` and
-  `getSession()` from `src/lib/auth/session.ts`. ArcBase is single-tenant:
-  authorization is authenticated-vs-not, gated by `src/middleware.ts` via the
-  pure policy in `src/lib/route-access.ts` (ADR 0007). Never trust client metadata.
+  `getSession()` from `src/lib/auth/session.ts`. ArcBase is single-tenant — all
+  staff share one dataset — and authorization is **two-tier**: a session gates
+  every route (`src/middleware.ts` via the pure policy in
+  `src/lib/route-access.ts`, ADR 0007), and the **Admin** Staff Role gates the
+  governance surface — registering a Client, Report Link issue/rotate/revoke,
+  assigning roles (ADR 0013). Read the tier with `getRole()` / `requireAdmin()`
+  from `src/lib/auth/roles.ts`; it fails closed to `analyst` on any error.
+  Enforcement is being wired in slice by slice, so check the call site rather than
+  assuming a given action is already guarded. Never trust client metadata — the
+  role deliberately does not live in `user_metadata`, which its own subject can
+  write. Hiding a control is an affordance, not a boundary: refuse in the Server
+  Action and in RLS too.
 - **UI is shadcn/ui + Tailwind.** Add primitives with
   `pnpm dlx shadcn@latest add <name>`. Compose with `cn()`. No other UI kit.
 - **Keep it typed and green.** Every change must pass `pnpm type:check`,

@@ -4,17 +4,8 @@ import * as React from "react";
 
 import { ingestOutreachAction } from "@/app/(app)/upload/outreach-actions";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { OUTREACH_HEADERS } from "@/lib/parse-outreach";
-
-type ClientOption = { id: string; name: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The Outreach snapshot upload — the second tab of Add Data.
@@ -44,15 +35,16 @@ const EXPECTED_COLUMNS = OUTREACH_HEADERS.join(", ");
  * Outer wrapper: bumps a key so "Upload another" remounts the flow with a clean
  * `useActionState` and empty fields. Same pattern as the LinkedIn form.
  */
-export function OutreachUploadForm({ clients }: { clients: ClientOption[] }) {
+export function OutreachUploadForm({ clientId }: { clientId: string }) {
   const [attempt, setAttempt] = React.useState(0);
-  return <OutreachFlow key={attempt} clients={clients} onReset={() => setAttempt((a) => a + 1)} />;
+  return (
+    <OutreachFlow key={attempt} clientId={clientId} onReset={() => setAttempt((a) => a + 1)} />
+  );
 }
 
-function OutreachFlow({ clients, onReset }: { clients: ClientOption[]; onReset: () => void }) {
+function OutreachFlow({ clientId, onReset }: { clientId: string; onReset: () => void }) {
   const [state, formAction, pending] = React.useActionState(ingestOutreachAction, null);
 
-  const [clientId, setClientId] = React.useState("");
   const [csvText, setCsvText] = React.useState("");
   const [csvFileName, setCsvFileName] = React.useState("");
 
@@ -78,27 +70,13 @@ function OutreachFlow({ clients, onReset }: { clients: ClientOption[]; onReset: 
 
   return (
     <div className="max-w-3xl space-y-5">
-      <Step
-        n="01"
-        title="Select client"
-        description="A snapshot attaches to one client — chosen here, never read from the file."
-      >
-        <Select value={clientId} onValueChange={setClientId}>
-          <SelectTrigger className="max-w-sm" aria-label="Select client">
-            <SelectValue placeholder="Choose a client…" />
-          </SelectTrigger>
-          <SelectContent>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <FieldError message={errors?.clientId?.[0]} />
-      </Step>
-
-      <Separator />
+      {/* ⚠️ STEP 01 IS THE CLIENT, AND IT LIVES IN `IngestPanel` NOW — which is why
+          the numbering below still starts at 02 and the staff-facing sequence is
+          unchanged. A snapshot still attaches to one client chosen in the UI and
+          never read from the file; the choice simply happens one level up, so it
+          survives a tab switch and a reset. The error is kept rather than dropped
+          with the control: the action still validates `clientId`. */}
+      <FieldError message={errors?.clientId?.[0]} />
 
       <Step n="02" title="Drop the Master Database CSV" description="The whole export, every row.">
         <label

@@ -5,13 +5,6 @@ import * as React from "react";
 import { ingestMetricsAction } from "@/app/(app)/upload/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -19,8 +12,6 @@ import type { SourceType } from "@/services/types";
 
 import { FormatReview } from "./format-review";
 import { ResultSummary } from "./result-summary";
-
-type ClientOption = { id: string; name: string };
 
 const EXPECTED_COLUMNS =
   "linkedin_post_id, urn, post_url, analytics_url, post_name, post_content, post_date, impressions, likes, comments, reposts, engagement_rate, saves, post_format_type, scraped_at";
@@ -31,16 +22,22 @@ const JSON_PLACEHOLDER =
 /**
  * Outer wrapper: bumps a key so "Upload another" remounts the flow with a clean
  * `useActionState` and empty fields.
+ *
+ * ⚠️ THE CLIENT IS A PROP NOW, AND THAT IS WHAT MAKES A RESET KEEP IT (D12).
+ * `key={attempt}` deliberately throws away every piece of state INSIDE the flow;
+ * when the Client lived in here it was thrown away too, so uploading twice for the
+ * same person meant re-picking them each time. Owned above (by `IngestPanel`) it
+ * survives the remount — and the common case, two services for one person
+ * back-to-back, stops costing a re-selection.
  */
-export function UploadForm({ clients }: { clients: ClientOption[] }) {
+export function UploadForm({ clientId }: { clientId: string }) {
   const [attempt, setAttempt] = React.useState(0);
-  return <IngestFlow key={attempt} clients={clients} onReset={() => setAttempt((a) => a + 1)} />;
+  return <IngestFlow key={attempt} clientId={clientId} onReset={() => setAttempt((a) => a + 1)} />;
 }
 
-function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: () => void }) {
+function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => void }) {
   const [state, formAction, pending] = React.useActionState(ingestMetricsAction, null);
 
-  const [clientId, setClientId] = React.useState("");
   const [sourceType, setSourceType] = React.useState<SourceType>("csv");
   const [csvText, setCsvText] = React.useState("");
   const [csvFileName, setCsvFileName] = React.useState("");
@@ -91,23 +88,12 @@ function IngestFlow({ clients, onReset }: { clients: ClientOption[]; onReset: ()
 
   return (
     <div className="max-w-3xl space-y-5">
-      <Step n="01" title="Select client" description="Metrics attach to one client per scrape.">
-        <Select value={clientId} onValueChange={setClientId}>
-          <SelectTrigger className="max-w-sm" aria-label="Select client">
-            <SelectValue placeholder="Choose a client…" />
-          </SelectTrigger>
-          <SelectContent>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <FieldError message={errors?.clientId?.[0]} />
-      </Step>
-
-      <Separator />
+      {/* ⚠️ STEP 01 IS THE CLIENT, AND IT LIVES IN `IngestPanel` NOW — which is why
+          the numbering below still starts at 02 and the staff-facing sequence is
+          unchanged. This error is kept rather than dropped with the control: the
+          action still validates `clientId`, and a validation result with nowhere
+          to render is a failure nobody can see. */}
+      <FieldError message={errors?.clientId?.[0]} />
 
       <Step n="02" title="Choose input">
         <div className="mb-4 inline-flex overflow-hidden rounded-md border">

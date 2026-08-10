@@ -6,8 +6,9 @@ import { OUTREACH_HEADERS, parseOutreachCsv } from "./parse-outreach";
 // The parser is PURE — no I/O, no clock, no database. Every test here builds a
 // CSV string and asserts on the returned rows.
 //
-// The fixtures use the EXACT 24 headers of the "Arcbound LinkedIn Master
-// Database" export, in source order. `header()` is built from the module's own
+// The fixtures use the EXACT 39 headers of the "Arcbound LinkedIn Master
+// Database" export, in source order — the original 24, plus the 15 `Email — *`
+// columns appended 2026-08-03. `header()` is built from the module's own
 // constant so a header the schema expects can never drift from the header the
 // fixtures send — a mismatch there would make every test below pass against a
 // parser that reads columns nobody exports.
@@ -15,7 +16,7 @@ import { OUTREACH_HEADERS, parseOutreachCsv } from "./parse-outreach";
 
 const header = () => OUTREACH_HEADERS.join(",");
 
-/** A full 24-cell row, overridable by header name. */
+/** A full 39-cell row, overridable by header name. */
 function row(over: Partial<Record<string, string>> = {}): string {
   const values: Record<string, string> = {
     "Full Name": "Dana Reyes",
@@ -42,6 +43,21 @@ function row(over: Partial<Record<string, string>> = {}): string {
     Owner: "Bryan",
     Notes: "",
     "Qualified (ICP)": "Yes",
+    "Email — Best Email": "dana@northwind.io",
+    "Email — Mobile": "555-0100",
+    "Email — Subject Line": "Quick question about hiring",
+    "Email — Message": "Hi Dana - reaching out by email",
+    "Email — Status": "Drafted",
+    "Email — Date Emailed": "2026-07-21",
+    "Email — Reply Status": "No reply",
+    "Email — Follow-up Count": "0",
+    "Email — Last Follow-up Date": "",
+    "Email — Next Touch Date": "",
+    "Email — Webinar Registered": "No",
+    "Email — Meeting Booked (date)": "",
+    "Email — Stage": "Drafted",
+    "Email — Owner": "Bryan",
+    "Email — Notes": "",
     ...over,
   };
   // Quote every cell so commas and newlines inside values survive.
@@ -62,12 +78,16 @@ function errorOf(result: ReturnType<typeof parseOutreachCsv>) {
 }
 
 describe("OUTREACH_HEADERS", () => {
-  it("is the 24 source headers, in export order, spelled exactly", () => {
+  it("is the 39 source headers, in export order, spelled exactly", () => {
     // ⚠️ THIS LIST IS A CONTRACT WITH A FILE NOBODY IN THIS REPO CONTROLS. The
     // spellings carry spaces, parentheses, a slash and a hyphen; one character
     // wrong and that column reads as blank for every row of every upload, with
     // no error anywhere — the same silent-gap failure an omitted SELECT column
     // causes. Diff this against a real export before trusting an import.
+    //
+    // ⚠️ THE 15 `Email — *` HEADERS USE AN EM DASH (U+2014), NOT A HYPHEN. Copied
+    // verbatim from the source export — one wrong character here and that whole
+    // column is missing from every row of every upload (2026-08-03).
     expect(OUTREACH_HEADERS).toEqual([
       "Full Name",
       "Title",
@@ -93,8 +113,23 @@ describe("OUTREACH_HEADERS", () => {
       "Owner",
       "Notes",
       "Qualified (ICP)",
+      "Email — Best Email",
+      "Email — Mobile",
+      "Email — Subject Line",
+      "Email — Message",
+      "Email — Status",
+      "Email — Date Emailed",
+      "Email — Reply Status",
+      "Email — Follow-up Count",
+      "Email — Last Follow-up Date",
+      "Email — Next Touch Date",
+      "Email — Webinar Registered",
+      "Email — Meeting Booked (date)",
+      "Email — Stage",
+      "Email — Owner",
+      "Email — Notes",
     ]);
-    expect(OUTREACH_HEADERS).toHaveLength(24);
+    expect(OUTREACH_HEADERS).toHaveLength(39);
   });
 });
 
@@ -108,10 +143,10 @@ describe("parseOutreachCsv — a valid file", () => {
     expect(rows[0]!.linkedin_url).toBe("https://www.linkedin.com/in/dana-reyes");
   });
 
-  it("maps every one of the 24 headers to its column key — no key is dropped", () => {
+  it("maps every one of the 39 headers to its column key — no key is dropped", () => {
     // ⚠️ A WHITELIST, NOT A SPOT-CHECK. Asserting the exact key set is what
     // catches a column silently lost in the header→key map: a spot-check on
-    // three fields would pass while `notes` or `qualified_icp` never reached the
+    // three fields would pass while `notes` or `email_notes` never reached the
     // database.
     const rows = rowsOf(parseOutreachCsv(csv(row())));
 
@@ -141,6 +176,21 @@ describe("parseOutreachCsv — a valid file", () => {
         "what_arcbound_offers",
         "what_they_lack",
         "why_they_fit",
+        "email_best_email",
+        "email_mobile",
+        "email_subject_line",
+        "email_message",
+        "email_status",
+        "email_date_emailed",
+        "email_reply_status",
+        "email_follow_up_count",
+        "email_last_follow_up_date",
+        "email_next_touch_date",
+        "email_webinar_registered",
+        "email_meeting_booked_date",
+        "email_stage",
+        "email_owner",
+        "email_notes",
       ].sort(),
     );
   });
@@ -379,7 +429,7 @@ describe("parseOutreachCsv — an UNKNOWN 25th column is reported, not silently 
     ]);
   });
 
-  it("reports NO unknown columns for a clean 24-column file — no false alarm", () => {
+  it("reports NO unknown columns for a clean 39-column file — no false alarm", () => {
     // ⚠️ A WARNING THAT FIRES ON EVERY GOOD FILE IS A WARNING NOBODY READS. The
     // ordinary export must come back with an empty list, which is what lets the
     // action show the notice only when there is genuinely something to say.
@@ -404,7 +454,7 @@ describe("parseOutreachCsv — an UNKNOWN 25th column is reported, not silently 
     // silently ignore it — putting us back where we started.
     const rows = rowsOf(parseOutreachCsv(withExtra("Lead Score")));
 
-    expect(Object.keys(rows[0]!)).toHaveLength(24);
+    expect(Object.keys(rows[0]!)).toHaveLength(39);
     expect(rows[0]!).not.toHaveProperty("Lead Score");
   });
 
@@ -452,5 +502,104 @@ describe("parseOutreachCsv — raw storage (ADR 0009)", () => {
     const rows = rowsOf(parseOutreachCsv(csv(row({ "Date Sent": "2020-12-04" }))));
 
     expect(rows[0]!.date_sent).toBe("2020-12-04");
+  });
+});
+
+describe("parseOutreachCsv — the Email channel (15 new columns, 2026-08-03)", () => {
+  // The export grew from 24 to 39 columns: 15 `Email — *` fields tracking a
+  // second outreach channel alongside LinkedIn. Same rules as the original 24 —
+  // required as HEADERS, optional as VALUES, blank ⇒ null, never trimmed or
+  // coerced (ADR 0009) — proven here rather than assumed from the generic tests
+  // above.
+
+  it("parses a 39-column file with every new field populated on the row", () => {
+    const rows = rowsOf(parseOutreachCsv(csv(row())));
+
+    expect(rows[0]).toMatchObject({
+      email_best_email: "dana@northwind.io",
+      email_mobile: "555-0100",
+      email_subject_line: "Quick question about hiring",
+      email_message: "Hi Dana - reaching out by email",
+      email_status: "Drafted",
+      email_date_emailed: "2026-07-21",
+      email_reply_status: "No reply",
+      email_follow_up_count: "0",
+      email_webinar_registered: "No",
+      email_stage: "Drafted",
+      email_owner: "Bryan",
+    });
+  });
+
+  it("errors when a REQUIRED Email HEADER is missing — a whole column would read as blank", () => {
+    // ⚠️ ALL 39 ARE REQUIRED AS HEADERS, per D3: a file missing `Email — Notes` is
+    // not a file with 1,614 blank email notes, it is a different export, and going
+    // forward that includes every one of the 15 new columns too.
+    const withoutEmailStatus = OUTREACH_HEADERS.filter((h) => h !== "Email — Status");
+    const text = [withoutEmailStatus.join(","), withoutEmailStatus.map(() => '""').join(",")].join(
+      "\n",
+    );
+
+    expect(errorOf(parseOutreachCsv(text))).toMatch(/email — status/i);
+  });
+
+  it("errors naming the missing column for EACH of the 15 new headers, not just one", () => {
+    for (const missing of [
+      "Email — Best Email",
+      "Email — Mobile",
+      "Email — Subject Line",
+      "Email — Message",
+      "Email — Date Emailed",
+      "Email — Reply Status",
+      "Email — Follow-up Count",
+      "Email — Last Follow-up Date",
+      "Email — Next Touch Date",
+      "Email — Webinar Registered",
+      "Email — Meeting Booked (date)",
+      "Email — Stage",
+      "Email — Owner",
+      "Email — Notes",
+    ]) {
+      const withoutIt = OUTREACH_HEADERS.filter((h) => h !== missing);
+      const text = [withoutIt.join(","), withoutIt.map(() => '""').join(",")].join("\n");
+
+      expect(errorOf(parseOutreachCsv(text)), `missing header: ${missing}`).toContain(missing);
+    }
+  });
+
+  it("maps a blank new (Email) cell to null — never '' and never 0", () => {
+    const rows = rowsOf(parseOutreachCsv(csv(row({ "Email — Best Email": "" }))));
+
+    expect(rows[0]!.email_best_email).toBeNull();
+    expect(rows[0]!.email_best_email).not.toBe("");
+    expect(rows[0]!.email_best_email).not.toBe(0);
+  });
+
+  it("keeps a literal '0' in Email — Follow-up Count as the string '0' — a value, not a gap", () => {
+    const rows = rowsOf(parseOutreachCsv(csv(row({ "Email — Follow-up Count": "0" }))));
+
+    expect(rows[0]!.email_follow_up_count).toBe("0");
+    expect(typeof rows[0]!.email_follow_up_count).toBe("string");
+  });
+
+  it("⚠️ unknownHeaders is EMPTY for a valid 39-column file — the behaviour this slice exists to fix", () => {
+    // Before this slice, every one of these 15 columns landed in unknownHeaders
+    // and was silently dropped. A clean 39-column export must no longer warn.
+    const result = parseOutreachCsv(csv(row()));
+
+    if ("error" in result) throw new Error(`expected rows, got error: ${result.error}`);
+    expect(result.unknownHeaders).toEqual([]);
+  });
+
+  it("still reports a 40th unexpected column in unknownHeaders, non-blockingly", () => {
+    const withExtra = [
+      [...OUTREACH_HEADERS, "Lead Score"].join(","),
+      [...OUTREACH_HEADERS, "Lead Score"].map(() => '"x"').join(","),
+    ].join("\n");
+
+    const result = parseOutreachCsv(withExtra);
+
+    if ("error" in result) throw new Error(`expected rows, got error: ${result.error}`);
+    expect(result.unknownHeaders).toEqual(["Lead Score"]);
+    expect(result.rows).toHaveLength(1);
   });
 });

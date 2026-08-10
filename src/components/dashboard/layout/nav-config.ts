@@ -1,13 +1,24 @@
 import { paths } from "@/paths";
 
-// The ArcBase sidebar navigation. Single-tenant, so no per-role visibility — the
-// five items are the whole product surface. Design: Geist-Mono labels with a
-// left accent bar for the active item (docs/arcbase-dashboard-design-brief).
+// The ArcBase sidebar navigation: SIX items — the five product surfaces, plus
+// Settings, which is a utility surface (the account, not the work) and therefore
+// sorts last. Design: Geist-Mono labels with a left accent bar for the active item
+// (docs/arcbase-dashboard-design-brief).
 //
-// ⚠️ SRS §5 STILL DESCRIBES FOUR. Data Quality was added after it was written and
-// the SRS has not caught up — the delta is deliberate and flagged, not an
-// oversight. Reconcile the SRS separately; do not quietly drop the item to make
-// this comment true again.
+// ⚠️ NO PER-ROLE VISIBILITY, AND THAT IS NOW A CHOICE RATHER THAN A CONSEQUENCE.
+// This used to read "single-tenant, so no per-role visibility". ArcBase HAS role
+// tiers since ADR 0013 (admin / analyst), so single-tenancy no longer explains
+// anything here — every signed-in staff member still sees all six items because
+// none of these screens is admin-only. `/settings` in particular hosts profile and
+// password management that everyone needs; only the Staff Roles LINK INSIDE it is
+// admin-gated. Making this item role-aware would lock analysts out of their own
+// account in order to hide one panel from them.
+//
+// ⚠️ SRS §5 STILL DESCRIBES FOUR, AND THE DRIFT IS NOW TWO ITEMS, NOT ONE. Data
+// Quality was added after the SRS was written, and Settings joined the nav with
+// ADR 0013's roles screen — the SRS has caught up with neither. The delta is
+// deliberate and flagged, not an oversight. Reconcile the SRS separately; do not
+// quietly drop either item to make this comment true again.
 
 export interface NavItem {
   title: string;
@@ -24,6 +35,13 @@ export const navItems: NavItem[] = [
   { title: "Add Data", href: paths.upload },
   { title: "Resources", href: paths.resources },
   { title: "Data Quality", href: paths.dataQuality },
+  // LAST, and not alphabetically: the five above are the work, this is the
+  // account. TWO admin-only screens now live inside this one — Staff Roles
+  // (ADR 0013) and the Arcbound Services registry (ADR 0015) — and neither gets
+  // its own nav item. The nav is NOT role-aware, so an item for an admin-only
+  // screen would either advertise it to analysts or make this list conditional;
+  // linking from inside `/settings` keeps the sidebar the same for everyone.
+  { title: "Settings", href: paths.settings.profile },
 ];
 
 /**
@@ -68,6 +86,16 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname === paths.resources) return { lead: "", accent: "Resources" };
   if (pathname === paths.dataQuality) return { lead: "Data", accent: "quality" };
   if (pathname.startsWith(paths.customers.list)) return { lead: "", accent: "Customers" };
+  // ⚠️ BEFORE THE GENERIC SETTINGS RULE, FOR THE FOURTH TIME IN THIS FILE.
+  // `paths.settings.roles` ("/settings/roles") and `paths.settings.services`
+  // ("/settings/services") both start with `paths.settings.profile` ("/settings"),
+  // so the rule below matches them too and returns "Settings". A branch placed
+  // after it never runs — dead code that looks alive. EVERY nested settings route
+  // added from here on must go above that line, not below it.
+  if (pathname.startsWith(paths.settings.roles)) return { lead: "Staff", accent: "roles" };
+  if (pathname.startsWith(paths.settings.services)) {
+    return { lead: "Arcbound", accent: "services" };
+  }
   if (pathname.startsWith(paths.settings.profile)) return { lead: "", accent: "Settings" };
   return { lead: "", accent: "ArcBase" };
 }

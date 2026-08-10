@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 
-import type { OutreachAnalytics } from "@/services/types";
+import type { EmailAnalytics, OutreachAnalytics } from "@/services/types";
 
 /**
  * Everything this page could not interpret, or counted and then excluded.
@@ -15,24 +15,47 @@ import type { OutreachAnalytics } from "@/services/types";
  * ⚠️ IT RENDERS NOTHING WHEN THERE IS NOTHING TO SAY. A caveat panel that
  * appears on every snapshot is a panel the reader learns to skip, and it would
  * be invisible on the day it finally matters.
+ *
+ * ⚠️ TWO SEPARATE DISCLOSURE LISTS PER CONCERN, ONE PER CHANNEL, NEVER MERGED
+ * (2026-08-10, S3). LinkedIn's `unrecognisedReplyValues` and Email's are kept
+ * apart, exactly as the two funnels are (D1) — a value unfamiliar on both
+ * channels is printed twice, once per channel, so a reader always knows which
+ * sheet column to go fix.
  */
-export function OutreachDisclosure({ analytics }: { analytics: OutreachAnalytics }) {
+export function OutreachDisclosure({
+  analytics,
+  emailAnalytics,
+}: {
+  analytics: OutreachAnalytics;
+  emailAnalytics: EmailAnalytics;
+}) {
   const {
     unrecognisedReplyValues,
     unrecognisedStageValues,
+    strippedReplyQualifiers,
     undatedSent,
     unreadableSentValues,
     unreadableFollowUpCounts,
     sentDateRange,
   } = analytics;
 
+  // ⚠️ `not-in-export` CONTRIBUTES NOTHING HERE. A snapshot with no email block
+  // has nothing email-specific to disclose — that fact is stated once, by
+  // `EmailFunnelPanel`, and is not repeated as a caveat on this panel too.
+  const emailOk = emailAnalytics.status === "ok" ? emailAnalytics : null;
+
   const hasAnything =
     unrecognisedReplyValues.length > 0 ||
     unrecognisedStageValues.length > 0 ||
+    strippedReplyQualifiers.length > 0 ||
     undatedSent > 0 ||
     unreadableSentValues.length > 0 ||
     unreadableFollowUpCounts > 0 ||
-    sentDateRange !== null;
+    sentDateRange !== null ||
+    (emailOk !== null &&
+      (emailOk.unrecognisedReplyValues.length > 0 ||
+        emailOk.strippedQualifiers.length > 0 ||
+        emailOk.sentWithoutAddress > 0));
 
   if (!hasAnything) return null;
 
@@ -63,6 +86,54 @@ export function OutreachDisclosure({ analytics }: { analytics: OutreachAnalytics
             {unrecognisedStageValues.length === 1 ? "" : "s"} outside the ten this sheet is known to
             use. Each is charted under its own name, not merged:{" "}
             <VerbatimList values={unrecognisedStageValues} />
+          </p>
+        ) : null}
+
+        {strippedReplyQualifiers.length > 0 ? (
+          <p>
+            {/* ⚠️ A3 — REPAIRS A DISCLOSURE THAT WENT SILENT (2026-08-10). A
+                trailing note like "(via email; meeting canceled)" is removed
+                from a LinkedIn reply while grouping its sentiment; it is kept
+                here rather than dropped, because one observed value's note
+                arguably reverses the reply it is attached to. */}
+            <span className="text-foreground">Reply status, note removed</span> —{" "}
+            {strippedReplyQualifiers.length} trailing note
+            {strippedReplyQualifiers.length === 1 ? "" : "s"} taken off a LinkedIn reply while
+            grouping its sentiment, kept here rather than dropped:{" "}
+            <VerbatimList values={strippedReplyQualifiers} />
+          </p>
+        ) : null}
+
+        {emailOk && emailOk.unrecognisedReplyValues.length > 0 ? (
+          <p>
+            <span className="text-foreground">Email reply status</span> —{" "}
+            {emailOk.unrecognisedReplyValues.length} value
+            {emailOk.unrecognisedReplyValues.length === 1 ? "" : "s"} ArcBase has not been taught to
+            read. Prospects carrying them still count as having replied on the Email funnel, but
+            their sentiment is not grouped with any other:{" "}
+            <VerbatimList values={emailOk.unrecognisedReplyValues} />
+          </p>
+        ) : null}
+
+        {emailOk && emailOk.strippedQualifiers.length > 0 ? (
+          <p>
+            <span className="text-foreground">Email reply status, note removed</span> —{" "}
+            {emailOk.strippedQualifiers.length} trailing note
+            {emailOk.strippedQualifiers.length === 1 ? "" : "s"} taken off an email reply while
+            grouping its sentiment, kept here rather than dropped:{" "}
+            <VerbatimList values={emailOk.strippedQualifiers} />
+          </p>
+        ) : null}
+
+        {emailOk && emailOk.sentWithoutAddress > 0 ? (
+          <p>
+            {/* ⚠️ A DISCLOSURE, NEVER A FILTER (D2). These rows still count as
+                sent on the Email funnel above — Email — Date Emailed alone
+                decides that step — this only notes the gap. */}
+            <span className="text-foreground">Email sent without an address</span> —{" "}
+            {n(emailOk.sentWithoutAddress)} prospect
+            {emailOk.sentWithoutAddress === 1 ? " has" : "s have"} a send date recorded in Email —
+            Date Emailed but no Email — Best Email on file. They still count as sent.
           </p>
         ) : null}
 

@@ -29,6 +29,36 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    name: "outreach-email-report-link",
+    script: "outreach-email-report-link.sql",
+    migration: "migrations/20260810120000_outreach_email_report_link.sql",
+  },
+  {
+    name: "outreach-email-channel",
+    script: "outreach-email-channel.sql",
+    migration: "migrations/20260803120000_outreach_email_channel.sql",
+  },
+  {
+    name: "arcbound-services",
+    script: "arcbound-services.sql",
+    migration: "migrations/20260802150000_arcbound_services.sql",
+  },
+  {
+    name: "staff-roles-admin",
+    script: "staff-roles-admin.sql",
+    migration: "migrations/20260802140000_staff_roles_admin.sql",
+  },
+  {
+    name: "staff-roles-enforce",
+    script: "staff-roles-enforce.sql",
+    migration: "migrations/20260802130000_staff_roles_enforce.sql",
+  },
+  {
+    name: "staff-roles",
+    script: "staff-roles.sql",
+    migration: "migrations/20260802120000_staff_roles.sql",
+  },
+  {
     name: "outreach-report-link",
     script: "outreach-report-link.sql",
     migration: "migrations/20260727140000_outreach_report_link.sql",

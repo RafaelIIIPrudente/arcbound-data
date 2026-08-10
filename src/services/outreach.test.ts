@@ -79,7 +79,15 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
-import { ingestOutreach, latestSnapshot, listOutreachUploads, snapshotById } from "./outreach";
+import type { ProspectRow, UploadRow } from "./outreach";
+import {
+  ingestOutreach,
+  latestSnapshot,
+  listOutreachUploads,
+  PROSPECT_COLUMNS,
+  snapshotById,
+  UPLOAD_COLUMNS,
+} from "./outreach";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
 
@@ -109,6 +117,21 @@ function parsedRow(over: Partial<OutreachRow> = {}): OutreachRow {
     owner: "Bryan",
     notes: null,
     qualified_icp: "Yes",
+    email_best_email: "dana@northwind.io",
+    email_mobile: "555-0100",
+    email_subject_line: "Quick question about hiring",
+    email_message: "Hi Dana - reaching out by email",
+    email_status: "Drafted",
+    email_date_emailed: "2026-07-21",
+    email_reply_status: "No reply",
+    email_follow_up_count: "0",
+    email_last_follow_up_date: null,
+    email_next_touch_date: null,
+    email_webinar_registered: "No",
+    email_meeting_booked_date: null,
+    email_stage: "Drafted",
+    email_owner: "Bryan",
+    email_notes: null,
     ...over,
   };
 }
@@ -118,6 +141,7 @@ const uploadRow = (id: string, createdAt: string, over: Record<string, unknown> 
   client_id: CLIENT,
   row_count: 1435,
   created_at: createdAt,
+  has_email_channel: false,
   ...over,
 });
 
@@ -150,6 +174,21 @@ const prospectRow = (id: string, uploadId: string, over: Record<string, unknown>
   owner: "Bryan",
   notes: null,
   qualified_icp: "Yes",
+  email_best_email: "dana@northwind.io",
+  email_mobile: "555-0100",
+  email_subject_line: "Quick question about hiring",
+  email_message: "Hi Dana - reaching out by email",
+  email_status: "Drafted",
+  email_date_emailed: "2026-07-21",
+  email_reply_status: "No reply",
+  email_follow_up_count: "0",
+  email_last_follow_up_date: null,
+  email_next_touch_date: null,
+  email_webinar_registered: "No",
+  email_meeting_booked_date: null,
+  email_stage: "Drafted",
+  email_owner: "Bryan",
+  email_notes: null,
   ...over,
 });
 
@@ -242,6 +281,21 @@ describe("ingestOutreach (seam → RPC)", () => {
     );
   });
 
+  it("⚠️ ALWAYS PASSES p_has_email_channel: true (2026-08-03)", async () => {
+    // `parseOutreachCsv` requires all 39 headers now (D3): a file missing even
+    // one of the 15 `Email — *` columns is a hard parse error that never reaches
+    // this function. So every row set that gets here already came from a file
+    // that carried the block — there is no live decision to make, only a fact to
+    // record for `outreach_uploads.has_email_channel`. A pre-migration snapshot
+    // keeps its database-level `default false` untouched; this function never
+    // writes `false` for anything it ingests.
+    rpcMock.mockResolvedValue({ data: { upload_id: "up1", row_count: 1 }, error: null });
+
+    await ingestOutreach(CLIENT, [parsedRow()]);
+
+    expect(rpcMock.mock.calls[0]![1].p_has_email_channel).toBe(true);
+  });
+
   it("VALIDATES THE RPC ENVELOPE at the boundary rather than trusting it", async () => {
     // A response missing row_count would otherwise surface as `undefined` on a
     // result summary — a screen reporting "undefined rows ingested" instead of
@@ -265,9 +319,35 @@ describe("listOutreachUploads", () => {
     expect(state.fromCalls).toContain("outreach_uploads");
     expect(state.eqCalls).toContainEqual(["client_id", CLIENT]);
     expect(uploads).toEqual([
-      { id: "up2", clientId: CLIENT, rowCount: 1435, createdAt: "2026-07-27T09:00:00.000Z" },
-      { id: "up1", clientId: CLIENT, rowCount: 1400, createdAt: "2026-07-20T09:00:00.000Z" },
+      {
+        id: "up2",
+        clientId: CLIENT,
+        rowCount: 1435,
+        createdAt: "2026-07-27T09:00:00.000Z",
+        hasEmailChannel: false,
+      },
+      {
+        id: "up1",
+        clientId: CLIENT,
+        rowCount: 1400,
+        createdAt: "2026-07-20T09:00:00.000Z",
+        hasEmailChannel: false,
+      },
     ]);
+  });
+
+  it("maps has_email_channel through, snake→camel (S2, 2026-08-03)", async () => {
+    // ⚠️ THIS IS WHAT LETS A PRE-CHANGE SNAPSHOT RENDER "NOT IN THIS EXPORT"
+    // RATHER THAN A FALSE ZERO (D3) — the flag has to survive the read intact.
+    state.tables.outreach_uploads = [
+      uploadRow("up1", "2026-07-27T09:00:00.000Z", { has_email_channel: true }),
+      uploadRow("up2", "2026-07-20T09:00:00.000Z", { has_email_channel: false }),
+    ];
+
+    const uploads = await listOutreachUploads(CLIENT);
+
+    expect(uploads!.find((u) => u.id === "up1")!.hasEmailChannel).toBe(true);
+    expect(uploads!.find((u) => u.id === "up2")!.hasEmailChannel).toBe(false);
   });
 
   it("orders by a UNIQUE key so concurrent pages cannot overlap or skip", async () => {
@@ -507,9 +587,139 @@ describe("latestSnapshot — the three states stay apart", () => {
       "owner",
       "notes",
       "qualified_icp",
+      "email_best_email",
+      "email_mobile",
+      "email_subject_line",
+      "email_message",
+      "email_status",
+      "email_date_emailed",
+      "email_reply_status",
+      "email_follow_up_count",
+      "email_last_follow_up_date",
+      "email_next_touch_date",
+      "email_webinar_registered",
+      "email_meeting_booked_date",
+      "email_stage",
+      "email_owner",
+      "email_notes",
     ]) {
       expect(selected, `${column} must be selected`).toContain(column);
     }
+  });
+
+  it("maps every one of the 15 new email_* columns snake→camel", async () => {
+    state.tables.outreach_uploads = [uploadRow("up1", "2026-07-27T09:00:00.000Z")];
+    state.tables.outreach_prospects = [prospectRow("1", "up1")];
+
+    const snapshot = await latestSnapshot(CLIENT);
+
+    if (snapshot.status !== "ok") throw new Error("expected ok");
+    const p = snapshot.prospects[0]!;
+    expect(p.emailBestEmail).toBe("dana@northwind.io");
+    expect(p.emailMobile).toBe("555-0100");
+    expect(p.emailSubjectLine).toBe("Quick question about hiring");
+    expect(p.emailMessage).toBe("Hi Dana - reaching out by email");
+    expect(p.emailStatus).toBe("Drafted");
+    expect(p.emailDateEmailed).toBe("2026-07-21");
+    expect(p.emailReplyStatus).toBe("No reply");
+    expect(p.emailFollowUpCount).toBe("0");
+    expect(p.emailLastFollowUpDate).toBeNull();
+    expect(p.emailNextTouchDate).toBeNull();
+    expect(p.emailWebinarRegistered).toBe("No");
+    expect(p.emailMeetingBookedDate).toBeNull();
+    expect(p.emailStage).toBe("Drafted");
+    expect(p.emailOwner).toBe("Bryan");
+    expect(p.emailNotes).toBeNull();
+  });
+});
+
+describe("PROSPECT_COLUMNS — the SELECT list and ProspectRow must never drift (S1)", () => {
+  it("⚠️ requests every column ProspectRow expects — the structural guard `asPage` cannot provide", () => {
+    // `asPage` ASSERTS the row type rather than checking it, so editing
+    // `ProspectRow` without also editing `PROSPECT_COLUMNS` compiles cleanly and
+    // returns `undefined` for a whole column on every row, with no error
+    // anywhere — the exact failure this file's own comment warns about.
+    //
+    // This fixture is annotated `: ProspectRow`, so `pnpm type:check` fails on
+    // the object literal below the moment a key is added to the interface and
+    // NOT added here. Given that, this assertion is what closes the loop: if a
+    // key is added to `ProspectRow` (and, forced by the above, to this fixture)
+    // but forgotten in `PROSPECT_COLUMNS`, the sorted key sets stop matching and
+    // this test goes red — a structural check, not fifteen hand-written
+    // per-column assertions that a sixteenth column would slip past.
+    const fixture: ProspectRow = {
+      id: "1",
+      outreach_upload_id: "up1",
+      client_id: CLIENT,
+      row_index: 0,
+      full_name: null,
+      title: null,
+      company: null,
+      icp_seg: null,
+      why_they_fit: null,
+      what_they_lack: null,
+      what_arcbound_offers: null,
+      matching_client_archetype: null,
+      linkedin_url: null,
+      location: null,
+      source_citation: null,
+      rationale: null,
+      linkedin_message: null,
+      connection_status: null,
+      date_sent: null,
+      reply_status: null,
+      follow_up_count: null,
+      last_follow_up_date: null,
+      next_touch_date: null,
+      meeting_booked_date: null,
+      stage: null,
+      owner: null,
+      notes: null,
+      qualified_icp: null,
+      email_best_email: null,
+      email_mobile: null,
+      email_subject_line: null,
+      email_message: null,
+      email_status: null,
+      email_date_emailed: null,
+      email_reply_status: null,
+      email_follow_up_count: null,
+      email_last_follow_up_date: null,
+      email_next_touch_date: null,
+      email_webinar_registered: null,
+      email_meeting_booked_date: null,
+      email_stage: null,
+      email_owner: null,
+      email_notes: null,
+    };
+
+    expect(PROSPECT_COLUMNS.split(", ").sort()).toEqual(Object.keys(fixture).sort());
+  });
+});
+
+describe("UPLOAD_COLUMNS — the SELECT list and UploadRow must never drift (S2)", () => {
+  it("⚠️ requests every column UploadRow expects — the structural guard `asPage` cannot provide", () => {
+    // Same failure `PROSPECT_COLUMNS` guards against: `asPage` ASSERTS the row
+    // type rather than checking it, so editing `UploadRow` without also
+    // editing `UPLOAD_COLUMNS` compiles cleanly and returns `undefined` for a
+    // whole column on every row.
+    //
+    // This fixture is annotated `: UploadRow`, so `pnpm type:check` fails on
+    // the object literal below the moment a key is added to the interface and
+    // NOT added here — and this assertion is what closes the loop for
+    // `PROSPECT_COLUMNS`'s reason: if a key is added to `UploadRow` (and,
+    // forced by the above, to this fixture) but forgotten in
+    // `UPLOAD_COLUMNS`, the sorted key sets stop matching and this test goes
+    // red.
+    const fixture: UploadRow = {
+      id: "up1",
+      client_id: CLIENT,
+      row_count: 0,
+      created_at: "2026-01-01T00:00:00.000Z",
+      has_email_channel: false,
+    };
+
+    expect(UPLOAD_COLUMNS.split(", ").sort()).toEqual(Object.keys(fixture).sort());
   });
 });
 

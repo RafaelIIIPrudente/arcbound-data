@@ -135,16 +135,17 @@ export function PublicReportView({
   report,
   clientName,
   freshness,
-  outreach = null,
+  outreach = { status: "empty" },
 }: {
   report: ClientReport;
   clientName: string | null;
   freshness: ReportFreshness;
   /**
-   * This Client's outreach as aggregate counts, or null. Defaults to null — which
-   * is also what "no snapshot" means — so the block simply does not appear.
+   * This Client's outreach — see `ReportLinkOutreach`'s own comment for its
+   * three states. Defaults to `empty`, which is also what "no snapshot" means
+   * — so the block simply does not appear.
    */
-  outreach?: ReportLinkOutreach | null;
+  outreach?: ReportLinkOutreach;
 }) {
   const scope = scopeCaption(report.period);
 

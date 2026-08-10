@@ -1,11 +1,12 @@
-import type { ReportLinkOutreach } from "@/services/report-links";
+import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/report-links";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Outreach summary — the Client's own outreach, on the Client's own report.
 //
 // ⚠️ COUNTS AND A DATE. NOTHING ELSE EXISTS TO SHOW. The aggregation happens
-// inside the SECURITY DEFINER read (supabase/outreach-report-link.sql), so no
-// prospect name, company, LinkedIn URL, message, note or stage ever reaches this
+// inside the SECURITY DEFINER read (supabase/outreach-report-link.sql, extended
+// by supabase/outreach-email-report-link.sql), so no prospect name, company,
+// LinkedIn URL, message, note, stage or email address ever reaches this
 // component (ADR 0012). This is not a filter applied here — it is a boundary
 // enforced in the database, and this block is downstream of it.
 //
@@ -19,6 +20,20 @@ import type { ReportLinkOutreach } from "@/services/report-links";
 // the row when it is zero would make the report flatter BY SELECTION: a reader
 // could not tell "no meetings" from "we do not report meetings", and every Client
 // who did have one would be silently marked out.
+//
+// ⚠️ THE EMAIL BLOCK IS ITS OWN THREE-STATE READ, S4/D9. `email.status ===
+// "not-in-export"` means this snapshot's export predates the Email columns —
+// rendered as one sentence, never a zeroed row of figures, exactly like the
+// staff tab's `EmailFunnelPanel`. It degrades independently of the five
+// LinkedIn figures above, which keep rendering regardless.
+//
+// ⚠️ F1 (2026-08-10) — THE WHOLE READ IS THREE STATES, NOT TWO, MIRRORING
+// `ReportLinkOutreach` (which mirrors `LatestSnapshot`, staff side): `ok` /
+// `empty` / `unavailable`. Before F1 a malformed aggregate arrived here as
+// `null` — identical to "this Client has never had an outreach snapshot" —
+// so a Client whose read had genuinely broken was told nothing had been done
+// for them. `unavailable` renders a sentence saying the figures could not be
+// read: never a zero, never an empty block, and never the `empty` wording.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SHORT_MONTHS = [
@@ -57,10 +72,27 @@ function Figure({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function OutreachSummary({ outreach }: { outreach: ReportLinkOutreach | null }) {
+export function OutreachSummary({ outreach }: { outreach: ReportLinkOutreach }) {
   // No snapshot for this Client → nothing to say, so nothing is said. Not a
   // heading over an empty card, and certainly not a card of zeros.
-  if (!outreach) return null;
+  if (outreach.status === "empty") return null;
+
+  // ⚠️ F1 — THE READ FAILED, AND THAT IS ITS OWN SENTENCE. Never the silence
+  // above (that means "genuinely no snapshot") and never the figures below
+  // (that means "we read real numbers").
+  if (outreach.status === "unavailable") {
+    return (
+      <section className="print-block space-y-2 rounded-lg border border-dashed bg-muted/20 p-5">
+        <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
+          <span className="text-primary">—</span>
+          Outreach
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Outreach figures could not be read right now.
+        </p>
+      </section>
+    );
+  }
 
   const asAt = formatIsoDate(outreach.snapshotAt);
 
@@ -84,6 +116,70 @@ export function OutreachSummary({ outreach }: { outreach: ReportLinkOutreach | n
         {/* Stated at zero. See the header note. */}
         <Figure label="Meetings booked" value={outreach.meetingsBooked} />
       </div>
+
+      <EmailBlock email={outreach.email} />
     </section>
+  );
+}
+
+function EmailBlock({ email }: { email: ReportLinkEmailOutreach }) {
+  const heading = (
+    <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+      Email
+    </div>
+  );
+
+  if (email.status === "not-in-export") {
+    return (
+      <div className="space-y-2 border-t pt-4">
+        {heading}
+        {/* ⚠️ NOT "0 sent / 0 replied / 0 meetings". This snapshot's export
+            predates the Email columns, so there are no Email figures to fund a
+            row with — a different fact from a row that measured zero activity. */}
+        <p className="text-sm text-muted-foreground">
+          This snapshot&rsquo;s export did not carry the Email columns, so there are no Email
+          figures to show for it.
+        </p>
+      </div>
+    );
+  }
+
+  if (email.status === "unavailable") {
+    // ⚠️ F1 — NOT THE SAME SENTENCE AS not-in-export. "The export carried the
+    // Email block and we could not read the numbers" is a different fact from
+    // "the export did not carry the Email block" — and a different fact again
+    // from a zeroed row.
+    return (
+      <div className="space-y-2 border-t pt-4">
+        {heading}
+        <p className="text-sm text-muted-foreground">Email figures could not be read right now.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 border-t pt-4">
+      {heading}
+      <div className="grid gap-5 sm:grid-cols-3">
+        <Figure label="Emails sent" value={email.sent} />
+        <Figure label="Email replies" value={email.replied} />
+        <Figure label="Email meetings booked" value={email.meetingsBooked} />
+      </div>
+      <div className="space-y-1" data-testid="outreach-combined-meetings">
+        <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+          Combined meetings
+        </div>
+        <div className="text-2xl leading-none font-semibold text-foreground tabular-nums">
+          {email.combinedMeetings.toLocaleString()}
+        </div>
+        {/* ⚠️ A COUNT OF PEOPLE, NEVER A TOTAL OR A SUM (D1, D8). Someone booked
+            through both channels counts once here — stating it as a sum of the
+            two figures above would overstate by exactly that overlap. */}
+        <p className="text-xs text-muted-foreground">
+          {email.combinedMeetings.toLocaleString()} people booked a meeting on LinkedIn, Email, or
+          both — not a sum of the two figures above.
+        </p>
+      </div>
+    </div>
   );
 }

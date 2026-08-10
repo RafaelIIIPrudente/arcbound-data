@@ -9,24 +9,50 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    // ⚠️ RAISED FOR ONE SPECIFIC COST, NOT BECAUSE TESTS ARE SLOW.
+    // ⚠️ THE OLD COMMENT HERE ("~6s Vite transform") WAS WRONG — CORRECTED
+    // 2026-08-11 (F2, second attempt). Measured `transform` for the ENTIRE
+    // 127-file suite is ~5s; for a two-file run, ~150ms. The cost was never a
+    // shared transform — it is per-file MODULE RESOLUTION AND INSTANTIATION.
     //
     // `date-range-picker.tsx` loads the calendar through a dynamic `import()`,
     // so that react-day-picker is code-split out of `/r/[token]` — the report a
     // CLIENT holds, which renders the picker with `allowCustom={false}` and can
-    // never open a calendar. The cost must follow the capability.
+    // never open a calendar. THIS MUST STAY DYNAMIC.
     //
-    // Under a STATIC import, Vite transforms react-day-picker while collecting
-    // the module graph, where no per-test budget applies. A DYNAMIC one defers
-    // that same ~6s transform into whichever test first mounts the picker, and
-    // it lands against the 5s default — three suites failed deterministically
-    // on it. The work is identical either way; only which clock it is billed to
-    // changes. It is paid once per test FILE, not per test.
+    // Vitest gives each test FILE its own fresh module registry, so resolving
+    // and instantiating the react-day-picker/date-fns graph is real work paid
+    // AGAIN by every file that imports it — it is NOT a cache hit shared across
+    // files. The first attempt at this fix assumed otherwise (warming the
+    // module in `vitest.setup.ts`, which runs per file): every one of the 127
+    // files paid the cost instead of just the 3 that need it, and the suite
+    // went 30s → 114s. Measured, reverted — see the F2 handoff.
     //
-    // So this is headroom for a one-off module transform, and NOT licence for
-    // slow tests. If a test needs seconds of its own, that is a design problem
-    // in the test.
-    testTimeout: 15_000,
+    // The actual fix: `date-range-picker.test.tsx`, `report-period-picker.test.tsx`
+    // and `dashboard-filters.test.tsx` — the only three files that mount the
+    // calendar — each warm it in their OWN file-local `beforeAll`, which runs
+    // under `hookTimeout` below, not this budget. Measured cost of that hook,
+    // isolated: ~2.0s. Before this fix, that same ~2s landed inside whichever
+    // test in the file happened to mount the picker first — a silent surprise
+    // against THIS budget, and the reason two prior briefs saw 2–3 timeouts
+    // under load despite the code being correct.
+    //
+    // With the cost relocated, nothing in the suite needs anywhere near the old
+    // 15s: the calendar-mounting tests are now all under ~150ms, and the
+    // slowest test anywhere in the 127-file suite — unrelated to the calendar —
+    // is `prospect-table.test.tsx`'s 150-row sort/search rendering, measured at
+    // ~2.2s unloaded. This value gives that test roughly 4.5× headroom under
+    // load without inventing a number from taste. If a test needs seconds of
+    // its own beyond that, that is a design problem in the test, not licence to
+    // raise this again.
+    testTimeout: 10_000,
+    // ⚠️ SEPARATE FROM `testTimeout` ON PURPOSE — this is where the calendar
+    // warm-up hooks now bill their cost (see the three `beforeAll`s named
+    // above), so it needs its own, more generous budget: a real per-file
+    // module-instantiation cost, paid once, not a symptom of a slow test.
+    // Measured isolated cost: ~2.0s. This value gives it the same ~7.4×
+    // headroom the old 15s/2028ms ceiling implicitly gave this exact cost —
+    // just billed to the right budget now instead of stolen from every test.
+    hookTimeout: 15_000,
     // `supabase/` is included so the script ⇄ migration sync guard can live next
     // to the SQL files it protects (coverage still only measures `src/`).
     include: ["src/**/*.{test,spec}.{ts,tsx}", "supabase/**/*.{test,spec}.ts"],

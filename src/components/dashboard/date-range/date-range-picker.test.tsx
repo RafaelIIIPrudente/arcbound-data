@@ -18,6 +18,17 @@ beforeAll(() => {
   };
 });
 
+// ⚠️ WARMS THE CALENDAR MODULE HERE, IN A FILE-LOCAL HOOK — see vitest.config.ts
+// for why. `date-range-picker.tsx` code-splits react-day-picker behind a
+// dynamic `import()` on purpose (kept dynamic; not this file's concern to
+// change), so resolving and instantiating that module graph costs real time
+// exactly once per file. Paying it here, under `hookTimeout`, means no
+// individual test absorbs it — see the file's own measured before/after in
+// the F2 handoff.
+beforeAll(async () => {
+  await import("@/components/ui/calendar");
+});
+
 // ⚠️ THE ROUTER MUST NEVER BE REACHED. Both callers build their URLs
 // differently — `hrefFor` on the dashboard, `reportPeriodHref` on the report,
 // and the second carries the never-strip-the-param rule. A router in here would

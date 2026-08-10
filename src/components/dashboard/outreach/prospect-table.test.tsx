@@ -53,6 +53,21 @@ function prospect(over: Partial<OutreachProspect> = {}): OutreachProspect {
     owner: "Bryan",
     notes: null,
     qualifiedIcp: "Yes",
+    emailBestEmail: null,
+    emailMobile: null,
+    emailSubjectLine: null,
+    emailMessage: null,
+    emailStatus: null,
+    emailDateEmailed: null,
+    emailReplyStatus: null,
+    emailFollowUpCount: null,
+    emailLastFollowUpDate: null,
+    emailNextTouchDate: null,
+    emailWebinarRegistered: null,
+    emailMeetingBookedDate: null,
+    emailStage: null,
+    emailOwner: null,
+    emailNotes: null,
     ...over,
   };
 }
@@ -103,6 +118,43 @@ describe("ProspectTable — the 24 columns", () => {
     expect(headers).toHaveLength(24);
     expect(headers[0]).toMatch(/Full Name/);
     expect(headers.at(-1)).toMatch(/Qualified \(ICP\)/);
+  });
+
+  it("⚠️ PINS THE EXACT DEFAULT VISIBLE SET, so it cannot drift silently later (D5)", () => {
+    // ⚠️ NOT JUST A COUNT. A privacy boundary that happened to keep the length
+    // at 24 while swapping one Email column in for a LinkedIn one would pass a
+    // length-only check and leak a contact-detail column on first load.
+    render(<ProspectTable prospects={ROWS} />);
+
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toEqual([
+      "Full Name",
+      "Title",
+      "Company",
+      "ICP Seg",
+      "Why They Fit",
+      "What They Lack",
+      "What Arcbound Offers",
+      "Matching Client Archetype",
+      "LinkedIn URL",
+      "Location",
+      "Source / Citation",
+      "Rationale",
+      "LinkedIn Message",
+      "Connection Status",
+      "Date Sent",
+      "Reply Status",
+      "Follow-up Count",
+      "Last Follow-up Date",
+      "Next Touch Date",
+      "Meeting Booked",
+      "Stage",
+      "Owner",
+      "Notes",
+      "Qualified (ICP)",
+    ]);
+    expect(headers).not.toContain("Email Address");
+    expect(headers).not.toContain("Email Mobile");
   });
 
   it("renders one row per prospect", () => {
@@ -414,6 +466,56 @@ describe("THE AGGREGATES ABOVE DO NOT RESCOPE TO THE TABLE'S FILTERS", () => {
     // would be lost, so the surface is pinned: the component takes data in and
     // gives nothing back.
     expect(ProspectTable.length).toBe(1);
+  });
+});
+
+describe("ProspectTable — the LinkedIn / Email / All column toggle (D5, 2026-08-03)", () => {
+  it("⚠️ switching to Email hides the LinkedIn-only columns and reveals the 15 Email ones", async () => {
+    render(<ProspectTable prospects={ROWS} />);
+
+    await pickFrom("Choose which columns to show", "Email");
+
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toContain("Email Address");
+    expect(headers).toContain("Email Mobile");
+    // The identity column survives every view — an Email table with no name
+    // column would show contact details with no way to say whose they are.
+    expect(headers).toContain("Full Name");
+    expect(headers).not.toContain("Connection Status");
+    expect(headers).not.toContain("Stage");
+  });
+
+  it("switching to All shows every one of the 39 columns", async () => {
+    render(<ProspectTable prospects={ROWS} />);
+
+    await pickFrom("Choose which columns to show", "All");
+
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toHaveLength(39);
+    expect(headers).toContain("Email Address");
+    expect(headers).toContain("Stage");
+  });
+
+  it("switching back to LinkedIn restores exactly the default 24", async () => {
+    render(<ProspectTable prospects={ROWS} />);
+
+    await pickFrom("Choose which columns to show", "All");
+    await pickFrom("Choose which columns to show", "LinkedIn");
+
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toHaveLength(24);
+    expect(headers).not.toContain("Email Address");
+  });
+
+  it("switching columns does not touch the row set or the filters", async () => {
+    render(<ProspectTable prospects={ROWS} />);
+
+    await pickFrom("Filter by connection status", "Connected");
+    expect(names()).toHaveLength(2);
+
+    await pickFrom("Choose which columns to show", "Email");
+
+    expect(names()).toHaveLength(2);
   });
 });
 

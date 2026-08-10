@@ -18,6 +18,17 @@
 --     token AND a short-lived READ GRANT that resolve_report_link mints ONLY on a
 --     successful Access Code check. A URL/token holder without a grant reads nothing.
 --   • one active link per Client (partial unique index).
+--
+-- ⚠️ THE THREE STAFF FUNCTIONS ARE ADMIN-ONLY (ADR 0013), AND THAT GUARD IS EDITED
+-- INTO THIS FILE IN PLACE RATHER THAN SHIPPED AS A LATER `create or replace`.
+--
+-- `create or replace function` replaces a function WHOLE. A separate follow-up
+-- script carrying the guarded definitions would leave THIS file holding a stale,
+-- UNGUARDED definition of the same three functions — and on a fresh project applied
+-- in the wrong order, the stale file wins and SILENTLY REMOVES THE GUARD. No test
+-- would catch it, because both files are individually valid SQL. Editing in place
+-- keeps exactly one definition per function, always current, and makes apply order
+-- irrelevant. Do not "fix" this by extracting the guards into their own migration.
 
 create extension if not exists pgcrypto;
 
@@ -77,6 +88,16 @@ alter table public.report_link_grants enable row level security;
 -- NO policies at all: rows are written and read ONLY by the SECURITY DEFINER
 -- functions (owner bypasses RLS). anon/authenticated get no direct access — a
 -- grant hash can never be read out of the table.
+
+-- ⚠️ THE NEXT TWO FUNCTIONS (resolve_report_link, report_link_read) MUST NEVER GET
+-- THE ADMIN GUARD THAT THE THREE STAFF FUNCTIONS BELOW CARRY.
+--
+-- They are the ANONYMOUS client-facing path behind /r/<token>. Their caller is a
+-- Client holding a URL and an Access Code — not a staff user, not authenticated,
+-- and possessing NO role at all (ADR 0011). `public.is_admin()` reads auth.uid(),
+-- which is null for anon, so adding the guard here would make it raise for every
+-- caller and take the public report offline for every client at once. The staff
+-- guard belongs ONLY on issue/rotate/revoke.
 
 -- ============================================================================
 -- 2. resolve_report_link (PUBLIC verify + lockout + grant mint; anon-callable)
@@ -242,6 +263,10 @@ declare
   v_code  text;
   v_i     int;
 begin
+  if not public.is_admin() then
+    raise exception 'admin role required' using errcode = '42501';
+  end if;
+
   if p_client_id is null then
     raise exception 'p_client_id is required' using errcode = '22004';
   end if;
@@ -283,6 +308,10 @@ declare
   v_code  text;
   v_i     int;
 begin
+  if not public.is_admin() then
+    raise exception 'admin role required' using errcode = '42501';
+  end if;
+
   if p_client_id is null then
     raise exception 'p_client_id is required' using errcode = '22004';
   end if;
@@ -321,6 +350,10 @@ security definer
 set search_path = public, extensions
 as $$
 begin
+  if not public.is_admin() then
+    raise exception 'admin role required' using errcode = '42501';
+  end if;
+
   delete from public.report_link_grants g
     using public.report_links rl
     where g.link_id = rl.id

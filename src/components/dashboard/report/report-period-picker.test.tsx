@@ -27,6 +27,17 @@ beforeAll(() => {
   })) as unknown as typeof window.matchMedia;
 });
 
+// ⚠️ WARMS THE CALENDAR MODULE HERE, IN A FILE-LOCAL HOOK — see vitest.config.ts
+// for why. `date-range-picker.tsx` code-splits react-day-picker behind a
+// dynamic `import()` on purpose (kept dynamic; not this file's concern to
+// change), so resolving and instantiating that module graph costs real time
+// exactly once per file. Paying it here, under `hookTimeout`, means no
+// individual test absorbs it — see the file's own measured before/after in
+// the F2 handoff.
+beforeAll(async () => {
+  await import("@/components/ui/calendar");
+});
+
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, push: vi.fn(), prefetch: vi.fn() }),
