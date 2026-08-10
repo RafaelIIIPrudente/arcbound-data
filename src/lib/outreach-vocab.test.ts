@@ -8,6 +8,7 @@ import {
   parseCount,
   REPLY_BUCKET_LABELS,
   replyDate,
+  replyQualifier,
   type ReplyBucket,
 } from "./outreach-vocab";
 
@@ -150,6 +151,55 @@ describe("replyDate — the stripped date is EVIDENCE, not noise", () => {
     // and an impossible date must reach them intact rather than be silently
     // corrected or dropped here.
     expect(replyDate("Replied 2026-13-45")).toBe("2026-13-45");
+  });
+});
+
+describe("canonicalReply — a trailing qualifier (D6, 2026-08-03)", () => {
+  // ⚠️ 'Replied - Positive (booked 2026-07-27)' and kin reach `unrecognised`
+  // today because canonicalReply cannot read a trailing parenthetical. D6:
+  // strip a trailing qualifier, THEN the trailing date, THEN match — and
+  // recover the stripped qualifier via `replyQualifier` so it can be disclosed.
+  it("strips a trailing qualifier and buckets the sentiment underneath it", () => {
+    expect(canonicalReply("Replied - Positive (booked 2026-07-27)")).toBe("positive");
+  });
+
+  it("recovers the stripped qualifier VERBATIM, so it can be disclosed", () => {
+    expect(replyQualifier("Replied - Positive (booked 2026-07-27)")).toBe("booked 2026-07-27");
+  });
+
+  it("returns NULL when there is no trailing qualifier to recover", () => {
+    expect(replyQualifier("No Reply")).toBeNull();
+    expect(replyQualifier("Replied - Positive")).toBeNull();
+    expect(replyQualifier(null)).toBeNull();
+  });
+
+  // ⚠️ THE ORDER-DEPENDENCE TEST. Stripping the date FIRST would leave
+  // 'Replied 2026-07-30 (declined)' untouched — TRAILING_ISO_DATE matches only
+  // at the very end of the string, and here the string ends with ')', not a
+  // digit. The qualifier must come off FIRST so the date becomes trailing.
+  it("⚠️ STRIPS THE QUALIFIER BEFORE THE DATE — order is load-bearing", () => {
+    expect(canonicalReply("Replied 2026-07-30 (declined)")).toBe("replied-unspecified");
+    // Never `negative`: nobody typed a sentiment word, and `(declined)` is
+    // disclosed rather than converted into one nobody wrote.
+    expect(canonicalReply("Replied 2026-07-30 (declined)")).not.toBe("negative");
+  });
+
+  it("recovers the qualifier from the dated-and-qualified value too", () => {
+    expect(replyQualifier("Replied 2026-07-30 (declined)")).toBe("declined");
+  });
+
+  it("replyDate still finds the date once the qualifier is out of the way", () => {
+    expect(replyDate("Replied 2026-07-30 (declined)")).toBe("2026-07-30");
+  });
+
+  it("recovers a qualifier that itself contains punctuation, verbatim", () => {
+    // ⚠️ THE ONE VALUE THAT ARGUES AGAINST STRIPPING AT ALL. It charts as
+    // Positive WITH the cancellation disclosed — which is why disclosure is not
+    // optional decoration, it is what makes the strip safe.
+    expect(canonicalReply("Replied - Positive (via email; meeting canceled)")).toBe("positive");
+    expect(replyQualifier("Replied - Positive (via email; meeting canceled)")).toBe(
+      "via email; meeting canceled",
+    );
   });
 });
 
@@ -345,6 +395,30 @@ describe("canonicalStage", () => {
 
   it("keeps two DIFFERENT unknown stages apart", () => {
     expect(canonicalStage("Nurturing")).not.toBe(canonicalStage("Warm Lead"));
+  });
+});
+
+describe("canonicalStage — the en-dash defect (D7, 2026-08-03)", () => {
+  // ⚠️ `Stage` acquired 'Closed – Low Fit' with an EN DASH (U+2013) on 3 rows
+  // beside the hyphen form 'Closed - Low Fit' on 9 — one state, two dash
+  // characters. This is a quality fix, not a defect repair: the en-dash value
+  // already degrades HONESTLY today (its own bar, disclosed as unfamiliar).
+  // CANONICAL MEANS SPELLING, NOT GROUPING — the two are one spelling.
+  it("normalises an EN DASH (U+2013) to the same canonical stage as the hyphen form", () => {
+    expect(canonicalStage("Closed – Low Fit")).toBe("Closed - Low Fit");
+    expect(canonicalStage("Closed – Low Fit")).toBe(canonicalStage("Closed - Low Fit"));
+  });
+
+  it("normalises an EM DASH (U+2014) too", () => {
+    expect(canonicalStage("Closed — Low Fit")).toBe("Closed - Low Fit");
+  });
+
+  it("isKnownStage recognises the en-dash spelling", () => {
+    expect(isKnownStage("Closed – Low Fit")).toBe(true);
+  });
+
+  it("still keeps the three Closed stages apart — a dash fix is not a merge", () => {
+    expect(canonicalStage("Closed – Low Fit")).not.toBe(canonicalStage("Closed - Disqualified"));
   });
 });
 

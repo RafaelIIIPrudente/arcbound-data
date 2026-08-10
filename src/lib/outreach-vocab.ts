@@ -91,12 +91,19 @@ export const OUTREACH_STAGES = [
  * `REPLIED  -  POSITIVE` meet here. The key is used for LOOKUP ONLY and is never
  * returned to a caller or stored: what comes back is always either a canonical
  * spelling this module owns or the caller's own value.
+ *
+ * ⚠️ AN EN DASH (U+2013) AND AN EM DASH (U+2014) ARE NORMALISED TO THE ASCII
+ * HYPHEN TOO (D7, 2026-08-03). `Stage` acquired `'Closed – Low Fit'` with an en
+ * dash on 3 rows beside the hyphen form on 9 — one state, two dash characters.
+ * This is CANONICAL MEANS SPELLING, NOT GROUPING applied to the dash itself:
+ * the two are one spelling, not two states.
  */
 function matchKey(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ")
+    .replace(/[–—]/g, "-")
     .replace(/\s*-\s*/g, "-");
 }
 
@@ -110,6 +117,23 @@ function matchKey(raw: string): string {
  * which is the outcome this module is built to prefer.
  */
 const TRAILING_ISO_DATE = /\s+(\d{4}-\d{2}-\d{2})\s*$/;
+
+/**
+ * A trailing parenthetical qualifier somebody appended to a Reply Status,
+ * matched at the END only — e.g. `Replied - Positive (booked 2026-07-27)`.
+ *
+ * ⚠️ TRAILING, DELIBERATELY, LIKE {@link TRAILING_ISO_DATE}. A looser pattern
+ * would eat a parenthetical appearing mid-sentence in a value nobody has typed
+ * yet; the cost of being this strict is merely that an odd value reaches
+ * `unrecognised` and gets disclosed, which is the outcome this module prefers.
+ *
+ * ⚠️ MUST BE STRIPPED BEFORE {@link TRAILING_ISO_DATE} IS APPLIED (D6). A
+ * value like `Replied 2026-07-30 (declined)` does not end in a date — it ends
+ * in `)` — so the date pattern cannot see it until the qualifier is gone.
+ * Stripping in the wrong order leaves the date attached and the value falls
+ * through to `unrecognised` instead of `replied-unspecified`.
+ */
+const TRAILING_QUALIFIER = /\s*\(([^()]*)\)\s*$/;
 
 /**
  * Reply Status match key → bucket.
@@ -161,10 +185,32 @@ const STAGE_BY_KEY: Record<string, string> = Object.fromEntries(
  * DATE. `2026-13-45` comes back as `"2026-13-45"`. Whoever builds a timeline
  * decides what an impossible date means; silently correcting or dropping it here
  * would hide a data-quality fact from the only person who could act on it.
+ *
+ * ⚠️ A TRAILING QUALIFIER IS STRIPPED FIRST (D6). `Replied 2026-07-30
+ * (declined)` does not end in a date — it ends in `)` — so the date is
+ * invisible to {@link TRAILING_ISO_DATE} until the qualifier is out of the way.
  */
 export function replyDate(raw: string | null): string | null {
   if (raw === null) return null;
-  return TRAILING_ISO_DATE.exec(raw)?.[1] ?? null;
+  const withoutQualifier = raw.replace(TRAILING_QUALIFIER, "");
+  return TRAILING_ISO_DATE.exec(withoutQualifier)?.[1] ?? null;
+}
+
+/**
+ * A trailing qualifier somebody appended to a Reply Status, when one exists —
+ * e.g. `"booked 2026-07-27"` out of `Replied - Positive (booked 2026-07-27)`.
+ *
+ * ⚠️ THIS IS WHAT MAKES STRIPPING THE QUALIFIER IN {@link canonicalReply} SAFE
+ * AT ALL (D6). `Replied - Positive (via email; meeting canceled)` charts as a
+ * positive reply, and the cancellation would vanish silently if this function
+ * did not exist to hand it back for disclosure. Returned VERBATIM, exactly as
+ * {@link replyDate} already returns its stripped date, and for the same reason:
+ * whoever renders it decides what the qualifier means, and this module only
+ * reads.
+ */
+export function replyQualifier(raw: string | null): string | null {
+  if (raw === null) return null;
+  return TRAILING_QUALIFIER.exec(raw)?.[1] ?? null;
 }
 
 /**
@@ -181,13 +227,23 @@ export function replyDate(raw: string | null): string | null {
  * funnel to the replied end on the strength of a coincidence. Unknown values go
  * to `unrecognised`, and the caller — which still holds the raw string — is
  * expected to disclose them verbatim.
+ *
+ * ⚠️ STRIPS A TRAILING QUALIFIER, THEN A TRAILING DATE, THEN MATCHES — IN THAT
+ * ORDER (D6). `Replied 2026-07-30 (declined)` must land on
+ * `replied-unspecified`, never `negative`: nobody typed a sentiment word, and
+ * `(declined)` is disclosed via {@link replyQualifier} rather than converted
+ * into a sentiment nobody wrote. Reversing the order would leave the date
+ * trapped behind the qualifier and the whole value would fall to
+ * `unrecognised` instead.
  */
 export function canonicalReply(raw: string | null): ReplyBucket {
   if (raw === null || raw.trim() === "") return "not-recorded";
 
-  // Strip a hand-typed trailing date first: the date is not part of the status,
-  // and `replyDate` keeps it. A dated sentiment still buckets by its sentiment.
-  const withoutDate = raw.replace(TRAILING_ISO_DATE, "");
+  // Strip a trailing qualifier first, then a hand-typed trailing date: neither
+  // is part of the status, and `replyQualifier`/`replyDate` keep them. A
+  // qualified and/or dated sentiment still buckets by its sentiment.
+  const withoutQualifier = raw.replace(TRAILING_QUALIFIER, "");
+  const withoutDate = withoutQualifier.replace(TRAILING_ISO_DATE, "");
   return REPLY_BY_KEY[matchKey(withoutDate)] ?? "unrecognised";
 }
 

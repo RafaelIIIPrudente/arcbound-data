@@ -5,7 +5,7 @@ import type { OutreachRow } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure, environment-agnostic parsing + validation for one Outreach System
-// snapshot: the 24-column "Arcbound LinkedIn Master Database" CSV export. No
+// snapshot: the 39-column "Arcbound LinkedIn Master Database" CSV export. No
 // I/O, no clock, no randomness — the same text always yields the same rows.
 //
 // papaparse handles RFC-4180 quoting, which is not optional here: the real
@@ -54,7 +54,9 @@ const optionalCell = z.preprocess(
 );
 
 /**
- * The 24 source headers, keyed EXACTLY as the export spells them.
+ * The 39 source headers, keyed EXACTLY as the export spells them: the original
+ * 24, plus 15 `Email — *` columns tracking a second outreach channel, appended
+ * 2026-08-03 (docs/decisions/2026-08-03-outreach-email-channel.md).
  *
  * ⚠️ A CONTRACT WITH A FILE THIS REPO DOES NOT CONTROL. The spellings carry
  * spaces, parentheses, a slash and a hyphen — `Why They Fit (signal)`,
@@ -63,6 +65,10 @@ const optionalCell = z.preprocess(
  * character wrong and that column is missing from every row of every upload.
  * That is caught loudly rather than silently: a header the schema expects and
  * the file lacks is a parse error, never a column of nulls (see `parseOutreachCsv`).
+ *
+ * ⚠️ THE 15 `Email — *` KEYS USE AN EM DASH (U+2014), NOT A HYPHEN — copied
+ * verbatim from the source export. The same one-wrong-character failure applies:
+ * a hyphen here silently drops the whole column from every future upload.
  */
 const cellsSchema = z.object({
   "Full Name": requiredCell("Full Name"),
@@ -89,6 +95,21 @@ const cellsSchema = z.object({
   Owner: optionalCell,
   Notes: optionalCell,
   "Qualified (ICP)": optionalCell,
+  "Email — Best Email": optionalCell,
+  "Email — Mobile": optionalCell,
+  "Email — Subject Line": optionalCell,
+  "Email — Message": optionalCell,
+  "Email — Status": optionalCell,
+  "Email — Date Emailed": optionalCell,
+  "Email — Reply Status": optionalCell,
+  "Email — Follow-up Count": optionalCell,
+  "Email — Last Follow-up Date": optionalCell,
+  "Email — Next Touch Date": optionalCell,
+  "Email — Webinar Registered": optionalCell,
+  "Email — Meeting Booked (date)": optionalCell,
+  "Email — Stage": optionalCell,
+  "Email — Owner": optionalCell,
+  "Email — Notes": optionalCell,
 });
 
 /**
@@ -130,6 +151,21 @@ const outreachRowSchema = cellsSchema.transform((c): OutreachRow => ({
   owner: c.Owner,
   notes: c.Notes,
   qualified_icp: c["Qualified (ICP)"],
+  email_best_email: c["Email — Best Email"],
+  email_mobile: c["Email — Mobile"],
+  email_subject_line: c["Email — Subject Line"],
+  email_message: c["Email — Message"],
+  email_status: c["Email — Status"],
+  email_date_emailed: c["Email — Date Emailed"],
+  email_reply_status: c["Email — Reply Status"],
+  email_follow_up_count: c["Email — Follow-up Count"],
+  email_last_follow_up_date: c["Email — Last Follow-up Date"],
+  email_next_touch_date: c["Email — Next Touch Date"],
+  email_webinar_registered: c["Email — Webinar Registered"],
+  email_meeting_booked_date: c["Email — Meeting Booked (date)"],
+  email_stage: c["Email — Stage"],
+  email_owner: c["Email — Owner"],
+  email_notes: c["Email — Notes"],
 }));
 
 /**
@@ -156,7 +192,7 @@ export type OutreachParseResult =
        * success panel. Callers are expected to surface these NON-BLOCKINGLY —
        * an unexpected column must never cost anyone their upload.
        *
-       * Empty for the ordinary 24-column export, which is what keeps the notice
+       * Empty for the ordinary 39-column export, which is what keeps the notice
        * meaningful rather than a banner nobody reads.
        */
       unknownHeaders: string[];

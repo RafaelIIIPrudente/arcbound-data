@@ -25,16 +25,31 @@ import type {
 // render a funnel short by 435 prospects and look completely healthy doing it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** A row of public.outreach_uploads (no generated types — the shape is ours). */
-interface UploadRow {
+/**
+ * A row of public.outreach_uploads (no generated types — the shape is ours).
+ *
+ * ⚠️ EXPORTED SO A TEST CAN HOLD IT TO ACCOUNT, LIKE `ProspectRow` BELOW.
+ * `outreach.test.ts` type-annotates a fixture `: UploadRow` and diffs its keys
+ * against `UPLOAD_COLUMNS` — the structural guard `asPage` cannot provide (see
+ * its comment).
+ */
+export interface UploadRow {
   id: string;
   client_id: string;
   row_count: number;
   created_at: string;
+  has_email_channel: boolean;
 }
 
-/** A row of public.outreach_prospects. Every source column is text. */
-interface ProspectRow {
+/**
+ * A row of public.outreach_prospects. Every source column is text.
+ *
+ * ⚠️ EXPORTED SO A TEST CAN HOLD IT TO ACCOUNT. `outreach.test.ts` type-annotates
+ * a fixture `: ProspectRow` and diffs its keys against `PROSPECT_COLUMNS` — the
+ * structural guard that catches the pair drifting apart, which `asPage` below
+ * cannot (see its comment).
+ */
+export interface ProspectRow {
   id: string | number;
   outreach_upload_id: string;
   client_id: string;
@@ -63,17 +78,36 @@ interface ProspectRow {
   owner: string | null;
   notes: string | null;
   qualified_icp: string | null;
+  email_best_email: string | null;
+  email_mobile: string | null;
+  email_subject_line: string | null;
+  email_message: string | null;
+  email_status: string | null;
+  email_date_emailed: string | null;
+  email_reply_status: string | null;
+  email_follow_up_count: string | null;
+  email_last_follow_up_date: string | null;
+  email_next_touch_date: string | null;
+  email_webinar_registered: string | null;
+  email_meeting_booked_date: string | null;
+  email_stage: string | null;
+  email_owner: string | null;
+  email_notes: string | null;
 }
 
-const UPLOAD_COLUMNS = "id, client_id, row_count, created_at";
+// ⚠️ AN OMITTED COLUMN IS A SILENT, PERMANENT GAP — same rule as
+// `PROSPECT_COLUMNS` below. This list and `UploadRow` are a PAIR that
+// `outreach.test.ts` holds to account structurally. Exported for that test only.
+export const UPLOAD_COLUMNS = "id, client_id, row_count, created_at, has_email_channel";
 
 // ⚠️ AN OMITTED COLUMN IS A SILENT, PERMANENT GAP. PostgREST returns exactly the
 // columns asked for, so a name left out here maps to `undefined` on every row —
 // a whole field reading as "never recorded", with no error anywhere to explain
 // it. This list and `ProspectRow` are a PAIR: `asPage` asserts the row type
 // rather than checking it, so editing one without the other compiles fine and
-// lies at runtime.
-const PROSPECT_COLUMNS = [
+// lies at runtime. `outreach.test.ts` holds the pair to account structurally —
+// see `ProspectRow`'s comment. Exported for that test only.
+export const PROSPECT_COLUMNS = [
   "id",
   "outreach_upload_id",
   "client_id",
@@ -102,6 +136,21 @@ const PROSPECT_COLUMNS = [
   "owner",
   "notes",
   "qualified_icp",
+  "email_best_email",
+  "email_mobile",
+  "email_subject_line",
+  "email_message",
+  "email_status",
+  "email_date_emailed",
+  "email_reply_status",
+  "email_follow_up_count",
+  "email_last_follow_up_date",
+  "email_next_touch_date",
+  "email_webinar_registered",
+  "email_meeting_booked_date",
+  "email_stage",
+  "email_owner",
+  "email_notes",
 ].join(", ");
 
 function toUpload(row: UploadRow): OutreachUpload {
@@ -110,6 +159,7 @@ function toUpload(row: UploadRow): OutreachUpload {
     clientId: row.client_id,
     rowCount: row.row_count,
     createdAt: row.created_at,
+    hasEmailChannel: row.has_email_channel,
   };
 }
 
@@ -152,6 +202,21 @@ function toProspect(row: ProspectRow): OutreachProspect {
     owner: row.owner ?? null,
     notes: row.notes ?? null,
     qualifiedIcp: row.qualified_icp ?? null,
+    emailBestEmail: row.email_best_email ?? null,
+    emailMobile: row.email_mobile ?? null,
+    emailSubjectLine: row.email_subject_line ?? null,
+    emailMessage: row.email_message ?? null,
+    emailStatus: row.email_status ?? null,
+    emailDateEmailed: row.email_date_emailed ?? null,
+    emailReplyStatus: row.email_reply_status ?? null,
+    emailFollowUpCount: row.email_follow_up_count ?? null,
+    emailLastFollowUpDate: row.email_last_follow_up_date ?? null,
+    emailNextTouchDate: row.email_next_touch_date ?? null,
+    emailWebinarRegistered: row.email_webinar_registered ?? null,
+    emailMeetingBookedDate: row.email_meeting_booked_date ?? null,
+    emailStage: row.email_stage ?? null,
+    emailOwner: row.email_owner ?? null,
+    emailNotes: row.email_notes ?? null,
   };
 }
 
@@ -176,6 +241,15 @@ const ingestSummarySchema = z.object({
  * already decided what is blank, and the RPC copies values straight into text
  * columns. The source contains genuine duplicate prospects and they must all be
  * stored (ADR 0012).
+ *
+ * ⚠️ `p_has_email_channel` IS ALWAYS `true` HERE, NOT A CALLER-SUPPLIED FLAG.
+ * `parseOutreachCsv` requires all 39 headers (D3, 2026-08-03): a file missing
+ * even one of the 15 `Email — *` columns is a hard parse error that never
+ * reaches this function. So every `rows` array this function is ever called
+ * with already came from a file that carried the email block — there is no live
+ * decision to make, only a fact to record. A snapshot written before the email
+ * channel existed keeps `outreach_uploads.has_email_channel`'s database-level
+ * `default false`; this function never writes `false` for anything it ingests.
  */
 export async function ingestOutreach(
   clientId: string,
@@ -185,6 +259,7 @@ export async function ingestOutreach(
   const { data, error } = await supabase.rpc("ingest_outreach", {
     p_client_id: clientId,
     p_rows: rows,
+    p_has_email_channel: true,
   });
   if (error) {
     throw new Error(`Outreach ingest failed: ${error.message}`);
