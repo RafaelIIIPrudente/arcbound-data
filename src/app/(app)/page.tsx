@@ -6,7 +6,14 @@ import {
   AnalyticsUnavailable,
 } from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientComparisonTable } from "@/components/dashboard/analytics/client-comparison";
-import { DashboardFilters, PRESET_DAYS } from "@/components/dashboard/analytics/dashboard-filters";
+import { DashboardFilters } from "@/components/dashboard/analytics/dashboard-filters";
+// ⚠️ FROM `dashboard-range.ts`, NOT FROM THE FILTER BAR. `dashboard-filters.tsx`
+// carries "use client", and a directive converts every EXPORT of a module into a
+// client reference — constants included. This page read `PRESET_DAYS` from there
+// until 2026-08-13, so `decodeRange`'s `presets.includes(days)` dotted into a
+// proxy and threw on `/?range=7d` and `/?range=90d` in production. Enforced by
+// `src/rsc-boundary.test.ts`, not by this comment.
+import { PRESET_DAYS } from "@/components/dashboard/analytics/dashboard-range";
 import { EngagementChart } from "@/components/dashboard/analytics/engagement-chart";
 import { ImpressionsChart } from "@/components/dashboard/analytics/impressions-chart";
 import { KpiCards } from "@/components/dashboard/analytics/kpi-cards";

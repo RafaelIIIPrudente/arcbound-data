@@ -209,6 +209,11 @@ export function decodeRange(
 /**
  * The instants a selection covers, and the baseline it is measured against.
  *
+ * ⚠️ EVERY WINDOW IS A RUN OF WHOLE UTC DAYS — presets included, since 2026-08-13.
+ * A preset used to be a rolling `now − N × 24h`, which put its boundaries at the
+ * current time of day; see the preset branch for what that cost. Custom windows
+ * were always whole days. One kind of object now, not two that mostly agree.
+ *
  * ⚠️ THE BASELINE IS THE EQUAL-LENGTH WINDOW IMMEDIATELY BEFORE THIS ONE — a
  * 48-day range compares against the 48 days before it, with no gap and no
  * overlap. That GENERALISES the rule `analytics.ts` already applies to the three
@@ -239,10 +244,32 @@ export function resolveWindow(sel: RangeSelection, now: Date): ResolvedWindow {
   }
 
   if (sel.kind === "preset") {
-    const startMs = nowMs - sel.days * DAY_MS;
+    // ⚠️ SNAPPED TO THE UTC DAY, NOT A ROLLING N × 24 HOURS. `startMs = nowMs −
+    // N × DAY_MS` put both boundaries at the current TIME OF DAY, which made a
+    // preset a different KIND of object from a custom range — the one thing the
+    // note above says this module exists to prevent.
+    //
+    // It picked the right POSTS either way (`estimated_post_date` is date-only,
+    // so exactly N days' worth qualified), but it drew them wrong: buckets are
+    // `widthMs` wide from `startMs` and labelled by that instant, so every daily
+    // bar ran noon-to-noon, straddled two calendar days, and was captioned with
+    // the day BEFORE the posts it held. Today's posts appeared under yesterday.
+    //
+    // Through `utcDayBounds`, so the header's rule holds: a day becomes instants
+    // in exactly ONE place. `toISOString` is the right reading of `now` here —
+    // it is a true instant, not a calendar's local midnight, so unlike
+    // `toDayKey` there is nothing local to preserve. A local reading would snap
+    // a UTC+14 machine to tomorrow for most of its working day.
+    const today = utcDayBounds(now.toISOString().slice(0, 10));
+    // N days INCLUDING today, so `spanDays` still means what it says and the
+    // prior window is still the equal-length one immediately before this.
+    const startMs = today.startMs - (sel.days - 1) * DAY_MS;
     return {
       startMs,
-      endMs: nowMs,
+      // INCLUSIVE, like the custom branch below: the last instant of today. No
+      // post can carry a later timestamp than `now`, so this widens the window
+      // by nothing — it just states the end in the same units as the start.
+      endMs: today.endMs,
       spanDays: sel.days,
       priorStartMs: startMs - sel.days * DAY_MS,
       priorEndMs: startMs,

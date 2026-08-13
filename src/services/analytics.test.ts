@@ -287,7 +287,11 @@ describe("buildDashboardAnalytics (pure)", () => {
   it("counts the window, picks recent posts, and formats lastSync", () => {
     const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
     expect(a.totalPosts).toBe(3); // hour-age (null date) counts via scraped_at
-    expect(a.lastSync).toBe("2026-07-16 06:00"); // max scraped_at (p4)
+    // ⚠️ THE " UTC" WAS APPENDED ON 2026-08-13. `formatSync` slices an ISO
+    // string, so this figure has always BEEN UTC — it simply never said so, and
+    // "last sync 2026-07-16 06:00" is read as local time by every operator who
+    // sees it. The instant is unchanged; only its label is new.
+    expect(a.lastSync).toBe("2026-07-16 06:00 UTC"); // max scraped_at (p4)
 
     // Recent = newest first by estimated_post_date (fallback scraped_at). p4 (5h) is newest.
     expect(a.recentPosts).toHaveLength(4);
@@ -321,14 +325,22 @@ describe("buildDashboardAnalytics (pure)", () => {
     // The retired `bucketLabel` branched on the literal strings "7d"/"90d" and
     // emitted "Wk 1…Wk 5" for everything else — a label that cannot describe an
     // arbitrary window at all.
+    //
+    // ⚠️ THESE FIVE LABELS MOVED FORWARD BY A DAY ON 2026-08-13, AND THE OLD
+    // ONES WERE THE WRONG ONES. `NOW` is 16 Jul 12:00Z, so the old rolling
+    // `now − 30 × DAY_MS` opened the window at 16 Jun 12:00Z and captioned
+    // bucket 0 "16 Jun" — while the earliest post it could hold was dated the
+    // 17th, since `estimated_post_date` sits at midnight. Every bar named the
+    // day before its own posts. `resolveWindow` now snaps presets to 00:00 UTC,
+    // so a bucket's label and its contents are the same day.
     const a = buildDashboardAnalytics(ROWS, { range: R30, now: NOW });
 
     expect(a.impressionsSeries.map((p) => p.label)).toEqual([
-      "16 Jun",
-      "23 Jun",
-      "30 Jun",
-      "7 Jul",
-      "14 Jul",
+      "17 Jun",
+      "24 Jun",
+      "1 Jul",
+      "8 Jul",
+      "15 Jul",
     ]);
     expect(a.impressionsSeries.some((p) => /^Wk /.test(p.label))).toBe(false);
   });
@@ -768,9 +780,16 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     biState.rows = ROWS;
     await getDashboardAnalytics({ range: R30 });
 
-    // now − 2 × 30d, exactly as before: `priorStartMs` reproduces the old rule
-    // for presets rather than replacing it with a second one.
-    const bound = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+    // ⚠️ THIS BOUND MOVED FORWARD BY ONE DAY ON 2026-08-13, WITH THE PRESET DAY
+    // SNAP. It used to read `now − 2 × 30d`, mirroring the old rolling window.
+    // A preset is now N whole UTC days INCLUDING today, so the current window
+    // opens 29 days before today's midnight and the prior one opens 30 days
+    // before that — 59, not 60. Derived here from the rule rather than from
+    // `resolveWindow`, so this still cross-checks the implementation instead of
+    // restating it.
+    const today = new Date();
+    const todayStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    const bound = new Date(todayStart - (2 * 30 - 1) * 86_400_000).toISOString().slice(0, 10);
     expect(biState.orCalls).toHaveLength(1);
     expect(biState.orCalls[0]).toBe(`estimated_post_date.gte.${bound},estimated_post_date.is.null`);
   });

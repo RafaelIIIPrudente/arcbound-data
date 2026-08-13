@@ -202,15 +202,44 @@ describe("utcDayBounds", () => {
 
 // ── the window and its baseline ──────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ A PRESET IS A RUN OF WHOLE UTC DAYS, NOT A ROLLING N × 24 HOURS.
+//
+// It used to be the latter — `startMs = nowMs − N × DAY_MS` — which put every
+// preset boundary at the current TIME OF DAY. That is not wrong about WHICH
+// posts are in the window (`estimated_post_date` is date-only, so exactly N
+// days' worth still qualified), and the measurements below pin that it stays
+// right. It was wrong about what the window IS: every daily bucket then ran
+// noon-to-noon and straddled two calendar days, so the chart labelled each bar
+// with the day BEFORE the posts inside it — a post published on the 23rd was
+// drawn under "22 Jul", and today's posts under yesterday's date.
+//
+// Snapping the boundary to 00:00 UTC makes a preset the same KIND of object as
+// a custom range (which has always been whole days, via `utcDayBounds`), so
+// there is one definition of a window rather than two that mostly agree.
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe("resolveWindow — presets", () => {
   const now = new Date("2026-07-29T12:00:00.000Z");
+  /** 00:00 UTC on the day `now` falls in. */
+  const todayStart = Date.UTC(2026, 6, 29);
 
-  it("ends at now and reaches back the preset's own length", () => {
+  it("runs whole UTC days: from midnight N−1 days back to the end of today", () => {
     const w = resolveWindow({ kind: "preset", days: 30 }, now);
 
-    expect(w.endMs).toBe(now.getTime());
-    expect(w.startMs).toBe(now.getTime() - 30 * DAY_MS);
+    expect(new Date(w.startMs).toISOString()).toBe("2026-06-30T00:00:00.000Z");
+    expect(new Date(w.endMs).toISOString()).toBe("2026-07-29T23:59:59.999Z");
     expect(w.spanDays).toBe(30);
+  });
+
+  it("does not move when the clock does, only when the DAY does", () => {
+    // The defining property of the change: any instant on 29 July resolves the
+    // same window. Under the old rolling-hours rule, every page load produced a
+    // slightly different one.
+    const early = resolveWindow({ kind: "preset", days: 7 }, new Date("2026-07-29T00:00:01.000Z"));
+    const late = resolveWindow({ kind: "preset", days: 7 }, new Date("2026-07-29T23:59:58.000Z"));
+
+    expect(early).toEqual(late);
   });
 
   it("baselines against the equal-length window immediately before it", () => {
@@ -220,11 +249,66 @@ describe("resolveWindow — presets", () => {
     expect(w.priorStartMs).toBe(w.startMs - 30 * DAY_MS); // and exactly as long
   });
 
-  it("reproduces the rule analytics.ts already applies to 7 / 30 / 90", () => {
+  it("covers exactly N whole days, and the prior window the N before those", () => {
     for (const days of PRESETS) {
       const w = resolveWindow({ kind: "preset", days }, now);
-      expect(w.startMs, `${days}d`).toBe(now.getTime() - days * DAY_MS);
-      expect(w.priorStartMs, `${days}d`).toBe(now.getTime() - 2 * days * DAY_MS);
+
+      expect(w.startMs, `${days}d`).toBe(todayStart - (days - 1) * DAY_MS);
+      expect(w.endMs, `${days}d`).toBe(todayStart + DAY_MS - 1);
+      expect(w.priorStartMs, `${days}d`).toBe(todayStart - (2 * days - 1) * DAY_MS);
+    }
+  });
+
+  it("INCLUDES a post at 00:00 UTC on the window's oldest day", () => {
+    // ⚠️ The invariant the whole snap exists to make unambiguous. It happened to
+    // hold under the rolling-hours rule too — the day that got cut there was the
+    // N+1th the window touched, not one of the N it meant — so this is a pin on
+    // behaviour that must SURVIVE the change, not evidence that the change was
+    // needed. The bucket alignment below is that evidence.
+    for (const days of PRESETS) {
+      const w = resolveWindow({ kind: "preset", days }, now);
+      const oldestDay = todayStart - (days - 1) * DAY_MS;
+
+      expect(oldestDay, `${days}d oldest`).toBeGreaterThanOrEqual(w.startMs);
+      expect(todayStart, `${days}d today`).toBeLessThanOrEqual(w.endMs);
+      // …and the day BEFORE the oldest is out, so the window is not N+1 days.
+      expect(oldestDay - DAY_MS, `${days}d cutoff`).toBeLessThan(w.startMs);
+    }
+  });
+
+  it("draws every daily bar under the date of the posts inside it", () => {
+    // ⚠️ THE DEFECT THIS CHANGE ACTUALLY FIXES, AND THE ONE A USER COULD SEE.
+    // A bucket is `widthMs` wide starting at `startMs`, and is labelled by that
+    // instant. With `startMs` at midday, bucket 0 ran 22 Jul 12:00 → 23 Jul
+    // 12:00 and was labelled "22 Jul" while holding the posts published on the
+    // 23rd. Every bar on every preset was captioned with the previous day.
+    const w = resolveWindow({ kind: "preset", days: 7 }, now);
+    const plan = bucketPlan(w.spanDays);
+
+    for (let i = 0; i < plan.count; i++) {
+      const bucketStart = w.startMs + i * plan.widthMs;
+      // The posts that land in this bucket are the ones dated on this day.
+      const postDate = new Date(bucketStart);
+
+      expect(bucketLabel(plan.unit, bucketStart), `bucket ${i}`).toBe(
+        `${postDate.getUTCDate()} Jul`,
+      );
+      expect(Math.floor((bucketStart - w.startMs) / plan.widthMs), `bucket ${i}`).toBe(i);
+    }
+    // And the last bar is TODAY, not yesterday.
+    expect(bucketLabel(plan.unit, w.startMs + (plan.count - 1) * plan.widthMs)).toBe("29 Jul");
+  });
+
+  it("resolves the same window from every zone the process might run in", () => {
+    // The boundary is UTC. Read through local parts instead and a UTC+14 machine
+    // would snap to tomorrow for most of its working day.
+    const expected = resolveWindow({ kind: "preset", days: 7 }, now);
+
+    for (const tz of ZONES) {
+      expect(
+        underTz(tz, () => resolveWindow({ kind: "preset", days: 7 }, now)),
+        tz,
+      ).toEqual(expected);
     }
   });
 });

@@ -11,6 +11,19 @@ import type { Upload } from "@/services/types";
 
 const HEAD = "font-mono text-[9.5px] tracking-[0.12em] uppercase";
 
+/**
+ * An upload's instant, as `Jul 16, 2026 · 09:12 UTC`.
+ *
+ * ⚠️ THE ZONE IS PART OF THE MEASUREMENT, NOT DECORATION. Both halves are forced
+ * to UTC — which is right, and matches every other date this app renders — but an
+ * unlabelled "09:12" is not a time, it is a riddle: a reviewer in India (UTC+5:30)
+ * and an operator in Manila (UTC+8) each read it as their own wall clock, are each
+ * wrong by a different amount, and have no way to find out. This is an audit
+ * trail, so the exact instant is the point.
+ *
+ * ⚠️ THE UNPARSEABLE PASSTHROUGH BELOW GETS NO LABEL. A string this function
+ * could not read is not an instant it may vouch for a zone about.
+ */
 function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -26,7 +39,7 @@ function formatDate(iso: string): string {
     hour12: false,
     timeZone: "UTC",
   });
-  return `${date} · ${time}`;
+  return `${date} · ${time} UTC`;
 }
 
 /**
