@@ -258,7 +258,7 @@ export const METRIC_DEFINITIONS = {
   publicOutreachProspects: {
     term: "Prospects",
     definition:
-      "How many people were on the outreach list in the most recent snapshot taken for this report. Every figure beside it counts a subset of these people. A snapshot is a fixed record of one export, so it does not change after the fact.",
+      "How many people were on the outreach list in the most recent snapshot taken for this report. Every figure beside it counts a subset of these people. A snapshot is a fixed record of the list exactly as it stood at that moment, so it does not change afterwards.",
   },
   publicRequestsSent: {
     term: "Requests sent",

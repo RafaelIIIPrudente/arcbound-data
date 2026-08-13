@@ -555,19 +555,58 @@ a baseline rather than left unmeasured.
 
 ## Delivery sequence
 
-| Slice  | Item       | Content                                                                                                                                                                                                                   | Depends on |
-| ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **S1** | D2         | 🔴 **The production crash.** Constants out of the client module + directive-absence test + boundary guard; stop stripping `30d`; snap preset windows to a UTC day                                                         | none       |
-| **S2** | C2 + D1    | Timestamp zone labels (D8) + the metric-definitions module and ⓘ popovers (D10)                                                                                                                                           | none       |
-| **S3** | D3         | Range-translated "View posts" link (D9)                                                                                                                                                                                   | none       |
-| **S4** | D1 cost    | Cut the popover's import edge out of `KeyPerformance` (render prop) + the reachability guard                                                                                                                              | S2         |
-| **S5** | D1 client  | Opt `/r/[token]` in deliberately: fix the call site, repoint the guard, measure the cost, client-facing copy pass                                                                                                         | S4         |
-| **S6** | D1 copy    | 🔴 **The three status-strip definitions S5's widening left leaking** (`statusCurrentAsOf`, `statusTrackedSince`, `statusMostRecentPost`) — same rule, same standard                                                       | S5         |
-| —      | C1 display | Relabel "Last upload" → "Last ArcBase upload" + "External pipeline" + a Last-sync column — **STILL UNDECIDED** (Q8 unanswered; the user reset Charlene's data instead, which does not fix the shape for any other Client) | none       |
-| —      | P1 / P2    | **PARKED** at Q3 (D3 above)                                                                                                                                                                                               | —          |
+| Slice  | Item       | Content                                                                                                                                                                                                                                                        | Depends on |
+| ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **S1** | D2         | 🔴 **The production crash.** Constants out of the client module + directive-absence test + boundary guard; stop stripping `30d`; snap preset windows to a UTC day                                                                                              | none       |
+| **S2** | C2 + D1    | Timestamp zone labels (D8) + the metric-definitions module and ⓘ popovers (D10)                                                                                                                                                                                | none       |
+| **S3** | D3         | Range-translated "View posts" link (D9)                                                                                                                                                                                                                        | none       |
+| **S4** | D1 cost    | Cut the popover's import edge out of `KeyPerformance` (render prop) + the reachability guard                                                                                                                                                                   | S2         |
+| **S5** | D1 client  | Opt `/r/[token]` in deliberately: fix the call site, repoint the guard, measure the cost, client-facing copy pass                                                                                                                                              | S4         |
+| **S6** | D1 copy    | 🔴 **The three status-strip definitions S5's widening left leaking** (`statusCurrentAsOf`, `statusTrackedSince`, `statusMostRecentPost`) — same rule, same standard                                                                                            | S5         |
+| —      | C1 display | Relabel "Last upload" → "Last ArcBase upload" + "External pipeline" + a Last-sync column — **STILL UNDECIDED** (Q8 unanswered; the user reset Charlene's data instead, which does not fix the shape for any other Client)                                      | none       |
+| —      | P1 / P2    | ⏭️ **SKIPPED by the user, 2026-08-13** — asked to skip when Q3 was put to them a second time. Not rejected on the merits and not descoped: still parked at Q3, still the only two of Vaibhav's seven items with nothing shipped. See "P1 / P2 — skipped" below | —          |
 
 S1 first and alone: it is live on staging, it is the only crash, and it shares no
 file with the others.
+
+---
+
+## P1 / P2 — skipped, with the groundwork kept
+
+The user asked to skip this when Q3 was put to them a second time. Recorded so
+whoever resumes does not re-derive the same facts.
+
+**Why it is a real decision and not a component move:** the app has **two
+addressing schemes**. The dashboard scopes by query param (`/?client=<id>`,
+`dashboard-filters.tsx`, `router.replace`, `all` = param omitted); every other
+client surface scopes by path (`/clients/[id]/posts`, `/outreach`, `/report`).
+"Switch once, every page follows" means reconciling those two. `TopBar`
+(`layout/top-bar.tsx`, `"use client"`) currently holds only the page title, env
+tag, theme toggle and avatar — the switcher would be new furniture there. Nav
+(`layout/nav-config.ts`) is flat and not client-scoped: Dashboard · Client List ·
+Add Data · Resources · Data Quality · Settings.
+
+**The three options as framed for the user**, with the planner's recommendation:
+
+| Option                       | What selecting a Client does                                                                         | Verdict                                                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Navigate, don't store** ⭐ | `TopBar` switcher NAVIGATES to the equivalent surface for that Client. No cookie, no app-wide state. | Recommended — delivers P1's felt behaviour, invents no primitive, URL stays the single source of scope                    |
+| Persisted app-wide scope     | A cookie read server-side, rewriting nav links and defaulting every scoped surface                   | Satisfies P1 literally; adds a scope the app has never had, and a cookie that can silently disagree with a bookmarked URL |
+| Default only                 | Leave the selector on the dashboard, just default to the 1st Client and drop "All clients"           | Smallest; honours D2 but does NOT satisfy P1 — the switcher stays dashboard-local                                         |
+
+**Still unanswered when this resumes:**
+
+- **Q3** — navigate vs. remember. These are different products; Vaibhav wrote
+  them as one sentence.
+- **What `/clients` is for** once a Client is always selected — the list's job
+  shrinks toward the switcher's, so it becomes the add/admin surface, the
+  comparison page's home, or redundant.
+- **`/upload`** — ⚠️ the planner's standing objection, unchanged: pre-filling the
+  attribution field turns mis-attribution into a silent one-click mistake, and
+  outreach snapshots have no undo and no tombstone. **D1 above already decided
+  this the other way** (pre-select but name it in plain sight, and state the
+  target on confirm) — so D1 and the objection are in tension and must be
+  reconciled, not just picked between, when this reopens.
 
 ---
 
@@ -575,6 +614,7 @@ file with the others.
 
 | #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4   | 2026-08-13 | **P1 / P2 skipped by the user.** Q3 was re-grounded first (the two addressing schemes, `TopBar`'s current contents, the flat nav) and put back as three concrete options; the user asked to skip rather than answer. Recorded as skipped-not-rejected, with the groundwork and the three remaining open questions kept so it can resume cold. Noted that **D1 and the planner's `/upload` objection are in tension** and must be reconciled when it does. Audited the rest of the client-visible definition surface while here: the eight `public*` outreach keys and the other three status keys are **clean** — S6 is exactly the three keys already flagged.                                                                                                                                                                                                                                                                                                                                                           |
 | 3   | 2026-08-13 | **S5 verified.** Its three deliverables all landed well — the call site repaired (type:check and build now green), the boundary guard **rewritten rather than deleted** (`WIDE_ROOTS` positively asserts `/r/[token]` reaches `MetricInfo`, so the opt-in cannot be silently lost), and both named definitions rewritten with every caveat intact. The cost is now measured: `/r/[token]` **272 kB**, print unchanged at 229 kB. ⚠️ But the slice widened 4 files → 17 and **re-introduced its own defect one level out** — the status strip it added is rendered by `public-report.tsx`, so three definitions a Client can open still say "upload"/"scraped". S6 opened for exactly those three. Fourth consecutive slice to cross its DO-NOT-TOUCH list. Two verification flakes recorded as non-defects: the F2 hook timeout (3 files red under load, 55/55 green in isolation — the relocation F2's handoff predicted) and a build that failed twice non-deterministically before passing clean after `rm -rf .next`. |
 | 2   | 2026-08-13 | Grilling session. D1/D1a settled then P1/P2 **parked** at Q3. D2's symptom corrected twice — "empty state" → **crash**, from the user's screenshots — and then **diagnosed**: `page.tsx` imports `PRESET_DAYS` from a `"use client"` module, so `presets.includes` dots into a client reference in the production RSC build; the reachability table accounts for all four observations and a repo-wide sweep found this to be the only instance. D6–D10 settled. C1 resolved by the user **deleting Charlene's rows** over the planner's three recorded objections; the display defect it was raised for remains open.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1   | 2026-08-13 | Created from Vaibhav's note. Seven items split out; ground truth established read-only before grilling (selector is URL-state and Dashboard-local; upload attribution is chosen per upload; C1 is the `bi.*` vs `public.uploads` seam, both numbers true; the drill-down exists but is unlinked and speaks a different URL dialect; C2's likeliest shape is UTC rendering read from another zone).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

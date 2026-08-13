@@ -244,9 +244,17 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
    * them", which is exactly right as written. The cost is that a genuine
    * "the reporting view's figure" would slip past this guard on a client-visible
    * sentence; that residual is stated rather than papered over.
+   *
+   * ⚠️ "export" IS FORBIDDEN HERE AND CORRECT ON THE STAFF SIDE. The staff
+   * `outreachProspects` sentence says "the roster exactly as it stood when that
+   * export was taken", which is precisely right for the person who took it. On
+   * the Client's own report the same word named a step they never see, and the
+   * definition leaned on it to explain what a snapshot IS — an internal noun
+   * defined in terms of another internal noun. This sweep covers only the three
+   * client-facing maps, so the staff sentence keeps its word.
    */
   const PIPELINE =
-    /\b(uploads?|uploaded|scrapes?|scraped|scraper|schemas?|ingest\w*|pipelines?|RPC|Supabase)\b/i;
+    /\b(uploads?|uploaded|scrapes?|scraped|scraper|exports?|exported|schemas?|ingest\w*|pipelines?|RPC|Supabase)\b/i;
 
   /** Every label map a Client's own report renders an ⓘ from. */
   const CLIENT_MAPS = {
@@ -312,6 +320,22 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
     expect(perThousand).toMatch(/single moment/i);
     expect(perThousand).toMatch(/not measured over the same span/i);
     expect(perThousand).toMatch(/never a zero/i);
+  });
+
+  it("keeps the Outreach summary's Prospects caveats intact", () => {
+    // ⚠️ THIS SENTENCE LOST THE WORD "export" ON 2026-08-13 AND NOTHING ELSE.
+    // It now explains what a snapshot IS in the reader's own terms rather than
+    // by naming another internal step, so the immutability claim — the reason
+    // the sentence exists at all — has to survive that rewrite intact.
+    const prospects = METRIC_DEFINITIONS.publicOutreachProspects.definition;
+
+    // A point in time, not a live roster.
+    expect(prospects).toMatch(/most recent snapshot/i);
+    expect(prospects).toMatch(/as it stood at that moment/i);
+    // Fixed after the fact — the whole reason a snapshot is named at all.
+    expect(prospects).toMatch(/does not change afterwards/i);
+    // Every funnel figure beside it is a SUBSET, never an independent total.
+    expect(prospects).toMatch(/subset of these people/i);
   });
 
   it("keeps the Report status strip's three hardest caveats intact", () => {
