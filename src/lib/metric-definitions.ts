@@ -119,7 +119,7 @@ export const METRIC_DEFINITIONS = {
   connections: {
     term: "Connections",
     definition:
-      "The most recent connection count recorded on an upload for this client, read the same way as Followers but sourced independently — a scrape can capture one without the other. It is a point-in-time count, not a total over any window, and the upload carrying it may be older than the latest scrape. Deliberately a raw count with no per-1,000 figure beside it; the asymmetry with Followers is intended. Blank means no upload ever recorded one, which is the ordinary case.",
+      "The most recent connection count on record. It is captured separately from Followers, so one can be present without the other. It is a point-in-time count — a figure from a single moment, not a total over any period — and the record it comes from may be older than the most recent data elsewhere in this report. It is shown as a plain count, with no per-1,000 figure beside it. Blank means none has ever been recorded, which is the ordinary case; it does not mean zero.",
   },
 
   // ── the client LinkedIn report → Key performance ───────────────────────────
@@ -136,7 +136,7 @@ export const METRIC_DEFINITIONS = {
   reportAvgInteractions: {
     term: "Avg interactions",
     definition:
-      "The mean interactions per post across the SELECTED period only. Its all-time counterpart is “Avg interactions per post” in the Monthly avg row below, and the two differ whenever this period ran hotter or cooler than the client’s long-run norm — which is the comparison this figure exists to allow.",
+      "The mean interactions per post across the SELECTED period only. Its all-time counterpart is “Avg interactions per post” in the Monthly avg row below, and the two differ whenever this period ran hotter or cooler than the long-run norm — which is the comparison this figure exists to allow.",
   },
   reportTotalInteractions: {
     term: "Total interactions",
@@ -146,17 +146,17 @@ export const METRIC_DEFINITIONS = {
   reportMonthlyAvg: {
     term: "Monthly avg",
     definition:
-      "Across the client’s ENTIRE history, not the selected period: posts per month, interactions per post, and interactions per month. The two per-month rates divide by the number of calendar months from their first post to their last, and months in which they published nothing still count in that span — so they are rates over elapsed time, not averages of their active months. They also count only posts carrying a publish date, because a post with no date belongs to no month; those posts are still in the totals above and in the per-post figure beside these, which involve no month.",
+      "Across the ENTIRE posting history, not the selected period: posts per month, interactions per post, and interactions per month. The two per-month rates divide by the number of calendar months from the first post to the last, and months with no posts still count in that span — so they are rates over elapsed time, not averages of their active months. They also count only posts carrying a publish date, because a post with no date belongs to no month; those posts are still in the totals above and in the per-post figure beside these, which involve no month.",
   },
   reportMonthlyMax: {
     term: "Monthly max",
     definition:
-      "The single best calendar month in the client’s entire history — their most posts in one month, and their most interactions in one month. The two are found independently, so they need not be the same month. There is no per-post figure because a maximum has no rate; the dash says that rather than showing a 0 that would assert something untrue.",
+      "The single best calendar month in the entire posting history — the most posts in one month, and the most interactions in one month. The two are found independently, so they need not be the same month. There is no per-post figure because a maximum has no rate; the dash says that rather than showing a 0 that would assert something untrue.",
   },
   reportPerThousandFollowers: {
     term: "Avg interactions per 1K followers",
     definition:
-      "The all-time average interactions per post divided by the follower count, times 1,000. It is marked approximate for a real reason: it pairs a long-run per-post average with a single point-in-time follower count read off one upload, so the two halves are not measured over the same span. Blank when no upload has recorded a follower count — never a zero.",
+      "The all-time average interactions per post divided by the follower count, times 1,000. It is marked approximate for a real reason: it pairs a long-run per-post average with a follower count captured at a single moment, so the two halves are not measured over the same span. Blank when no follower count has ever been recorded — never a zero.",
   },
 
   // ── the rate reconciliation panel (Data quality) ───────────────────────────
@@ -213,6 +213,131 @@ export const METRIC_DEFINITIONS = {
       "How many prospect rows this snapshot holds. It is the snapshot’s own size rather than a column, and every funnel count beside it is a subset of it. An outreach upload is an immutable snapshot, so this is the roster exactly as it stood when that export was taken — a prospect deleted from the source sheet since then is still counted here.",
   },
 
+  // ── the Client's own report → the Report status strip ──────────────────────
+  //
+  // ⚠️ VOICE-NEUTRAL, LIKE EVERY REPORT DEFINITION. These are read by the CLIENT
+  // on `/r/[token]` as well as by staff, so they say "the posting history" and
+  // never "this client's" or "your".
+  statusCurrentAsOf: {
+    term: "Current as of",
+    definition:
+      "The date these figures were last refreshed — NOT the date of the most recent post. It says how current the report is, so a report can be freshly updated while the newest post in it is older. A dash means no date is on record.",
+  },
+  statusTrackedSince: {
+    term: "Tracked since",
+    definition:
+      "The date this report's records begin. Activity before it was never captured, so it is outside these figures rather than missing from them.",
+  },
+  statusMostRecentPost: {
+    term: "Most recent post",
+    definition:
+      "The publish date of the newest post in this view that carries one, and how long ago that was in whole elapsed days. Posts that arrived without a usable publish date cannot be the answer here — they are still counted in “Posts in this view”, which discloses how many there are.",
+  },
+  statusPostsInView: {
+    term: "Posts in this view",
+    definition:
+      "How many posts fall inside the reporting period. When some carry no publish date the split is stated beside the total: undated posts count here but cannot be placed on a timeline, so the rhythm and trend figures are drawn from the dated ones only.",
+  },
+  statusPostingRhythm: {
+    term: "Posting rhythm",
+    definition:
+      "Dated posts divided by the time between the FIRST and LAST of them — the rhythm while active, not measured up to today. A run of steady posting followed by silence keeps its rhythm here, and the silence is carried by “Most recent post” instead. Absent when there are fewer than two dated posts, or when they all fall on a single day: there is no span to divide by, which is not the same as a rhythm of zero.",
+  },
+  statusImpressionsTrend: {
+    term: "Impressions trend",
+    definition:
+      "Compares the FIRST and LAST points of the impressions chart and names the direction between them: up or down only when they differ by more than 5%, otherwise holding steady. It is a direction, not a verdict — it reads only those two endpoints, so it says nothing about what happened in between. Absent when there are fewer than two points to compare.",
+  },
+
+  // ── the Client's own report → the Outreach summary ─────────────────────────
+  //
+  // ⚠️ AGGREGATE COUNTS ONLY (ADR 0012). No prospect name, URL, message, note,
+  // stage or email address crosses this boundary, and no definition here may
+  // describe one. Each rule mirrors the funnel rule the staff tab counts by, so
+  // the two surfaces cannot come to disagree about what a figure means.
+  publicOutreachProspects: {
+    term: "Prospects",
+    definition:
+      "How many people were on the outreach list in the most recent snapshot taken for this report. Every figure beside it counts a subset of these people. A snapshot is a fixed record of one export, so it does not change after the fact.",
+  },
+  publicRequestsSent: {
+    term: "Requests sent",
+    definition:
+      "How many of those prospects have a value recorded against the date a connection request was sent to them.",
+  },
+  publicConnectionsAccepted: {
+    term: "Connections accepted",
+    definition:
+      "How many prospects show a connection status of Connected. It is recorded separately from the outreach steps around it rather than inferred from them.",
+  },
+  publicReplies: {
+    term: "Replies",
+    definition:
+      "How many prospects answered — any recorded reply other than “no reply”. A blank counts as NO reply rather than as a reply: nobody having written anything down is not evidence that somebody answered. An answer nobody could categorise still counts, because somebody did reply.",
+  },
+  publicMeetingsBooked: {
+    term: "Meetings booked",
+    definition:
+      "How many prospects have a meeting date recorded against the LinkedIn channel. It is stated even at zero, so an empty figure is a reported result rather than a missing one.",
+  },
+  publicEmailsSent: {
+    term: "Emails sent",
+    definition:
+      "How many prospects have a value recorded against the date they were emailed. The Email figures are a separate channel from the LinkedIn ones above and are never added to them.",
+  },
+  publicEmailReplies: {
+    term: "Email replies",
+    definition:
+      "How many prospects answered by email — any recorded reply other than “no reply”, read exactly as the LinkedIn Replies figure is. A blank is not a reply.",
+  },
+  publicEmailMeetingsBooked: {
+    term: "Email meetings booked",
+    definition:
+      "How many prospects have a meeting date recorded against the Email channel. Someone reached on both channels can appear here and in the LinkedIn figure — the Combined meetings figure below counts each person once.",
+  },
+
+  // ── the report's charts and panels (staff report AND the Client's own) ─────
+  //
+  // ⚠️ ONE DEFINITION PER PANEL, NOT PER BAR. Every chart card already carries a
+  // scope badge stating its period and how many posts it rests on, so what a
+  // reader still cannot see is the RULE behind a bar — what is averaged, and
+  // what an empty one means.
+  chartImpressionsOverTime: {
+    term: "Average impressions over time",
+    definition:
+      "The average impressions of the posts published in each bar's stretch of time, across the selected period. The bars are weeks for a single-month period and months for longer ones — the heading says which, because a month period drawn by month would be one bar. The dashed line is the average across the whole period, computed from the same posts the bars are. A gap is a stretch with no posts at all, which is not the same as posts that got no reach — a zero-height bar would claim the second.",
+  },
+  chartImpressionsByWeekday: {
+    term: "Average impressions by day of week posted",
+    definition:
+      "The average impressions of posts grouped by the weekday they went out, Sunday through Saturday. Only posts with a resolvable publish date can be placed on a weekday; the count beside the heading says how many that is, and any undated posts are disclosed rather than assigned to a day.",
+  },
+  chartInteractionsByAsset: {
+    term: "Average interactions by asset type",
+    definition:
+      "The average interactions of the posts of each asset type — image, video, text and so on — within the selected period. It is a per-post average, so a type with one strong post can top the chart; the post count beside the heading is what tells you how much weight to give it.",
+  },
+  chartPostTypeDistribution: {
+    term: "Post type distribution",
+    definition:
+      "What share of the posts in the selected period were of each asset type, as a percentage. It counts posts and nothing else — no engagement is involved, so a large share means a lot was published in that format, never that the format performed well.",
+  },
+  panelInteractionsComparison: {
+    term: "Interactions comparison",
+    definition:
+      "The same interaction figures side by side for the selected period, the three months before it, and the whole history — so a period can be read against its own recent past and its long-run context rather than in isolation. When the selected period IS the whole history, the two identical rows are collapsed into one rather than printed twice.",
+  },
+  panelPostingCadence: {
+    term: "Posting cadence",
+    definition:
+      "The rhythm of publishing across the selected period: how many posts, how often, and the gaps between them. Only posts with a resolvable publish date can be placed on the timeline — an undated post is counted in the total but never dropped onto a date it was not known to have, because that would invent a rhythm.",
+  },
+  panelContentComposition: {
+    term: "Content composition",
+    definition:
+      "What the posts in this period were MADE OF — their length, and how often they asked a question, linked out, mentioned someone or used emoji. Every figure is a plain frequency: no engagement is involved, nothing is ranked, and no feature is called effective. A “0 of 12” is a real count of something not used; a dash means no post carried text to analyse at all.",
+  },
+
   // ── the two deltas, which are different units ──────────────────────────────
   kpiDelta: {
     term: "Change vs. prior period",
@@ -255,6 +380,48 @@ export const REPORT_METRIC_KEYS: Record<string, MetricKey> = {
   // The two footer lines.
   "Avg interactions per 1K followers": "reportPerThousandFollowers",
   Connections: "connections",
+};
+
+/**
+ * The Report status strip's labels → their definition keys.
+ *
+ * Separate from `REPORT_METRIC_KEYS` because the two panels are keyed by
+ * different label sets and share none: a single map would let a label added to
+ * one silently resolve against the other's entry.
+ */
+export const REPORT_STATUS_METRIC_KEYS: Record<string, MetricKey> = {
+  // ⚠️ "Reporting period" IS DELIBERATELY ABSENT. Its ⓘ would be announced as
+  // "What is Reporting period?", which collides with the period PICKER's own
+  // accessible name a few lines above it on the same screen — two controls
+  // named around one phrase, where a screen-reader user could not tell which
+  // they had found. The block is also the one label on this strip that needs no
+  // explaining: it simply echoes the picker's current value.
+  "Current as of": "statusCurrentAsOf",
+  "Tracked since": "statusTrackedSince",
+  "Most recent post": "statusMostRecentPost",
+  "Posts in this view": "statusPostsInView",
+  "Posting rhythm": "statusPostingRhythm",
+  "Impressions trend": "statusImpressionsTrend",
+};
+
+/**
+ * The Outreach summary's figure labels → their definition keys.
+ *
+ * ⚠️ "Combined meetings" IS DELIBERATELY ABSENT. That figure already carries a
+ * full sentence beneath it on screen ("…people booked a meeting on LinkedIn,
+ * Email, or both — not a sum of the two figures above"), and an ⓘ repeating it
+ * would be a second copy of prose this repo keeps in one place. An unmapped
+ * label renders no ⓘ, which is exactly the right outcome here.
+ */
+export const OUTREACH_SUMMARY_METRIC_KEYS: Record<string, MetricKey> = {
+  Prospects: "publicOutreachProspects",
+  "Requests sent": "publicRequestsSent",
+  "Connections accepted": "publicConnectionsAccepted",
+  Replies: "publicReplies",
+  "Meetings booked": "publicMeetingsBooked",
+  "Emails sent": "publicEmailsSent",
+  "Email replies": "publicEmailReplies",
+  "Email meetings booked": "publicEmailMeetingsBooked",
 };
 
 /**

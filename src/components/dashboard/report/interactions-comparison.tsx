@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import {
   Table,
   TableBody,
@@ -83,7 +85,22 @@ function SavesCell({ row }: { row: InteractionsRow }) {
  * are `p-2` and every metric cell is short — but any FURTHER column needs the
  * printed sheet checked by eye before it ships, not just the test suite.
  */
-export function InteractionsComparison({ rows }: { rows: InteractionsRow[] }) {
+export function InteractionsComparison({
+  rows,
+  info,
+}: {
+  rows: InteractionsRow[];
+  /**
+   * An optional ⓘ for this panel's heading, supplied by the caller.
+   *
+   * ⚠️ PASSED IN, NEVER IMPORTED HERE — same rule as `RenderInfo` in
+   * `key-performance.tsx`, and for the same reason. `print-report.tsx` renders
+   * this table, so a static import of `MetricInfo` would put the Radix popover
+   * into the PDF's bundle whatever any prop said. Undefined means no ⓘ, so print
+   * gets the narrow surface by saying nothing.
+   */
+  info?: ReactNode;
+}) {
   const visible = visibleInteractionRows(rows);
   // ⚠️ SAVES COUNTS TOWARDS NON-EMPTINESS. A period whose posts earned ONLY saves
   // has a full Saves column, so calling it empty hid real data. A real saves
@@ -100,8 +117,9 @@ export function InteractionsComparison({ rows }: { rows: InteractionsRow[] }) {
 
   return (
     <div className="rounded-lg border bg-card p-5">
-      <div className="mb-4 font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
+      <div className="mb-4 flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
         Interactions comparison
+        {info}
       </div>
 
       {isEmpty ? (

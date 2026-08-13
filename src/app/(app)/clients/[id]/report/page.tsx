@@ -208,7 +208,10 @@ export default async function ClientReportPage({
               // staff path. Pinned by `src/rsc-boundary.test.ts`.
               renderInfo={reportMetricInfo}
             />
-            <InteractionsComparison rows={report.interactionsComparison} />
+            <InteractionsComparison
+              rows={report.interactionsComparison}
+              info={<MetricInfo metric="panelInteractionsComparison" />}
+            />
           </section>
 
           <section className="space-y-4">
@@ -240,7 +243,9 @@ export default async function ClientReportPage({
               self-guards on a zero total). */}
           {report.cadence.totalPosts > 0 ? (
             <section className="space-y-4">
-              <SectionHeader title="Posting cadence" scope={scopeCaption(report.period)} />
+              <SectionHeader title="Posting cadence" scope={scopeCaption(report.period)}>
+                <MetricInfo metric="panelPostingCadence" />
+              </SectionHeader>
               <PostingCadence cadence={report.cadence} />
             </section>
           ) : null}
@@ -266,7 +271,9 @@ export default async function ClientReportPage({
               when the selected period has no posts (the component also self-guards). */}
           {report.composition.totalPosts > 0 ? (
             <section className="space-y-4">
-              <SectionHeader title="Content composition" scope={scopeCaption(report.period)} />
+              <SectionHeader title="Content composition" scope={scopeCaption(report.period)}>
+                <MetricInfo metric="panelContentComposition" />
+              </SectionHeader>
               <ContentComposition composition={report.composition} />
             </section>
           ) : null}

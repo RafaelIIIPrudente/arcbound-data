@@ -1,3 +1,5 @@
+import { MetricInfo } from "@/components/dashboard/metric-info";
+import { OUTREACH_SUMMARY_METRIC_KEYS } from "@/lib/metric-definitions";
 import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/report-links";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,11 +61,27 @@ function formatIsoDate(iso: string): string | null {
   return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+/**
+ * The ⓘ for one aggregate figure.
+ *
+ * ⚠️ EVERY SENTENCE IT CAN REACH IS AGGREGATE-ONLY (ADR 0012). No definition
+ * here describes a prospect, and none may: this component is the public
+ * boundary, and a definition is prose that crosses it exactly like a number.
+ *
+ * "Combined meetings" is intentionally unmapped — it already carries its own
+ * sentence on screen, so it renders no ⓘ rather than a second copy of one.
+ */
+function figureInfo(label: string) {
+  const key = OUTREACH_SUMMARY_METRIC_KEYS[label];
+  return key ? <MetricInfo metric={key} /> : null;
+}
+
 function Figure({ label, value }: { label: string; value: number }) {
   return (
     <div className="space-y-1" data-testid={`outreach-${label.toLowerCase().replace(/ /g, "-")}`}>
-      <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
         {label}
+        {figureInfo(label)}
       </div>
       <div className="text-2xl leading-none font-semibold text-foreground tabular-nums">
         {value.toLocaleString()}

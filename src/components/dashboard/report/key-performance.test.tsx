@@ -322,7 +322,13 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
 
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "What is Monthly avg?" }));
-    expect(await screen.findByText(/ENTIRE history, not the selected period/)).toBeInTheDocument();
+    // ⚠️ Wording updated 2026-08-13 when these sentences were made voice-neutral
+    // for the Client's own report ("the client's ENTIRE history" → "the ENTIRE
+    // posting history"). The claim under test is unchanged: this row is all-time
+    // and the hero above it is the selected period.
+    expect(
+      await screen.findByText(/ENTIRE posting history, not the selected period/),
+    ).toBeInTheDocument();
   });
 
   it("says the per-month rates count only posts that carry a date", () => {

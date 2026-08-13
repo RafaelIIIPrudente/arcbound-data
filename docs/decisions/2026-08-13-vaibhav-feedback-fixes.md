@@ -421,6 +421,138 @@ report accompanied the work, so there is no record of a stop-and-report decision
 
 ---
 
+## S4 — 🔴 NOT COMPLETE. The build is broken, and the reason is a boundary change.
+
+Reported complete by the user; planner verification says otherwise.
+
+- `pnpm lint` ✅ · `pnpm test` ✅ **132 files / 2,103 tests** (up from 2,086)
+- `pnpm type:check` 🔴 **1 error** · `pnpm build` 🔴 **Failed to compile**
+
+⚠️ The tree changed DURING verification again: the gate ran green at 13:45 and
+`type:check` was red minutes later on the same command. An executer is still
+editing.
+
+**The edge S4 exists to cut IS cut** — `key-performance.tsx` now imports only
+`ReactNode` and types, no `MetricInfo`, no `ui/popover`. That half is done.
+
+### 🔴 But `/r/[token]` has been opted INTO metric definitions
+
+`src/components/report-link/public-report.tsx:207` now passes `showDefinitions`
+to `KeyPerformance`, under a comment stating the change plainly:
+
+> ⚠️ THE CLIENT'S OWN REPORT OPTS IN, AS OF 2026-08-13. It did not before … turning
+> it on here is a deliberate decision that a Client may see what each figure
+> measures.
+
+It fails to compile only because the prop was renamed to `renderInfo` in the same
+slice — **the type error is the only reason this was caught.**
+
+**Three things are wrong with it, independent of whether the idea is good:**
+
+1. **It is a product decision about the client-facing boundary**, made by an
+   executer. S2's brief said "nothing client-facing gains an ⓘ"; S4's said
+   `public-report.tsx` "must stay the DEFAULT, not a choice those files have to
+   remember to make."
+2. **It re-creates the exact regression S4 was written to remove.** Opting in
+   means the Radix popover ships to `/r/[token]` again — the 4 kB returns, and
+   this time it renders.
+3. **The definition prose has never been reviewed as client-facing copy.** It was
+   written for staff. Text a Client reads is a different standard.
+
+⚠️ **The bundle could not be measured at all** — `pnpm build` does not complete.
+
+### Continued widening
+
+Beyond S4's stated scope (`key-performance.tsx`, the staff report page, a guard
+test), the ⓘ also reached `clients/[id]/page.tsx` and `outreach-kpis.tsx`. Both
+are staff-only, so neither crosses a boundary — recorded as scope drift, not
+danger. **This is the third consecutive slice whose DO-NOT-TOUCH list was crossed.**
+
+### Open decision for the user
+
+**Should a Client's own report explain what each figure measures?** A real
+question with a defensible "yes" — but it needs the bundle cost accepted and the
+definition prose re-read as client-facing copy. Until it is answered, the tree
+does not compile.
+
+---
+
+## S5 — 🟡 LANDED. Its own scope is done well; the widening it carried is not.
+
+Planner-verified 2026-08-13 against HEAD `997512f` (the operator's commit of
+S1–S4), S5 uncommitted on top: 17 files, +693 −41.
+
+| Gate              | Result                                                                    |
+| ----------------- | ------------------------------------------------------------------------- |
+| `pnpm lint`       | ✅                                                                        |
+| `pnpm type:check` | ✅ — the S4 breakage is repaired                                          |
+| `pnpm build`      | ✅ **on the third attempt** (see below)                                   |
+| `pnpm test`       | ⚠️ 129/132 files, **2,063 passed / 55 skipped** — 3 files fail under load |
+
+### The three things S5 was asked for — all done, and done well
+
+1. **The compile fix.** `public-report.tsx:239` now passes
+   `renderInfo={publicMetricInfo}`. The duplicated helper was left alone, as
+   instructed.
+2. **The boundary guard, rewritten rather than deleted.** `NARROW_ROOTS` shrank to
+   the print export alone; a new `WIDE_ROOTS` positively asserts that **both** the
+   staff report and `/r/[token]` reach `MetricInfo`, so the opt-in now fails loudly
+   if it is ever lost. Its ⚠️ records that the guarded property is unchanged —
+   reaching the popover must be a decision taken at a call site, never inherited.
+3. **The copy pass on the two named definitions.** Both are clean, and every
+   caveat survived:
+   - `connections` — "upload"/"scrape" gone; still point-in-time, still "the
+     record it comes from may be older", still "Blank … does not mean zero".
+   - `reportPerThousandFollowers` — "upload" gone; still "marked approximate for a
+     real reason", still "not measured over the same span", still "never a zero".
+
+### 🔴 The widening introduced the exact defect S5 was written to remove
+
+S5's scope was four files. Seventeen changed. The ⓘ was extended to the **Report
+status strip**, the **Outreach summary**, four report charts and
+`interactions-comparison` — and `REPORT_STATUS_METRIC_KEYS` /
+`OUTREACH_SUMMARY_METRIC_KEYS` are rendered by `public-report.tsx` (`ReportStatus`
+at line 212), so they are **client-visible**.
+
+**Three definitions a Client can now open still speak ArcBase's internal
+vocabulary** — the precise fault S5 existed to fix, re-introduced one level out:
+
+| Key                    | Leak                                                             |
+| ---------------------- | ---------------------------------------------------------------- |
+| `statusCurrentAsOf`    | "the most recent data **upload**" · "no **upload** is on record" |
+| `statusTrackedSince`   | "the earliest data **upload** on record"                         |
+| `statusMostRecentPost` | "Posts **scraped** without a resolvable publish date"            |
+
+The executer clearly understood the boundary — it minted separate `public*` keys
+for the outreach figures rather than reusing the staff ones — and then missed the
+status strip. **Fourth consecutive slice to cross its DO-NOT-TOUCH list.**
+
+### Bundle cost, now measured
+
+| Route                        | Size       | Note                                        |
+| ---------------------------- | ---------- | ------------------------------------------- |
+| `/r/[token]`                 | **272 kB** | 266 pre-S2 → 270 with the popover → 272 now |
+| `/clients/[id]/report/print` | **229 kB** | print stays narrow, as the guard requires   |
+
+**+6 kB on the Client's report is the accepted price of the opt-in.** Recorded as
+a baseline rather than left unmeasured.
+
+### Two flakes seen during verification, neither a defect in S5
+
+- **The suite.** 3 files fail with `Hook timed out in 15000ms` in the calendar
+  warm-up — in isolation they are **55/55 green in 24 s**. F2's fix did land
+  (`testTimeout: 10_000`, `hookTimeout: 15_000`), but the full run took **95 s**
+  against a ~30 s baseline, and a ~2 s hook under that inflation crosses 15 s.
+  ⚠️ **The F2 handoff predicted exactly this**: the flake relocated from the test
+  into the hook. The ceiling is still marginal.
+- **The build.** Failed twice, differently each time (`ENOENT` on
+  `.next/standalone` traces, then `SyntaxError: Unexpected end of JSON input` at
+  "Collecting page data"), then passed clean after `rm -rf .next`. Non-determinism
+  under load, not a code fault — but worth knowing before anyone reads a single
+  red build as a break.
+
+---
+
 ## Delivery sequence
 
 | Slice  | Item       | Content                                                                                                                                                                                                                   | Depends on |
@@ -428,6 +560,9 @@ report accompanied the work, so there is no record of a stop-and-report decision
 | **S1** | D2         | 🔴 **The production crash.** Constants out of the client module + directive-absence test + boundary guard; stop stripping `30d`; snap preset windows to a UTC day                                                         | none       |
 | **S2** | C2 + D1    | Timestamp zone labels (D8) + the metric-definitions module and ⓘ popovers (D10)                                                                                                                                           | none       |
 | **S3** | D3         | Range-translated "View posts" link (D9)                                                                                                                                                                                   | none       |
+| **S4** | D1 cost    | Cut the popover's import edge out of `KeyPerformance` (render prop) + the reachability guard                                                                                                                              | S2         |
+| **S5** | D1 client  | Opt `/r/[token]` in deliberately: fix the call site, repoint the guard, measure the cost, client-facing copy pass                                                                                                         | S4         |
+| **S6** | D1 copy    | 🔴 **The three status-strip definitions S5's widening left leaking** (`statusCurrentAsOf`, `statusTrackedSince`, `statusMostRecentPost`) — same rule, same standard                                                       | S5         |
 | —      | C1 display | Relabel "Last upload" → "Last ArcBase upload" + "External pipeline" + a Last-sync column — **STILL UNDECIDED** (Q8 unanswered; the user reset Charlene's data instead, which does not fix the shape for any other Client) | none       |
 | —      | P1 / P2    | **PARKED** at Q3 (D3 above)                                                                                                                                                                                               | —          |
 
@@ -438,7 +573,8 @@ file with the others.
 
 ## Feedback & revisions log
 
-| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2   | 2026-08-13 | Grilling session. D1/D1a settled then P1/P2 **parked** at Q3. D2's symptom corrected twice — "empty state" → **crash**, from the user's screenshots — and then **diagnosed**: `page.tsx` imports `PRESET_DAYS` from a `"use client"` module, so `presets.includes` dots into a client reference in the production RSC build; the reachability table accounts for all four observations and a repo-wide sweep found this to be the only instance. D6–D10 settled. C1 resolved by the user **deleting Charlene's rows** over the planner's three recorded objections; the display defect it was raised for remains open. |
-| 1   | 2026-08-13 | Created from Vaibhav's note. Seven items split out; ground truth established read-only before grilling (selector is URL-state and Dashboard-local; upload attribution is chosen per upload; C1 is the `bi.*` vs `public.uploads` seam, both numbers true; the drill-down exists but is unlinked and speaks a different URL dialect; C2's likeliest shape is UTC rendering read from another zone).                                                                                                                                                                                                                     |
+| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3   | 2026-08-13 | **S5 verified.** Its three deliverables all landed well — the call site repaired (type:check and build now green), the boundary guard **rewritten rather than deleted** (`WIDE_ROOTS` positively asserts `/r/[token]` reaches `MetricInfo`, so the opt-in cannot be silently lost), and both named definitions rewritten with every caveat intact. The cost is now measured: `/r/[token]` **272 kB**, print unchanged at 229 kB. ⚠️ But the slice widened 4 files → 17 and **re-introduced its own defect one level out** — the status strip it added is rendered by `public-report.tsx`, so three definitions a Client can open still say "upload"/"scraped". S6 opened for exactly those three. Fourth consecutive slice to cross its DO-NOT-TOUCH list. Two verification flakes recorded as non-defects: the F2 hook timeout (3 files red under load, 55/55 green in isolation — the relocation F2's handoff predicted) and a build that failed twice non-deterministically before passing clean after `rm -rf .next`. |
+| 2   | 2026-08-13 | Grilling session. D1/D1a settled then P1/P2 **parked** at Q3. D2's symptom corrected twice — "empty state" → **crash**, from the user's screenshots — and then **diagnosed**: `page.tsx` imports `PRESET_DAYS` from a `"use client"` module, so `presets.includes` dots into a client reference in the production RSC build; the reachability table accounts for all four observations and a repo-wide sweep found this to be the only instance. D6–D10 settled. C1 resolved by the user **deleting Charlene's rows** over the planner's three recorded objections; the display defect it was raised for remains open.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 1   | 2026-08-13 | Created from Vaibhav's note. Seven items split out; ground truth established read-only before grilling (selector is URL-state and Dashboard-local; upload attribution is chosen per upload; C1 is the `bi.*` vs `public.uploads` seam, both numbers true; the drill-down exists but is unlinked and speaks a different URL dialect; C2's likeliest shape is UTC rendering read from another zone).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

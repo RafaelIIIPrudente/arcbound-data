@@ -406,14 +406,29 @@ describe("the guard's own reach — proved, not asserted", () => {
 // pinned it. This is that pin, for the report path.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The two surfaces that must never ship a definition popover. */
-const NARROW_ROOTS = [
-  "src/components/report-link/public-report.tsx",
-  "src/components/dashboard/report/print/print-report.tsx",
-];
+/**
+ * The surface that must never ship a definition popover.
+ *
+ * ⚠️ THIS LIST LOST `public-report.tsx` ON 2026-08-13, DELIBERATELY. The Client's
+ * own report was on it because nobody had decided a Client should see the
+ * definitions; that decision has since been made the other way, so `/r/[token]`
+ * now reaches `MetricInfo` ON PURPOSE and pays the bytes for a control its
+ * reader can actually click. The PRINT export is a different case and is not a
+ * matter of taste: a popover cannot be opened on paper, so shipping it there
+ * would be bytes nobody can ever use.
+ *
+ * ⚠️ THE PROPERTY THIS GUARDS IS UNCHANGED — reaching the popover must be a
+ * DECISION taken at a call site, never something inherited from a shared
+ * component. That is why the list shrank rather than being deleted.
+ */
+const NARROW_ROOTS = ["src/components/dashboard/report/print/print-report.tsx"];
 
-/** The staff report page — the ONE surface that is supposed to reach it. */
-const STAFF_ROOT = "src/app/(app)/clients/[id]/report/page.tsx";
+/** The surfaces that are SUPPOSED to reach it — staff, and the Client's report. */
+const WIDE_ROOTS = [
+  "src/app/(app)/clients/[id]/report/page.tsx",
+  "src/components/report-link/public-report.tsx",
+];
+const STAFF_ROOT = WIDE_ROOTS[0]!;
 
 const METRIC_INFO = join(SRC, "components/dashboard/metric-info.tsx");
 
@@ -475,7 +490,7 @@ function reachedFrom(entry: string): Set<string> {
 }
 
 describe("the definition popover never ships to a surface that cannot open it", () => {
-  it("is unreachable by static import from the public report or the print export", () => {
+  it("is unreachable by static import from the print export", () => {
     // ⚠️ THE FIX FOR THIS FAILURE IS NEVER A PROP OR A CONDITIONAL RENDER. Both
     // leave the import edge in place, and the edge is what costs the bytes. Pass
     // the ⓘ IN from the one caller that wants it (a render prop), or reach it
@@ -488,17 +503,24 @@ describe("the definition popover never ships to a surface that cannot open it", 
     expect(chains).toEqual([]);
   });
 
-  it("IS reachable from the staff report — the positive control", () => {
+  it("IS reachable from both surfaces that opted in — the positive control", () => {
     // Guard the guard. Without this, a walk that silently reached nothing would
-    // make the assertion above vacuously true and the guard worthless.
-    expect(importChain(STAFF_ROOT, METRIC_INFO)).not.toBeNull();
+    // make the assertion above vacuously true and the guard worthless. Both
+    // roots are asserted, so the Client's report losing its ⓘ by accident fails
+    // here rather than passing as "narrow, therefore safe".
+    for (const root of WIDE_ROOTS) {
+      expect(importChain(root, METRIC_INFO), root).not.toBeNull();
+    }
   });
 
   it("actually walks the graph it claims to walk", () => {
-    // The two roots must reach the shared component at the centre of this slice,
-    // several hops in — proof the traversal is transitive, not one-hop.
-    const publicSide = reachedFrom(NARROW_ROOTS[0]!);
-    const printSide = reachedFrom(NARROW_ROOTS[1]!);
+    // Both report surfaces must reach the shared component at the centre of this
+    // slice, several hops in — proof the traversal is transitive, not one-hop.
+    // ⚠️ `public-report.tsx` is read here from WIDE_ROOTS now rather than
+    // NARROW_ROOTS: it changed sides, and this walk-integrity check is about the
+    // traversal working at all, which is true of it either way.
+    const publicSide = reachedFrom(WIDE_ROOTS[1]!);
+    const printSide = reachedFrom(NARROW_ROOTS[0]!);
     const keyPerformance = join(SRC, "components/dashboard/report/key-performance.tsx");
 
     expect(publicSide.has(keyPerformance)).toBe(true);

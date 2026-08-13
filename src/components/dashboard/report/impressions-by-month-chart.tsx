@@ -1,5 +1,6 @@
 "use client";
 
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import { Bar, BarChart, CartesianGrid, LabelList, ReferenceLine, XAxis } from "recharts";
 
 import {
@@ -44,6 +45,12 @@ export function ImpressionsByMonthChart({
         <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
           Average impressions by {bucket}
         </div>
+        {/* ⚠️ A DIRECT IMPORT EDGE, AND IT IS SAFE HERE. `print-report.tsx` draws
+            its own print-friendly charts and does NOT import this file, so the
+            Radix popover cannot reach the PDF through it — see the bundle guard
+            in `src/rsc-boundary.test.ts`. The three panels print DOES share
+            take a render prop instead, for exactly that reason. */}
+        <MetricInfo metric="chartImpressionsOverTime" />
         <ChartScope period={period} postCount={postCount} />
       </div>
 

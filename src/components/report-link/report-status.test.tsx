@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
+import { METRIC_DEFINITIONS, REPORT_STATUS_METRIC_KEYS } from "@/lib/metric-definitions";
 import type { ClientReport, MonthPoint, PostingCadence } from "@/services/types";
 
 import { ReportStatus, type ReportFreshness } from "./report-status";
@@ -194,5 +196,84 @@ describe("ReportStatus — freshness + non-graded activity", () => {
       />,
     );
     expect(screen.getByText(/no dated posts|no posts/i)).toBeInTheDocument();
+  });
+});
+
+describe("ReportStatus — the ⓘ a CLIENT can open", () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("defines every block except the one that would collide with the picker", () => {
+    render(<ReportStatus report={makeReport()} freshness={freshness()} />);
+
+    for (const name of [
+      "Current as of",
+      "Tracked since",
+      "Most recent post",
+      "Posts in this view",
+      "Posting rhythm",
+      "Impressions trend",
+    ]) {
+      expect(screen.getByRole("button", { name: `What is ${name}?` }), name).toBeInTheDocument();
+    }
+    // ⚠️ "Reporting period" gets NO ⓘ: its accessible name would collide with
+    // the period picker's on the same screen, and the block only echoes that
+    // picker's value anyway.
+    expect(
+      screen.queryByRole("button", { name: "What is Reporting period?" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("says 'Current as of' is the last UPLOAD, not the last post", async () => {
+    // ⚠️ THE MISREADING A CLIENT IS MOST LIKELY TO MAKE. A report can be current
+    // while its newest post is weeks old; without this the two dates beside each
+    // other look like a contradiction.
+    const user = userEvent.setup();
+    render(<ReportStatus report={makeReport()} freshness={freshness()} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Current as of?" }));
+
+    expect(await screen.findByText(/NOT the date of the most recent post/)).toBeInTheDocument();
+  });
+
+  it("says the trend reads only the two endpoints, and is not a verdict", async () => {
+    // ⚠️ "Trending up" is a two-point comparison with a 5% band — a client would
+    // otherwise read it as a graded judgement on their performance.
+    const user = userEvent.setup();
+    render(<ReportStatus report={makeReport()} freshness={freshness()} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Impressions trend?" }));
+
+    const d = METRIC_DEFINITIONS.statusImpressionsTrend.definition;
+    expect(await screen.findByText(d)).toBeInTheDocument();
+    expect(d).toMatch(/direction, not a verdict/);
+    expect(d).toMatch(/5%/);
+  });
+
+  it("says the rhythm is measured while ACTIVE, not up to today", () => {
+    const d = METRIC_DEFINITIONS.statusPostingRhythm.definition;
+
+    expect(d).toMatch(/not measured up to today/);
+    // The not-applicable branch: one dated post, or all on one day.
+    expect(d).toMatch(/no span to divide by/);
+  });
+
+  it("maps only labels this component actually renders", () => {
+    // Guard the map: an entry for a label that no longer exists is an ⓘ nobody
+    // will ever see, and it would hide the fact that a block lost its definition.
+    render(<ReportStatus report={makeReport()} freshness={freshness()} />);
+
+    for (const label of Object.keys(REPORT_STATUS_METRIC_KEYS)) {
+      expect(screen.getByRole("button", { name: `What is ${label}?` }), label).toBeInTheDocument();
+    }
   });
 });

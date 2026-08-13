@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
+import { METRIC_DEFINITIONS, OUTREACH_SUMMARY_METRIC_KEYS } from "@/lib/metric-definitions";
 import type { ReportLinkOutreach } from "@/services/report-links";
 
 import { OutreachSummary } from "./outreach-summary";
@@ -302,5 +304,99 @@ describe("OutreachSummary — the Email channel (S4, D9)", () => {
 
     expect(screen.getByTestId("outreach-requests-sent")).toBeInTheDocument();
     expect(screen.getByTestId("outreach-meetings-booked")).toBeInTheDocument();
+  });
+});
+
+describe("OutreachSummary — the ⓘ a CLIENT can open", () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("defines all five LinkedIn figures", () => {
+    render(<OutreachSummary outreach={outreach()} />);
+
+    for (const name of [
+      "Prospects",
+      "Requests sent",
+      "Connections accepted",
+      "Replies",
+      "Meetings booked",
+    ]) {
+      expect(screen.getByRole("button", { name: `What is ${name}?` }), name).toBeInTheDocument();
+    }
+  });
+
+  it("says a BLANK is not a reply — the narrowest, most scrutinised step", async () => {
+    // ⚠️ The rule that decides the smallest number on a client's report. Reading
+    // a blank as an answer would inflate exactly the figure most looked at.
+    const user = userEvent.setup();
+    render(<OutreachSummary outreach={outreach()} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Replies?" }));
+
+    const d = METRIC_DEFINITIONS.publicReplies.definition;
+    expect(await screen.findByText(d)).toBeInTheDocument();
+    expect(d).toMatch(/A blank counts as NO reply/);
+    // …and the other half of the same rule: an uncategorised answer IS a reply.
+    expect(d).toMatch(/still counts/);
+  });
+
+  it("gives NO ⓘ to Combined meetings, which already explains itself on screen", () => {
+    // ⚠️ Duplicating that sentence into a popover would put one rule in two
+    // places — the drift this repo keeps commenting about.
+    render(<OutreachSummary outreach={outreach()} />);
+
+    expect(
+      screen.queryByRole("button", { name: "What is Combined meetings?" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("describes NO PROSPECT in any sentence it can reach — the public boundary", () => {
+    // ⚠️ ADR 0012. A definition is prose crossing the same boundary a number
+    // crosses, so none of these may name a person, a company, a message or an
+    // address — only how a COUNT was arrived at.
+    for (const key of Object.values(OUTREACH_SUMMARY_METRIC_KEYS)) {
+      const d = METRIC_DEFINITIONS[key].definition;
+      expect(d, key).not.toMatch(/\b(name|email address|LinkedIn URL|message|note|stage)\b/i);
+    }
+  });
+
+  it("defines the three Email figures too, when the export carried that channel", () => {
+    render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 645, replied: 39, meetingsBooked: 13, combinedMeetings: 19 },
+        })}
+      />,
+    );
+
+    for (const name of ["Emails sent", "Email replies", "Email meetings booked"]) {
+      expect(screen.getByRole("button", { name: `What is ${name}?` }), name).toBeInTheDocument();
+    }
+  });
+
+  it("maps only labels this component actually renders", () => {
+    // Guard the map: an entry for a label nobody renders is an ⓘ that can never
+    // be opened, and it would mask a figure that lost its definition. Driven
+    // with the Email channel present, since three of the eight only exist then.
+    render(
+      <OutreachSummary
+        outreach={outreach({
+          email: { status: "ok", sent: 645, replied: 39, meetingsBooked: 13, combinedMeetings: 19 },
+        })}
+      />,
+    );
+
+    for (const label of Object.keys(OUTREACH_SUMMARY_METRIC_KEYS)) {
+      expect(screen.getByRole("button", { name: `What is ${label}?` }), label).toBeInTheDocument();
+    }
   });
 });
