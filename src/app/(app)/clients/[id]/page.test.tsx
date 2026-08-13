@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
+
 const { getClientMock, listUploadsMock, getReportLinkMock, getRoleMock, getClientServicesMock } =
   vi.hoisted(() => ({
     getClientMock: vi.fn(),
@@ -130,5 +132,49 @@ describe("the Client Overview — Services", () => {
     render(await ClientDetailPage(params()));
 
     expect(getClientServicesMock).toHaveBeenCalledWith(CLIENT_ID);
+  });
+});
+
+describe("the Client Overview — the ⓘ on each headline card", () => {
+  it("defines all four cards", async () => {
+    render(await ClientDetailPage(params()));
+
+    for (const name of ["Uploads", "Posts", "Followers", "Connections"]) {
+      expect(screen.getByRole("button", { name: `What is ${name}?` }), name).toBeInTheDocument();
+    }
+  });
+
+  it("warns that the figure beside Posts is NOT the change in Posts", async () => {
+    // ⚠️ THE MISREADING THIS TAB INVITES, AND THE REASON THESE CARDS HAVE AN ⓘ.
+    // `postsDelta` is the last upload's `rowsInserted` — ArcBase's own ingest
+    // audit — while the Posts count comes from the reporting data. Attribution
+    // happens after an upload, so the two move independently. Read as a delta,
+    // it is a wrong number sitting inside a correct card.
+    const d = METRIC_DEFINITIONS.overviewPosts.definition;
+
+    expect(d).toMatch(/NOT the change in this number/);
+    expect(d).toMatch(/adjacent pipelines/);
+  });
+
+  it("says an absent Uploads figure is a failed READ, not an absence of uploads", async () => {
+    expect(METRIC_DEFINITIONS.overviewUploads.definition).toMatch(/could not be read/i);
+    expect(METRIC_DEFINITIONS.overviewUploads.definition).toMatch(/not that there have been none/i);
+  });
+
+  it("says a Connections dash is ORDINARY, and never softens to 0", async () => {
+    // The em dash is the common case on this card — the count is optional at
+    // capture — so a reader must not take it as a signal about the client.
+    const d = METRIC_DEFINITIONS.overviewConnections.definition;
+
+    expect(d).toMatch(/ORDINARY case/);
+    expect(d).toMatch(/never softens to 0/);
+  });
+
+  it("says the audience deltas skip uploads that recorded no count", async () => {
+    // Otherwise a reader assumes the comparison is against the immediately
+    // previous upload, which it is not when that upload captured nothing.
+    expect(METRIC_DEFINITIONS.overviewFollowers.definition).toMatch(
+      /skipped rather than read as zero/,
+    );
   });
 });

@@ -204,6 +204,43 @@ export function decodeRange(
   return { kind: "custom", startDay, endDay };
 }
 
+/**
+ * The same window, spoken in the REPORT's `?period=` dialect — the drill-through
+ * from a dashboard figure to the posts behind it.
+ *
+ * ⚠️ NOT `encodeRange` WITH A PREFIX, AND THE DIFFERENCE IS THE POINT. The posts
+ * screen offers named periods, not day-counts: `parseReportPeriod` decodes with
+ * `presets: []`, so `"30d"` is not a period there at all. And an unreadable token
+ * does not throw and does not fall back to all-time — it falls back to the NEWEST
+ * MONTH. Hand that screen a bare `"30d"` and the reader lands on a plausible,
+ * confident table of the wrong posts, with nothing anywhere to notice it by. Every
+ * preset must therefore travel as the explicit run of days it actually covers.
+ *
+ * ⚠️ THE DAYS COME FROM `resolveWindow`, NEVER FROM ARITHMETIC HERE. One
+ * definition of "the window" is the only reason this translation is exact. A
+ * second computation of "N days back" in this function would agree today and
+ * drift the first time the preset branch changes — which it already did once,
+ * when presets were snapped to whole UTC days. Since that snap a preset IS a run
+ * of whole days, so it has an exact `custom:` spelling; before it, one did not
+ * exist and this function could not have been written honestly.
+ *
+ * All-time alone survives as itself: `availablePeriods` always emits
+ * `{kind: "all", key: "all"}`, so the bare token matches a real period by key.
+ *
+ * @param customPrefix The destination's dialect — `"custom:"` for `?period=`.
+ *   Defaults to the bare form, matching `encodeRange`.
+ */
+export function toPeriodToken(sel: RangeSelection, now: Date, customPrefix = ""): string {
+  if (sel.kind === "all") return "all";
+
+  const { startMs, endMs } = resolveWindow(sel, now);
+  // `startMs` is a day's opening midnight and `endMs` its closing 23:59:59.999Z,
+  // so both name their own day in UTC. Read as instants, matching the windowing —
+  // there is nothing local to preserve here, unlike `toDayKey`.
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  return `${customPrefix}${day(startMs)}..${day(endMs)}`;
+}
+
 // ── the window ───────────────────────────────────────────────────────────────
 
 /**

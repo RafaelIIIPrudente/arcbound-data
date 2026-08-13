@@ -1,6 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import type { RateReconciliation } from "@/services/types";
 
 import { RateReconciliationPanel } from "./rate-reconciliation";
@@ -223,6 +225,91 @@ describe("the aggregate-formula check keeps its three answers apart", () => {
 
     for (const token of ["impressions", "interactions", "calculated_engagement_rate"]) {
       expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
+    }
+  });
+});
+
+describe("RateReconciliationPanel — the ⓘ on each figure", () => {
+  // Radix's Popover needs the Pointer Events jsdom does not implement.
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("defines all three figures and the panel itself", () => {
+    render(<RateReconciliationPanel rates={rates()} />);
+
+    for (const name of [
+      "Engagement rate reconciliation",
+      "Posts with no rate",
+      "Rates that differ",
+      "Matches our overall formula",
+    ]) {
+      expect(screen.getByRole("button", { name: `What is ${name}?` }), name).toBeInTheDocument();
+    }
+  });
+
+  it("says the HEADING here names no rate at all — the panel is about a disagreement", async () => {
+    // ⚠️ "Engagement rate" on this page is not a fifth figure to read beside the
+    // others. A reader who takes it as one has the wrong idea of the section.
+    const user = userEvent.setup();
+    render(<RateReconciliationPanel rates={rates()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "What is Engagement rate reconciliation?" }),
+    );
+
+    expect(
+      await screen.findByText(METRIC_DEFINITIONS.rateReconciliation.definition),
+    ).toBeInTheDocument();
+  });
+
+  it("states the denominator each figure excludes from", async () => {
+    // ⚠️ THE THING A READER CANNOT WORK OUT FROM THE SCREEN. "Rates that differ"
+    // counts only posts carrying BOTH rates — posts missing either are excluded
+    // rather than counted as agreeing, which is the difference between a small
+    // finding and a pipeline-wide alarm.
+    const user = userEvent.setup();
+    render(<RateReconciliationPanel rates={rates()} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Rates that differ?" }));
+
+    const text = await screen.findByText(METRIC_DEFINITIONS.ratesThatDiffer.definition);
+    expect(text).toBeInTheDocument();
+    expect(METRIC_DEFINITIONS.ratesThatDiffer.definition).toMatch(/excluded rather than counted/i);
+  });
+
+  it("explains the em dash on the formula check, which is 'could not run', not 'no'", async () => {
+    const user = userEvent.setup();
+    render(<RateReconciliationPanel rates={rates({ aggregateFormulaMatches: null })} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Matches our overall formula?" }));
+
+    expect(
+      await screen.findByText(METRIC_DEFINITIONS.matchesOverallFormula.definition),
+    ).toBeInTheDocument();
+    expect(METRIC_DEFINITIONS.matchesOverallFormula.definition).toMatch(/could not run/i);
+  });
+
+  it("names no raw data column in any definition it shows here", () => {
+    // ⚠️ THE PANEL'S OWN STANDING RULE: staff read "the scraper's figure" and
+    // "the reporting view's figure", never the underlying column names. The
+    // definitions must not smuggle them back in.
+    for (const key of [
+      "rateReconciliation",
+      "postsMissingRate",
+      "ratesThatDiffer",
+      "matchesOverallFormula",
+    ] as const) {
+      const d = METRIC_DEFINITIONS[key].definition;
+      expect(d, key).not.toMatch(/provided_engagement_rate|calculated_engagement_rate|bi\./);
     }
   });
 });

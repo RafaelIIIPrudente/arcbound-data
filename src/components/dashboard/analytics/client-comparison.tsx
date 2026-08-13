@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import {
   Table,
   TableBody,
@@ -21,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { metricDefinition } from "@/lib/metric-definitions";
 import { cn } from "@/lib/utils";
 import { paths } from "@/paths";
 import type { ClientComparison, ClientComparisonRow, ComparisonMedian } from "@/services/types";
@@ -46,6 +48,15 @@ const NUM = "font-mono text-sm tabular-nums";
 interface ComparisonColumnMeta {
   className?: string;
   sortLabel?: string;
+  /**
+   * The `metric-definitions.ts` key for an ⓘ beside this column's header.
+   *
+   * ⚠️ DECLARED HERE, RENDERED BY THE TABLE, for the same reason `columns.tsx`
+   * does it on the posts screen: this table's header content is placed INSIDE
+   * the sort `<button>`, so an ⓘ returned from `header` would be a button nested
+   * in a button — invalid markup, unreachable by keyboard.
+   */
+  infoMetric?: string;
 }
 
 /**
@@ -78,13 +89,18 @@ function metric(
   sortLabel: string,
   format: (v: number) => string,
   unknownLabel: string,
+  infoMetric: string,
 ): ColumnDef<ClientComparisonRow> {
   return {
     id,
     accessorFn: (r) => r[id] ?? undefined,
     sortUndefined: "last",
     header: () => <span className={`${HEAD} block text-right`}>{header}</span>,
-    meta: { className: "text-right whitespace-nowrap", sortLabel } satisfies ComparisonColumnMeta,
+    meta: {
+      className: "text-right whitespace-nowrap",
+      sortLabel,
+      infoMetric,
+    } satisfies ComparisonColumnMeta,
     cell: ({ row }) => {
       const value = row.original[id];
       return (
@@ -118,7 +134,11 @@ const columns: ColumnDef<ClientComparisonRow>[] = [
     id: "posts",
     accessorFn: (r) => r.posts,
     header: () => <span className={`${HEAD} block text-right`}>Posts</span>,
-    meta: { className: "text-right", sortLabel: "posts" } satisfies ComparisonColumnMeta,
+    meta: {
+      className: "text-right",
+      sortLabel: "posts",
+      infoMetric: "comparisonPosts",
+    } satisfies ComparisonColumnMeta,
     cell: ({ row }) => <span className={NUM}>{row.original.posts.toLocaleString("en-US")}</span>,
   },
   metric(
@@ -127,21 +147,42 @@ const columns: ColumnDef<ClientComparisonRow>[] = [
     "average impressions",
     (v) => Math.round(v).toLocaleString("en-US"),
     "Average impressions",
+    "avgImpressions",
   ),
+  // ⚠️ `engagementRatePerClient`, AND THE KEY IS DOING REAL WORK. This column,
+  // the dashboard's engagement chart, the posts table's column and the median
+  // cell below all print a form of "engagement rate" over FOUR DIFFERENT
+  // statistics. This one is a single client's interactions over their own
+  // impressions in the window. The definitions are what keep them apart.
   metric(
     "engagementRate",
-    "Engagement",
+    // ⚠️ "Engagement rate", NOT "Engagement". This column holds a percentage,
+    // and the shorter word was the one place in the app that named this
+    // measurement differently from every other screen — a sixth spelling of a
+    // label that already denotes four distinct statistics. The header now
+    // matches its own sort label, its "not reported" text and the accessible
+    // name on the cell; the ⓘ beside it is what says WHICH rate this is.
+    "Engagement rate",
     "engagement rate",
     (v) => `${v.toFixed(1)}%`,
     "Engagement rate",
+    "engagementRatePerClient",
   ),
-  metric("followers", "Followers", "followers", (v) => v.toLocaleString("en-US"), "Followers"),
+  metric(
+    "followers",
+    "Followers",
+    "followers",
+    (v) => v.toLocaleString("en-US"),
+    "Followers",
+    "followers",
+  ),
   metric(
     "interactionsPer1K",
     "Per 1K followers",
     "interactions per 1,000 followers",
     (v) => v.toLocaleString("en-US", { maximumFractionDigits: 1 }),
     "Interactions per 1,000 followers",
+    "interactionsPer1K",
   ),
   // ⚠️ A RAW COUNT, AND DELIBERATELY THE LAST COLUMN. Connections carries NO
   // per-1,000 rate — that derived column was removed, and the asymmetry with
@@ -154,6 +195,7 @@ const columns: ColumnDef<ClientComparisonRow>[] = [
     "connections",
     (v) => v.toLocaleString("en-US"),
     "Connections",
+    "connections",
   ),
 ];
 
@@ -171,16 +213,33 @@ function MedianCell({
   median,
   format,
   noun,
+  infoMetric,
 }: {
   median: ComparisonMedian;
   format: (v: number) => string;
   noun: string;
+  /**
+   * ⚠️ SET ONLY ON THE ENGAGEMENT ROW, AND ON PURPOSE. A median across CLIENTS
+   * is a different statistic from the column it sits under, and "engagement
+   * rate" is the one label in this app that already denotes four things — so
+   * this cell is the fourth, and the only median here that needs saying apart.
+   * The other medians are the same measurement as their column, whose header
+   * ⓘ already defines them.
+   */
+  infoMetric?: string;
 }) {
+  // ⚠️ THE ⓘ RENDERS IN BOTH BRANCHES, INCLUDING THE DASH. The definition is
+  // what explains the dash — a median is taken only over clients that HAVE the
+  // figure, so "no client has one" and "the median is zero" are different
+  // sentences and this is where a reader learns which they are looking at.
+  const info = infoMetric ? <MetricInfo metric={infoMetric} className="ml-1.5" /> : null;
+
   if (median.value === null) {
     return (
       <span className={NUM}>
         <span aria-hidden>—</span>
         <span className="sr-only">No client has a {noun} to take a median of</span>
+        {info}
       </span>
     );
   }
@@ -190,6 +249,7 @@ function MedianCell({
       <span className="ml-1.5 font-mono text-[10px] font-normal text-muted-foreground">
         of {median.clients.toLocaleString("en-US")} {median.clients === 1 ? "client" : "clients"}
       </span>
+      {info}
     </span>
   );
 }
@@ -248,8 +308,19 @@ export function ClientComparisonTable({ comparison }: { comparison: ClientCompar
                   const meta = header.column.columnDef.meta as ComparisonColumnMeta | undefined;
                   const direction = header.column.getIsSorted();
                   const label = flexRender(header.column.columnDef.header, header.getContext());
+                  const info = meta?.infoMetric ? metricDefinition(meta.infoMetric) : undefined;
                   return (
-                    <TableHead key={header.id} scope="col" className={meta?.className}>
+                    <TableHead
+                      key={header.id}
+                      scope="col"
+                      className={meta?.className}
+                      // ⚠️ AN EXPLICIT NAME WHERE AN ⓘ SITS. A `<th>` computes
+                      // its name from its content, so the ⓘ's own label ("What
+                      // is Engagement rate?") would otherwise be announced as
+                      // part of this column on every cell in it. Both buttons
+                      // stay individually reachable under their own names.
+                      aria-label={info?.term}
+                    >
                       {header.isPlaceholder ? null : (
                         <button
                           type="button"
@@ -270,6 +341,13 @@ export function ClientComparisonTable({ comparison }: { comparison: ClientCompar
                           )}
                         </button>
                       )}
+                      {/* ⚠️ A SIBLING OF THE SORT CONTROL, NEVER INSIDE IT — the
+                          header above is rendered within that button. The icon
+                          carries no text, so a header's `textContent` is
+                          unchanged and the column-order tests still read it. */}
+                      {meta?.infoMetric ? (
+                        <MetricInfo metric={meta.infoMetric} className="ml-1.5" />
+                      ) : null}
                     </TableHead>
                   );
                 })}
@@ -307,6 +385,7 @@ export function ClientComparisonTable({ comparison }: { comparison: ClientCompar
                   median={comparison.medians.engagementRate}
                   format={(v) => `${v.toFixed(1)}%`}
                   noun="engagement rate"
+                  infoMetric="engagementRateMedianAcrossClients"
                 />
               </TableCell>
               <TableCell className="text-right whitespace-nowrap">

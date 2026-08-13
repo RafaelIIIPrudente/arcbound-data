@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { ClientReport, MatrixRow, ReportFigure } from "@/services/types";
 
 /**
@@ -31,6 +33,36 @@ import type { ClientReport, MatrixRow, ReportFigure } from "@/services/types";
  * is the dial to turn if it wants more or less presence.
  */
 
+/**
+ * How a caller supplies the ⓘ that sits beside a figure's label.
+ *
+ * ⚠️ A RENDER PROP, NOT A BOOLEAN, AND THE REASON IS THE BUNDLE — NOT TASTE.
+ * This file used to import `MetricInfo` ("use client" → Radix Popover) and gate
+ * it on a `showDefinitions` boolean. The boolean was correct about RENDERING:
+ * the print export and `/r/[token]` never drew a popover. It was powerless about
+ * BUNDLING, because a static import is an edge in the module graph and the
+ * bundler resolves it long before any prop is read — so Radix shipped to both
+ * surfaces anyway, and `/r/[token]`, the report a CLIENT downloads, carried 4 kB
+ * of code it could never run. A prop cannot fix that. Not having the edge can.
+ *
+ * So this module no longer knows that `MetricInfo` exists. The ONE caller that
+ * wants definitions — `app/(app)/clients/[id]/report/page.tsx` — passes them in.
+ *
+ * ⚠️ THE NARROW SURFACE IS STILL THE DEFAULT, WHICH IS THE PROPERTY THAT MATTERS.
+ * `renderInfo` is optional and undefined means no ⓘ, so `print-report.tsx` and
+ * `public-report.tsx` get the safe behaviour by saying NOTHING — they never had
+ * to remember to opt out, and they still don't. Same shape as `DateRangePicker`'s
+ * `allowCustom`: forget the prop and you ship the narrower thing.
+ *
+ * Returning `null` for a label with no definition is the CALLER's branch now.
+ *
+ * ⚠️ THIS MODULE MUST STAY A SERVER COMPONENT — no `"use client"`. A function
+ * prop passed RSC → RSC is fine; the moment this file became a Client Component
+ * `renderInfo` would be an unserializable value crossing the boundary, and the
+ * fix would have to become a dynamic `import()` instead.
+ */
+type RenderInfo = (label: string) => ReactNode;
+
 /** Column headers, in the order `MatrixRow` declares its cells. */
 const COLUMNS = ["Posts", "Per post", "Interactions"] as const;
 
@@ -63,13 +95,18 @@ function Cell({ figure, column }: { figure: ReportFigure | null; column: string 
   );
 }
 
-function Row({ row }: { row: MatrixRow }) {
+function Row({ row, renderInfo }: { row: MatrixRow; renderInfo?: RenderInfo }) {
   return (
     <div className="grid grid-cols-3 gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,6.5rem))] sm:items-baseline sm:gap-y-0">
       {/* Below sm the row header owns its own line above the cells; from sm it
           becomes the first column of a true matrix. */}
-      <div className="col-span-3 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase sm:col-span-1">
+      {/* ⓘ ON THE ROW, NOT IN THE CELLS. One sentence covers a row's three
+          figures, six triggers inside right-aligned numeric cells would be
+          clutter, and the maxima row's em dash can only be explained at row
+          level anyway. */}
+      <div className="col-span-3 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase sm:col-span-1">
         {row.label}
+        {renderInfo?.(row.label)}
       </div>
       <Cell figure={row.posts} column={COLUMNS[0]} />
       <Cell figure={row.perPost} column={COLUMNS[1]} />
@@ -81,9 +118,17 @@ function Row({ row }: { row: MatrixRow }) {
 export function KeyPerformance({
   keyPerformance,
   hasPosts,
+  renderInfo,
 }: {
   keyPerformance: ClientReport["keyPerformance"];
   hasPosts: boolean;
+  /**
+   * ⚠️ STAFF ONLY, AND ABSENCE IS THE SAFE DEFAULT ON PURPOSE. See `RenderInfo`
+   * above: this component is also the print export and the Client's own
+   * `/r/[token]` report, and neither may gain an interactive popover — nor ship
+   * the code for one. Only `app/(app)/clients/[id]/report/page.tsx` passes this.
+   */
+  renderInfo?: RenderInfo;
 }) {
   if (!hasPosts) {
     return (
@@ -110,8 +155,9 @@ export function KeyPerformance({
             <div className="font-display text-3xl leading-none font-extrabold tracking-tight text-primary/75 tabular-nums sm:text-5xl">
               {format(figure)}
             </div>
-            <div className="mt-2 font-mono text-[10px] leading-relaxed tracking-[0.12em] text-muted-foreground uppercase">
+            <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] leading-relaxed tracking-[0.12em] text-muted-foreground uppercase">
               {figure.label}
+              {renderInfo?.(figure.label)}
             </div>
           </div>
         ))}
@@ -134,14 +180,19 @@ export function KeyPerformance({
 
         <div className="divide-y">
           {matrix.map((row) => (
-            <Row key={row.label} row={row} />
+            <Row key={row.label} row={row} renderInfo={renderInfo} />
           ))}
         </div>
       </div>
 
       {/* An AVERAGE, so it stands outside the matrix rather than sitting in the
           maxima row where it used to hide. */}
-      <FooterLine figure={perThousandFollowers} qualifier="· all time" approximate />
+      <FooterLine
+        figure={perThousandFollowers}
+        qualifier="· all time"
+        approximate
+        renderInfo={renderInfo}
+      />
 
       {/* ⚠️ A DIFFERENT KIND OF FIGURE, SO DIFFERENT CHROME. This is a count read
           off one scrape — exact, and about a single moment. Routing it through
@@ -156,7 +207,7 @@ export function KeyPerformance({
           when no connection count was captured would leave a reader unable to
           tell "we don't measure this" from "this report happens not to show it" —
           the labelled em dash says which. */}
-      <FooterLine figure={connections} />
+      <FooterLine figure={connections} renderInfo={renderInfo} />
     </div>
   );
 }
@@ -172,16 +223,19 @@ function FooterLine({
   figure,
   qualifier,
   approximate = false,
+  renderInfo,
 }: {
   figure: ReportFigure;
   qualifier?: string;
   approximate?: boolean;
+  renderInfo?: RenderInfo;
 }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t py-3">
-      <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
         {figure.label}
-        {qualifier ? <span className="ml-1.5 opacity-70">{qualifier}</span> : null}
+        {qualifier ? <span className="opacity-70">{qualifier}</span> : null}
+        {renderInfo?.(figure.label)}
       </div>
       <div className="flex items-baseline gap-1.5">
         <span className="font-display text-base leading-none font-semibold tracking-tight tabular-nums sm:text-lg">

@@ -178,6 +178,17 @@ describe("PublicReportView — the client-facing wrapper (pure)", () => {
     expect(screen.getByText(/posting cadence/i)).toBeInTheDocument();
   });
 
+  it("carries NO metric ⓘ — the definitions are a staff affordance", () => {
+    // ⚠️ THE PUBLIC BOUNDARY. `KeyPerformance` is shared with the staff report,
+    // which DOES render an ⓘ beside each figure; it is opt-in there and this
+    // wrapper does not opt in. Anything that appears here is something a Client
+    // sees, so a control arriving by inheritance rather than by decision is the
+    // shape of change this test exists to catch.
+    render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
+
+    expect(screen.queryByRole("button", { name: /^What is / })).not.toBeInTheDocument();
+  });
+
   it("keeps the period picker", () => {
     render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
     expect(screen.getByLabelText(/reporting period/i)).toBeInTheDocument();

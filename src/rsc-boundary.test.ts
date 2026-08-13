@@ -381,3 +381,129 @@ describe("the guard's own reach — proved, not asserted", () => {
     ]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE BUNDLE BOUNDARY — A DIFFERENT GUARD FROM THE ONE ABOVE, AND THE DIFFERENCE
+// IS THE WHOLE POINT.
+//
+// Everything above is about what happens at REQUEST time. This is about what
+// happens at BUILD time, and a prop cannot help with it: a static import is an
+// edge in the module graph, and the bundler resolves it long before any prop is
+// read. `KeyPerformance` used to import `MetricInfo` ("use client" → Radix
+// Popover) and pass it a `showDefinitions` boolean. The boolean correctly stopped
+// the popover RENDERING on the print export and on `/r/[token]` — and Radix
+// shipped to both regardless, costing `/r/[token]` 4 kB of code a Client can
+// never run.
+//
+// ⚠️ A RENDER-LEVEL TEST CANNOT CATCH THIS. `print-report.test.tsx` and
+// `public-report.test.tsx` both assert that no ⓘ button is in the document, and
+// both passed the entire time the popover was being shipped. They are asserting
+// about the DOM; this asserts about the module graph. Both are needed, and
+// neither substitutes for the other.
+//
+// The repo already had one worked example of the same property — the dynamic
+// `import()` for the calendar in `date-range/date-range-picker.tsx` — but nothing
+// pinned it. This is that pin, for the report path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The two surfaces that must never ship a definition popover. */
+const NARROW_ROOTS = [
+  "src/components/report-link/public-report.tsx",
+  "src/components/dashboard/report/print/print-report.tsx",
+];
+
+/** The staff report page — the ONE surface that is supposed to reach it. */
+const STAFF_ROOT = "src/app/(app)/clients/[id]/report/page.tsx";
+
+const METRIC_INFO = join(SRC, "components/dashboard/metric-info.tsx");
+
+/**
+ * The shortest static import chain from `entry` to `target`, or null.
+ *
+ * A real reachability walk rather than a direct assertion on the two wrappers:
+ * the defect this pins arrived THREE modules deep (`public-report` →
+ * `key-performance` → `metric-info`), so a one-hop check would have been blind
+ * to exactly the shape that shipped. Breadth-first, so the reported chain is the
+ * shortest one and reads as an explanation rather than a wander.
+ *
+ * ⚠️ WHAT IT CANNOT SEE, inherited from `importsOf` plus one of its own:
+ *   • DYNAMIC `import()` — invisible, which is CORRECT here: a dynamic import is
+ *     a separate chunk and is the sanctioned escape hatch (see the calendar).
+ *   • SIDE-EFFECT imports (`import "./x"`) — no bindings, so not followed.
+ *   • TYPE-ONLY imports — erased before bundling, so correctly not followed.
+ *   • Anything reached through a bare package (`resolveSpecifier` returns null).
+ */
+function importChain(entry: string, target: string): string[] | null {
+  const start = join(process.cwd(), entry);
+  const queue: string[][] = [[start]];
+  const seen = new Set([start]);
+
+  while (queue.length > 0) {
+    const chain = queue.shift()!;
+    const source = read(chain[chain.length - 1]!);
+    if (source === null) continue;
+
+    for (const { spec } of importsOf(source)) {
+      const next = resolveSpecifier(chain[chain.length - 1]!, spec);
+      if (next === null || seen.has(next)) continue;
+      if (next === target) return [...chain, next];
+      seen.add(next);
+      queue.push([...chain, next]);
+    }
+  }
+  return null;
+}
+
+/** Every module a surface statically reaches — used to prove the walk works. */
+function reachedFrom(entry: string): Set<string> {
+  const start = join(process.cwd(), entry);
+  const seen = new Set([start]);
+  const queue = [start];
+
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    const source = read(file);
+    if (source === null) continue;
+    for (const { spec } of importsOf(source)) {
+      const next = resolveSpecifier(file, spec);
+      if (next === null || seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return seen;
+}
+
+describe("the definition popover never ships to a surface that cannot open it", () => {
+  it("is unreachable by static import from the public report or the print export", () => {
+    // ⚠️ THE FIX FOR THIS FAILURE IS NEVER A PROP OR A CONDITIONAL RENDER. Both
+    // leave the import edge in place, and the edge is what costs the bytes. Pass
+    // the ⓘ IN from the one caller that wants it (a render prop), or reach it
+    // through a dynamic `import()` so it lands in its own chunk.
+    const chains = NARROW_ROOTS.map((root) => {
+      const chain = importChain(root, METRIC_INFO);
+      return chain === null ? null : chain.map((f) => relative(process.cwd(), f)).join("\n     → ");
+    }).filter((c) => c !== null);
+
+    expect(chains).toEqual([]);
+  });
+
+  it("IS reachable from the staff report — the positive control", () => {
+    // Guard the guard. Without this, a walk that silently reached nothing would
+    // make the assertion above vacuously true and the guard worthless.
+    expect(importChain(STAFF_ROOT, METRIC_INFO)).not.toBeNull();
+  });
+
+  it("actually walks the graph it claims to walk", () => {
+    // The two roots must reach the shared component at the centre of this slice,
+    // several hops in — proof the traversal is transitive, not one-hop.
+    const publicSide = reachedFrom(NARROW_ROOTS[0]!);
+    const printSide = reachedFrom(NARROW_ROOTS[1]!);
+    const keyPerformance = join(SRC, "components/dashboard/report/key-performance.tsx");
+
+    expect(publicSide.has(keyPerformance)).toBe(true);
+    expect(printSide.has(keyPerformance)).toBe(true);
+    expect(publicSide.size).toBeGreaterThan(10);
+    expect(printSide.size).toBeGreaterThan(10);
+  });
+});

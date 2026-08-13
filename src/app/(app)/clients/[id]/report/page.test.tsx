@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,8 +25,16 @@ vi.mock("@/components/dashboard/client/section-tabs", () => ({
 }));
 // Every section component below is a stub carrying a recognisable marker — this
 // file is about the GATE, not about what any section computes (out of Scope).
+// ⚠️ THIS STUB RENDERS WHAT THE PAGE PASSES AS `renderInfo`, DELIBERATELY. The
+// ⓘ is no longer built inside `KeyPerformance` — the page hands it in, so that
+// the print export and `/r/[token]` never reach `MetricInfo` at all (see
+// `src/rsc-boundary.test.ts`). A stub that discarded its props would leave that
+// wiring untested on both sides: the component's own test supplies its own
+// render prop, and this file is the only place the PAGE's one is exercised.
 vi.mock("@/components/dashboard/report/key-performance", () => ({
-  KeyPerformance: () => <div data-testid="key-performance" />,
+  KeyPerformance: ({ renderInfo }: { renderInfo?: (label: string) => ReactNode }) => (
+    <div data-testid="key-performance">{renderInfo?.("Total posts")}</div>
+  ),
 }));
 vi.mock("@/components/dashboard/report/impressions-by-month-chart", () => ({
   ImpressionsByMonthChart: () => null,
@@ -171,5 +180,21 @@ describe("⚠️ ClientReportPage — the LinkedIn sub-nav (D17/D18)", () => {
     render(await ClientReportPage(params()));
 
     expect(screen.getByTestId("section-tabs")).toBeInTheDocument();
+  });
+});
+
+describe("the staff report supplies the metric definitions — the ⓘ opt-in", () => {
+  // ⚠️ THE WIRING TEST, AND IT IS NOT REDUNDANT WITH key-performance.test.tsx.
+  // That file proves the COMPONENT renders whatever render prop it is given, and
+  // it builds its own mirror of this one. This proves the PAGE passes a render
+  // prop that produces the REAL `MetricInfo` — the half a mirror cannot cover.
+  // Together they close the "View tested, wiring not" gap that opened when the
+  // ⓘ moved out of the component to keep Radix off `/r/[token]`.
+  it("passes a renderInfo that produces the real ⓘ for a mapped label", async () => {
+    getClientServicesMock.mockResolvedValue({ services: [LINKEDIN], held: [LINKEDIN] });
+
+    render(await ClientReportPage(params()));
+
+    expect(screen.getByRole("button", { name: "What is Total posts?" })).toBeInTheDocument();
   });
 });

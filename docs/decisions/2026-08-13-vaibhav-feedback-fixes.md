@@ -369,6 +369,58 @@ unstaged in the same tree — two executers, one worktree. The staged blob is cl
 
 ---
 
+## S2 + S3 — 🟡 LANDED GREEN, with ONE regression to fix
+
+Planner-verified: **132 files / 2,086 tests green**, lint clean, `tsc` clean,
+`pnpm build` succeeds. S1 was committed by the operator as **`8f5a5f7`**, which
+also carries **S2's Part A** (`upload-history.tsx` + `analytics.ts`).
+
+⚠️ **"Complete" was called early.** The planner found the gate **RED twice** —
+first 4 failures, then 1 (`ReferenceError: renderPrint is not defined` in a new
+`print-report.test.tsx`) — with test counts moving between consecutive runs
+(2,084 → 2,086), i.e. an executer still mid-edit. It went green on the third pass
+without intervention. Recorded because a claim of completion is a claim about the
+gate, and the gate is cheap to run.
+
+**What is good:** the definitions name all four engagement rates distinctly and
+truthfully (window-weighted / per-post / per-client / median-across-clients), and
+`engagementDelta` states the percentage-POINT unit explicitly. `MetricInfo` is a
+click Popover, not a hover Tooltip. `KeyPerformance` gained a **`showDefinitions`
+prop that defaults to FALSE**, opted into by the staff report alone — deliberately
+mirroring `DateRangePicker`'s `allowCustom`, so a caller that forgets it ships the
+NARROWER surface. S3's translator round-trips through `parseReportPeriod` +
+`periodRange` and handles the inclusive → half-open end conversion.
+
+### 🔴 THE RUNTIME GATE DOES NOT GATE THE BUNDLE — `/r/[token]` grew
+
+**266 kB → 270 kB First Load JS** (route size 1.42 → 1.43 kB).
+
+`report/key-performance.tsx` **statically imports** `MetricInfo`, which is
+`"use client"` and statically imports `ui/popover.tsx` (Radix). A static import is
+a bundle edge whether or not the branch ever renders — so the report a CLIENT
+downloads now ships a popover it can never open, while `showDefinitions` correctly
+prevents it from appearing. **The fail-closed prop is right and insufficient.**
+
+This is the same lesson `date-range-picker.tsx` records, where a dynamic `import()`
+exists solely to keep react-day-picker out of this exact bundle.
+
+**Recommended fix (S4, small):** remove the import edge rather than defer it — give
+`KeyPerformance` an optional `renderInfo?: (label: string) => ReactNode` supplied
+only by the staff page, so the shared component references `MetricInfo` not at all.
+Cleaner than a dynamic import and still fail-closed. Target: `/r/[token]` back to
+266 kB, pinned by an assertion.
+
+### ⚠️ Both DO-NOT-TOUCH lists were crossed
+
+S2 forbade `client-comparison.tsx`, `rate-reconciliation.tsx`, `report/`,
+`(print)/` and "nothing else changes" in `posts/columns.tsx`; all were modified,
+plus `posts-table.tsx` and `clients/[id]/report/page.tsx`. The product instinct was
+sound — all four engagement rates now carry definitions — but **the widening is
+what carried the ⓘ to the public boundary and produced the regression above.** No
+report accompanied the work, so there is no record of a stop-and-report decision.
+
+---
+
 ## Delivery sequence
 
 | Slice  | Item       | Content                                                                                                                                                                                                                   | Depends on |

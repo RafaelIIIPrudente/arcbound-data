@@ -155,8 +155,18 @@ export function availablePeriods(rows: BiPostRow[]): ReportPeriod[] {
   ];
 }
 
-/** The prefix that keeps a custom window from colliding with a named period key. */
-const CUSTOM_PREFIX = "custom:";
+/**
+ * The prefix that keeps a custom window from colliding with a named period key.
+ *
+ * ⚠️ EXPORTED FOR THE DASHBOARD DRILL-THROUGH, AND FOR NOTHING ELSE. The
+ * dashboard builds a `?period=` token from the window it is showing, and a
+ * second hand-written `"custom:"` string over there is exactly how the two
+ * screens would drift: `parseReportPeriod` does not throw on a token it cannot
+ * read, it falls back to the newest MONTH, so a one-character divergence lands
+ * the reader on a plausible, confident, wrong table. Exporting the constant is
+ * the whole of the change — no behaviour in this file depends on it.
+ */
+export const CUSTOM_PREFIX = "custom:";
 
 /**
  * A custom window's label — the only string staff ever read for it.
@@ -451,6 +461,24 @@ export function buildClientReport(
     if (ms > lastMs) lastMs = ms;
   }
 
+  // ⚠️ THE POSTS THE MONTHLY RATES ARE ALLOWED TO COUNT, AND THE REASON THEY ARE
+  // A SEPARATE TALLY FROM `rows`. A per-month rate divides by `monthSpan`, and a
+  // month span can only be measured from posts that HAVE a month — the BI view
+  // leaves `estimated_post_date` NULL for hour-age scrapes, and `placeable` is
+  // exactly the rows it did resolve. Counting every row against a span drawn
+  // only from datable ones inflated both averages, and did it invisibly: the
+  // maxima beside them come from `monthly`, which is also placeable-only, so a
+  // client with enough undated posts printed an AVERAGE month larger than their
+  // MAXIMUM month. The denominator was never wrong; the numerator was.
+  //
+  // ⚠️ THIS DOES NOT HIDE THE UNDATED POSTS. They still count in `Total posts`,
+  // in `Total interactions`, in `Avg interactions per post` and in every
+  // period-scoped figure — everywhere no month is involved. `cadence.ts` and the
+  // weekday chart already refuse to place them for the same reason, and disclose
+  // their number; this is that same rule reaching the one place it had not.
+  const placeableRows = placeable.map((d) => d.row);
+  const placeableInteractions = sum(placeableRows, (r) => r.interactions);
+
   let monthSpan = 0;
   let maxMonthlyPosts = 0;
   let maxMonthlyInteractions = 0;
@@ -578,14 +606,21 @@ export function buildClientReport(
     matrix: [
       {
         label: "Monthly avg",
+        // Both rates divide the DATABLE posts by the span those same posts
+        // define — see `placeableRows` above.
         posts: {
           label: "Avg monthly posts",
-          value: monthSpan > 0 ? round1(rows.length / monthSpan) : 0,
+          value: monthSpan > 0 ? round1(placeableRows.length / monthSpan) : 0,
         },
+        // ⚠️ OVER EVERY POST, AND CORRECTLY SO. This cell involves no month, so
+        // its numerator and denominator already covered the same population.
+        // Narrowing it to `placeable` to match its neighbours would discard real
+        // measurements to buy a symmetry nothing needs — and would silently move
+        // `perThousandFollowers`, which is computed from it.
         perPost: { label: "Avg interactions per post", value: round1(avgInteractionsPerPost) },
         interactions: {
           label: "Avg monthly interactions",
-          value: monthSpan > 0 ? round1(totalInteractions / monthSpan) : 0,
+          value: monthSpan > 0 ? round1(placeableInteractions / monthSpan) : 0,
         },
       },
       {

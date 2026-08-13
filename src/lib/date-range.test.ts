@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import type { BiPostRow } from "@/services/analytics";
+import { periodRange } from "@/services/bi-posts";
+import { CUSTOM_PREFIX, availablePeriods, parseReportPeriod } from "@/services/client-report";
+
 import {
   DAILY_MAX_DAYS,
   WEEKLY_MAX_DAYS,
@@ -10,6 +14,7 @@ import {
   resolveWindow,
   spanLabel,
   toDayKey,
+  toPeriodToken,
   triggerLabel,
   utcDayBounds,
 } from "./date-range";
@@ -17,6 +22,29 @@ import type { RangeSelection } from "./date-range";
 
 const DAY_MS = 86_400_000;
 const PRESETS = [7, 30, 90] as const;
+
+/** A row that exists only to put its month into `availablePeriods`. */
+function postOn(day: string): BiPostRow {
+  return {
+    client_id: "c1",
+    client_name: "Client One",
+    linkedin_post_id: `p-${day}`,
+    post_url: null,
+    post_content: null,
+    post_age: null,
+    estimated_post_date: day,
+    impressions: 100,
+    likes: null,
+    comments: null,
+    reposts: null,
+    saves: null,
+    interactions: null,
+    provided_engagement_rate: null,
+    calculated_engagement_rate: null,
+    scraped_at: null,
+    uploaded_at: null,
+  };
+}
 
 /** The dashboard's own custom window: 12 Jun – 29 Jul 2026 is 48 days inclusive. */
 const CUSTOM: RangeSelection = { kind: "custom", startDay: "2026-06-12", endDay: "2026-07-29" };
@@ -538,5 +566,119 @@ describe("triggerLabel", () => {
         tz,
       ).toBe("12 JUN – 29 JUL 2026");
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE DRILL-THROUGH: the dashboard's `?range=` window, in the posts screen's
+// `?period=` dialect.
+//
+// ⚠️ THESE TESTS ROUND-TRIP; THEY DO NOT MATCH STRINGS. Asserting that a token
+// starts with "custom:" proves nothing about where the reader lands, because
+// `parseReportPeriod` does not throw on a token it cannot read — it falls back
+// to the NEWEST MONTH. A wrong translation therefore produces a perfectly
+// plausible table of the wrong posts, and a string assertion would pass while it
+// happened. Every test below feeds the produced token through the real
+// `parseReportPeriod` and compares the window it actually resolves to.
+//
+// ⚠️ THE END BOUND IS NOT THE SAME KIND ON BOTH SIDES. `resolveWindow.endMs` is
+// INCLUSIVE — the last instant of the end day, 23:59:59.999Z. `periodRange`
+// returns a HALF-OPEN `end`, which every consumer filters as `ms < end`. The
+// conversion is `+ 1`, landing exactly on the next day's midnight. Assert them
+// equal without it and the drill-through silently drops its last day.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("toPeriodToken — the dashboard window, spoken in the posts screen's dialect", () => {
+  const NOW = new Date("2026-07-29T09:41:00.000Z");
+
+  /** A realistic period list: exactly what the posts screen builds from its rows. */
+  const AVAILABLE = availablePeriods(
+    ["2026-07-20", "2026-06-15", "2026-05-02", "2025-12-31"].map(postOn),
+  );
+
+  /** Follow a dashboard selection all the way to the window the posts screen shows. */
+  function drillThrough(sel: RangeSelection) {
+    const token = toPeriodToken(sel, NOW, CUSTOM_PREFIX);
+    const period = parseReportPeriod(token, AVAILABLE);
+    return { token, period, bounds: periodRange(period) };
+  }
+
+  /** Every window the dashboard can be showing. */
+  const SELECTIONS: RangeSelection[] = [
+    { kind: "preset", days: 7 },
+    { kind: "preset", days: 30 },
+    { kind: "preset", days: 90 },
+    CUSTOM,
+  ];
+
+  it("lands each preset on EXACTLY the window the dashboard resolved", () => {
+    for (const sel of SELECTIONS) {
+      const want = resolveWindow(sel, NOW);
+      const { bounds, token } = drillThrough(sel);
+
+      expect(bounds.start, token).toBe(want.startMs);
+      // Inclusive → half-open. The `+ 1` is the last day of the window.
+      expect(bounds.end, token).toBe(want.endMs + 1);
+    }
+  });
+
+  it("keeps all-time as all-time, by KEY MATCH rather than by translation", () => {
+    // `availablePeriods` always emits `{kind:"all", key:"all"}` first, so the
+    // bare token "all" matches a real period and never reaches the fallback.
+    const { token, period, bounds } = drillThrough({ kind: "all" });
+
+    expect(token).toBe("all");
+    expect(period.kind).toBe("all");
+    expect(bounds.start).toBe(resolveWindow({ kind: "all" }, NOW).startMs);
+    // ⚠️ THE ONE BOUND THAT IS DELIBERATELY NOT `endMs + 1`. The dashboard closes
+    // all-time at `now` (no post can carry a later timestamp); the posts screen
+    // leaves it unbounded. Both select the same rows — see the FLAG in the report
+    // for the future-dated-row edge this leaves open.
+    expect(bounds.end).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  // ── the failure this slice exists to prevent ────────────────────────────────
+  it("NEVER lands on a month period — the silent fallback is the whole hazard", () => {
+    for (const sel of [...SELECTIONS, { kind: "all" } as RangeSelection]) {
+      const { period, token } = drillThrough(sel);
+      expect(period.kind, `${token} fell back to a month`).not.toBe("month");
+    }
+  });
+
+  it("keeps the two dialects distinct — the dashboard cannot read its own output", () => {
+    // One window, one URL per surface. If the dashboard's decoder accepted these
+    // tokens too, the same window would have two spellings on the same screen.
+    for (const sel of SELECTIONS) {
+      const { token } = drillThrough(sel);
+      if (token === "all") continue;
+      expect(decodeRange(token, [...PRESETS]), token).toBeNull();
+    }
+  });
+
+  it("derives its days from the RESOLVED window, not from its own arithmetic", () => {
+    // A preset is a run of whole UTC days ending TODAY, so the token names those
+    // exact days. Recomputing "N days back" anywhere else is how the two screens
+    // drift apart; this pins the days to `resolveWindow`'s answer.
+    const { startMs, endMs } = resolveWindow({ kind: "preset", days: 7 }, NOW);
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+    expect(toPeriodToken({ kind: "preset", days: 7 }, NOW, CUSTOM_PREFIX)).toBe(
+      `custom:${day(startMs)}..${day(endMs)}`,
+    );
+  });
+
+  it("records the exact token for each window — a readable pin, not the proof", () => {
+    // The proof is the round-trip above. This is here so a reader can see what
+    // actually travels in the URL without running the suite.
+    expect(SELECTIONS.map((sel) => toPeriodToken(sel, NOW, CUSTOM_PREFIX))).toEqual([
+      "custom:2026-07-23..2026-07-29",
+      "custom:2026-06-30..2026-07-29",
+      "custom:2026-05-01..2026-07-29",
+      "custom:2026-06-12..2026-07-29",
+    ]);
+  });
+
+  it("defaults to the bare dialect, like `encodeRange`", () => {
+    expect(toPeriodToken(CUSTOM, NOW)).toBe("2026-06-12..2026-07-29");
   });
 });

@@ -12,6 +12,16 @@ const NUM = "font-mono text-sm tabular-nums";
 export interface PostColumnMeta {
   className?: string;
   sortLabel?: string;
+  /**
+   * The `metric-definitions.ts` key for an ⓘ beside this column's header.
+   *
+   * ⚠️ DECLARED HERE, RENDERED IN `posts-table.tsx`, AND IT HAS TO BE. A
+   * sortable column's `header` output is placed INSIDE the sort `<button>`, so
+   * an ⓘ returned from `header` would be a button nested in a button — invalid
+   * markup, and unreachable by keyboard. The table renders it as a SIBLING of
+   * the sort control instead.
+   */
+  infoMetric?: string;
 }
 
 /**
@@ -189,6 +199,12 @@ export const columns: ColumnDef<ClientPostRow>[] = [
     meta: {
       className: "text-right whitespace-nowrap",
       sortLabel: "engagement rate",
+      // ⚠️ `engagementRatePerPost`, and the distinction is the whole point. The
+      // dashboard prints "Engagement rate" too, over a DIFFERENT statistic — a
+      // ratio of the window's totals. Wiring only that side would have left a
+      // reader holding two screens that disagree under one word, with a tooltip
+      // on one of them confirming the wrong reading.
+      infoMetric: "engagementRatePerPost",
     } satisfies PostColumnMeta,
     cell: ({ row }) => (
       <span className={NUM}>

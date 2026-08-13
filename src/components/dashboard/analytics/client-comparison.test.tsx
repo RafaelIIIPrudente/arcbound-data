@@ -1,7 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import type { ClientComparison, ClientComparisonRow } from "@/services/types";
 
 import { ClientComparisonTable } from "./client-comparison";
@@ -292,7 +293,7 @@ describe("ClientComparisonTable — the connection columns", () => {
     expect(headers.some((h) => /per 1k connections/i.test(h))).toBe(false);
     // Followers KEEPS its rate — the asymmetry is deliberate.
     expect(headers.some((h) => /per 1k followers/i.test(h))).toBe(true);
-    // Client · Posts · Avg impressions · Engagement · Followers · Per 1K followers
+    // Client · Posts · Avg impressions · Engagement rate · Followers · Per 1K followers
     // · Connections = 7 header cells.
     expect(headers).toHaveLength(7);
   });
@@ -409,5 +410,142 @@ describe("ClientComparisonTable — a failed connection read is stated separatel
     for (const token of ["uploads", "connections_count", "connectionsUnavailable"]) {
       expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
     }
+  });
+});
+
+describe("ClientComparisonTable — the ⓘ on each column", () => {
+  // Radix's Popover needs the Pointer Events jsdom does not implement.
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("defines every measured column — the Client name column has nothing to define", () => {
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    for (const name of [
+      "Posts",
+      "Avg impressions",
+      "Engagement rate",
+      "Followers",
+      "Per 1K followers",
+      "Connections",
+    ]) {
+      expect(screen.getByRole("button", { name: `What is ${name}?` }), name).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: /What is Client\?/ })).not.toBeInTheDocument();
+  });
+
+  it("says the Engagement column is the PER-CLIENT rate, not the dashboard's", async () => {
+    // ⚠️ THE THIRD OF FOUR. This header, the dashboard chart and the posts
+    // table now all read "Engagement rate" — one label over three different
+    // statistics, which is precisely why the definitions have to do the work
+    // the labels cannot. This one is a single client's interactions over their
+    // own impressions in the window.
+    const user = userEvent.setup();
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Engagement rate?" }));
+
+    expect(
+      await screen.findByText(METRIC_DEFINITIONS.engagementRatePerClient.definition),
+    ).toBeInTheDocument();
+  });
+
+  it("gives the MEDIAN cell its own, different definition", async () => {
+    // ⚠️ THE FOURTH OF FOUR, and the one most easily mistaken for the column
+    // above it: a median across CLIENTS is not the book's overall rate.
+    const user = userEvent.setup();
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Median engagement rate?" }));
+
+    expect(
+      await screen.findByText(METRIC_DEFINITIONS.engagementRateMedianAcrossClients.definition),
+    ).toBeInTheDocument();
+    // The two sentences are genuinely different, which is the whole point.
+    expect(METRIC_DEFINITIONS.engagementRateMedianAcrossClients.definition).not.toBe(
+      METRIC_DEFINITIONS.engagementRatePerClient.definition,
+    );
+  });
+
+  it("keeps the median's ⓘ when the median is a DASH — that is when it helps most", () => {
+    // The definition is what explains the dash: a median is taken only over
+    // clients that HAVE the figure.
+    render(
+      <ClientComparisonTable
+        comparison={comparison({
+          medians: {
+            avgImpressions: { value: 1000, clients: 1 },
+            engagementRate: { value: null, clients: 0 },
+            followers: { value: 10_000, clients: 1 },
+            interactionsPer1K: { value: 20, clients: 1 },
+            connections: { value: 5_000, clients: 1 },
+          },
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "What is Median engagement rate?" }),
+    ).toBeInTheDocument();
+  });
+
+  it("spells the column ENGAGEMENT RATE on screen, not the shorter 'Engagement'", () => {
+    // ⚠️ ASSERTED ON THE VISIBLE TEXT, NOT THE ROLE NAME. The `<th>` carries an
+    // explicit aria-label (so the ⓘ stays out of it), which means a
+    // `getByRole("columnheader", { name: … })` query would pass here whatever
+    // the header actually reads — a vacuous test for exactly this change.
+    //
+    // The column holds a percentage, and "Engagement" alone was the one place
+    // in the app where this measurement was named by a shorter word than
+    // everywhere else — a sixth spelling of a label that already denotes four
+    // different statistics.
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    const header = screen.getByRole("columnheader", { name: "Engagement rate" });
+    expect(header.textContent).toContain("Engagement rate");
+  });
+
+  it("keeps the ⓘ out of every column header's accessible name", () => {
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    expect(screen.getByRole("columnheader", { name: "Engagement rate" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Per 1K followers" })).toBeInTheDocument();
+  });
+
+  it("leaves every SORT control reachable under its own name", () => {
+    render(<ClientComparisonTable comparison={comparison()} />);
+
+    for (const label of ["engagement rate", "posts", "followers", "connections"]) {
+      expect(screen.getByRole("button", { name: `Sort by ${label}` }), label).toBeVisible();
+    }
+  });
+
+  it("still sorts — the nested-button trap would have broken this", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClientComparisonTable
+        comparison={
+          comparison({
+            rows: [
+              row({ clientId: "a", clientName: "Ada", engagementRate: 1 }),
+              row({ clientId: "b", clientName: "Grace", engagementRate: 9 }),
+            ],
+          }) as ClientComparison
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sort by engagement rate" }));
+
+    expect(namesInOrder()[0]).toBe("Grace");
   });
 });

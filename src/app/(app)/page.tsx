@@ -23,11 +23,15 @@ import {
   decodeRange,
   encodeRange,
   spanLabel,
+  toPeriodToken,
   utcDayBounds,
   type RangeSelection,
 } from "@/lib/date-range";
 import { paths } from "@/paths";
 import { getDashboardAnalytics } from "@/services/analytics";
+// The posts screen's dialect, from the module that OWNS it. A second hand-written
+// "custom:" here is exactly the drift this import prevents — see `toPeriodToken`.
+import { CUSTOM_PREFIX } from "@/services/client-report";
 import { listClientRegistry } from "@/services/clients";
 
 export const metadata: Metadata = { title: "Post analytics" };
@@ -132,6 +136,42 @@ export default async function DashboardPage({
             />
           ) : null}
           <KpiCards hero={analytics.hero} kpis={analytics.kpis} rangeLabel={rangeLabel} />
+          {/* ⚠️ ONE drill-through for the whole screen, and it belongs HERE — these
+              are the figures a reader wants to open. Not one link per chart: the
+              cards and every chart below share a single window, so six links
+              would be six spellings of the same destination.
+
+              ⚠️ THE TOKEN IS TRANSLATED, NEVER THE `?range=` VALUE FORWARDED. The
+              two screens speak different dialects on purpose (`date-range.ts`
+              documents why), and the posts screen does not error on a token it
+              cannot read — it falls back to the newest MONTH. Forwarding `30d`
+              would land the reader on a confident table of the wrong posts.
+
+              ⚠️ NOT GATED ON `linkedin_post_metrics` FROM HERE. Pre-checking the
+              destination's service gate would cost another read per client and
+              could fail open differently on the two screens, leaving them
+              disagreeing about what a client is assigned. The destination gates
+              itself. */}
+          <div className="-mt-1 flex justify-end">
+            {clientId ? (
+              <Link
+                href={`${paths.clients.posts(clientId)}?period=${toPeriodToken(range, now, CUSTOM_PREFIX)}`}
+                className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+              >
+                View these posts <span aria-hidden="true">→</span>
+              </Link>
+            ) : (
+              // All clients: there is no single posts page to point at, and
+              // guessing a default client is a PARKED product decision. The copy
+              // says where this actually goes rather than promising posts.
+              <Link
+                href={paths.clients.list}
+                className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+              >
+                Choose a client to open its posts <span aria-hidden="true">→</span>
+              </Link>
+            )}
+          </div>
           <div className="grid gap-3.5 lg:grid-cols-[1.6fr_1fr]">
             <ImpressionsChart data={analytics.impressionsSeries} rangeLabel={rangeLabel} />
             <EngagementChart

@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -20,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { metricDefinition } from "@/lib/metric-definitions";
 import { cn } from "@/lib/utils";
 import type { ClientPostRow } from "@/services/types";
 
@@ -75,8 +77,21 @@ export function PostsTable({ data }: { data: ClientPostRow[] }) {
                   const sortable = header.column.getCanSort();
                   const direction = header.column.getIsSorted();
                   const label = flexRender(header.column.columnDef.header, header.getContext());
+                  const info = meta?.infoMetric ? metricDefinition(meta.infoMetric) : undefined;
                   return (
-                    <TableHead key={header.id} scope="col" className={meta?.className}>
+                    <TableHead
+                      key={header.id}
+                      scope="col"
+                      className={cn(meta?.className, info && "whitespace-nowrap")}
+                      // ⚠️ AN EXPLICIT NAME, AND ONLY WHERE AN ⓘ SITS. A `<th>`
+                      // computes its name from its content, so without this the
+                      // ⓘ's own label ("What is Engagement rate?") would be read
+                      // out as part of the column header on every cell in the
+                      // column. Stating the name here keeps BOTH buttons out of
+                      // it while leaving each individually reachable under its
+                      // own name.
+                      aria-label={info?.term}
+                    >
                       {header.isPlaceholder ? null : sortable ? (
                         <button
                           type="button"
@@ -101,6 +116,16 @@ export function PostsTable({ data }: { data: ClientPostRow[] }) {
                       ) : (
                         label
                       )}
+                      {/* ⚠️ A SIBLING OF THE SORT CONTROL, NEVER INSIDE IT. A
+                          sortable header's content is rendered within a
+                          `<button>`, so an ⓘ placed in `columnDef.header` would
+                          nest one button in another — invalid markup that no
+                          keyboard can reach. `columns.tsx` therefore declares
+                          the metric and this renders it. Unmapped keys render
+                          nothing at all; `MetricInfo` owns that branch. */}
+                      {meta?.infoMetric ? (
+                        <MetricInfo metric={meta.infoMetric} className="ml-1.5" />
+                      ) : null}
                     </TableHead>
                   );
                 })}
