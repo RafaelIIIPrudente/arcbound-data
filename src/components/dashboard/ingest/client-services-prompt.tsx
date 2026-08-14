@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 
 import {
@@ -36,6 +36,20 @@ import type { ArcboundService } from "@/services/types";
 
 const IDLE: ServiceAssignmentState = { status: "idle" };
 
+/**
+ * A set of Service ids as one comparable string, order-independent.
+ *
+ * ⚠️ DELIBERATELY A SECOND COPY of the helper in `client/client-services-card.tsx`
+ * rather than an import. This component lives on `/upload`; that one lives on the
+ * Client detail page, and neither owns the other. Three lines of pure string work
+ * is a smaller cost than a dependency between two unrelated screens. If the rule
+ * ever grows past this, extract it to `lib/` — do not make one screen import the
+ * other's internals.
+ */
+function selectionKey(ids: Iterable<string>): string {
+  return [...ids].sort().join("\u0000");
+}
+
 interface PromptViewProps {
   clientId: string;
   clientName: string;
@@ -65,6 +79,42 @@ export function ClientServicesPromptView({
   // Client Overview there is no existing engagement to preserve — offering a
   // retired offering here would be assigning it afresh.
   const assignable = services.filter((service) => service.status === "active");
+
+  // ── is there anything to assign? ───────────────────────────────────────────
+  //
+  // ⚠️ THE HOOKS SIT ABOVE THE `isAdmin` EARLY RETURN, AND MUST. A hook called
+  // conditionally is a Rules-of-Hooks violation; the analyst branch below returns
+  // before the form exists, so the state is simply unused on that path. It renders
+  // no control either way — see the ⚠️ banner at the top of this file.
+  //
+  // ⚠️ TRACKED WITHOUT CONTROLLING THE INPUTS, same as the sibling card: the form's
+  // own `onChange` reads the submitted set back off the DOM. No `useState` per
+  // checkbox, and React never writes `checked`.
+  //
+  // ⚠️ THE BASELINE IS EMPTY, AND THAT IS THE ONLY DIFFERENCE FROM THE CARD. This
+  // is the no-Services branch — the Client holds nothing, so no box starts ticked
+  // and an untouched form would post nothing. The RULE is identical to the card's
+  // ("disabled when the ticked set equals the saved set"); it simply resolves to
+  // "disabled until something is ticked" here. On the Overview, where the saved set
+  // can be non-empty, deselecting everything is a real change and stays enabled.
+  // ⚠️ DO NOT "ALIGN" THE TWO by making an empty submit possible here — that would
+  // be a no-op round trip through an admin-only action, not consistency.
+  const savedKey = selectionKey([]);
+  const [baseline, setBaseline] = useState(savedKey);
+  const [selection, setSelection] = useState(savedKey);
+  const [settled, setSettled] = useState<ServiceAssignmentState | null>(null);
+
+  // ⚠️ KEYED ON THE STATE OBJECT'S IDENTITY, NOT ON `status`. `useActionState`
+  // returns a NEW object per completed action and the SAME one across ordinary
+  // re-renders, so this fires once per assign. Comparing `status` alone would
+  // re-baseline on every render while the prompt sat in its saved state, silently
+  // marking a freshly-ticked box as "nothing to do".
+  if (state.status === "saved" && state !== settled) {
+    setSettled(state);
+    setBaseline(selection);
+  }
+
+  const dirty = selection !== baseline;
 
   const fact = (
     <>
@@ -103,7 +153,17 @@ export function ClientServicesPromptView({
           No services are registered yet. Add them under Settings → Services, then come back.
         </p>
       ) : (
-        <form action={formAction} className="space-y-3">
+        <form
+          action={formAction}
+          // Change events from the checkboxes bubble to here, so ONE listener reads
+          // the whole submitted set. No per-input handler, and no per-input state.
+          onChange={(event) =>
+            setSelection(
+              selectionKey(new FormData(event.currentTarget).getAll("service_id").map(String)),
+            )
+          }
+          className="space-y-3"
+        >
           <input type="hidden" name="client_id" value={clientId} />
 
           <ul className="space-y-2">
@@ -128,13 +188,20 @@ export function ClientServicesPromptView({
               {state.message}
             </p>
           ) : null}
-          {state.status === "saved" ? (
+          {/* ⚠️ ONLY WHILE IT IS STILL TRUE. "Saved." describes the selection ON
+              SCREEN, so the moment the user ticks something else it becomes a lie.
+              Hiding it and disabling the button run off the SAME flag, so the two
+              cannot contradict each other. */}
+          {state.status === "saved" && !dirty ? (
             <p role="status" className="text-xs text-muted-foreground">
               {state.message}
             </p>
           ) : null}
 
-          <Button type="submit" size="sm" disabled={pending}>
+          {/* ⚠️ DISABLED WHEN NOTHING IS TICKED because the saved set is empty here,
+              NOT because empty submissions are refused on principle. See the
+              baseline note above before copying this line to another form. */}
+          <Button type="submit" size="sm" disabled={pending || !dirty}>
             {pending ? "Assigning…" : "Assign services"}
           </Button>
         </form>
