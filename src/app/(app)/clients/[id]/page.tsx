@@ -126,8 +126,10 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // `null` (never `[]`) on failure, for the same reason the removed local
   // function did: a services read must not take the uploads, KPIs and report
   // link down with it, and `[]` would assert "no services" for a read that
-  // simply failed. `supabase/arcbound-services.sql` is not applied today, so
-  // this is the live path on every request, not a hypothetical.
+  // simply failed. `supabase/arcbound-services.sql` has been applied since
+  // 2026-08-14, so the read ordinarily succeeds and this degradation is the
+  // rare path — but it is still reachable whenever the registry read fails,
+  // which is the only reason it exists.
   const [client, uploads, reportLink, role, access] = await Promise.all([
     getClient(id),
     listUploads(id),

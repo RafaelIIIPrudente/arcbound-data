@@ -55,6 +55,18 @@ const nextConfig: NextConfig = {
       // path: upload the file directly to storage from the browser, then ingest
       // it server-side, which never puts the bytes in a Server Action body at
       // all. That is deliberately not built here.
+      //
+      // ⚠️ THIS VALUE HAS A TWIN IN `src/lib/upload-size.ts`, AND THEY MUST MOVE
+      // TOGETHER. Both upload forms now refuse an over-limit file in the BROWSER,
+      // before dispatch, because past this limit the request is rejected in
+      // transport and no action code ever runs — there is nothing for a form to
+      // display. That guard hard-codes this number (as 4 * 1024 * 1024, since
+      // Next parses "4mb" with the `bytes` package where mb is 1024²) and
+      // subtracts a reserve for the rest of the body. It cannot import this
+      // config — it runs in the browser — so the two are held in step by these
+      // comments alone. CHANGE ONE AND YOU MUST CHANGE THE OTHER: leave them
+      // apart and the guard either refuses files that would have fitted, or goes
+      // back to letting the silent failure through.
       bodySizeLimit: "4mb",
     },
   },

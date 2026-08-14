@@ -25,8 +25,21 @@ import { describe, expect, it } from "vitest";
 //     existence oracle for other Clients' uploads.
 //
 // THE REAL VERIFICATION IS APPLYING THE SCRIPT AND RUNNING THE POST-APPLY
-// QUERIES IN THE HANDOFF REPORT. That has NOT been done — this SQL is not yet
-// applied to any database.
+// QUERIES IN THE HANDOFF REPORT. That has now been done: the script was applied
+// to the live database on 2026-08-14, and the post-apply queries confirmed both
+// functions exist with the expected signatures, that `voided_at` / `voided_by`
+// exist and are nullable, and that `report_link_read`'s LIVE BODY (`prosrc`)
+// carries the void predicate — the last one mattering because the signature did
+// not change, so a signature check could not have told the new body from the
+// old.
+//
+// ⚠️ THAT DID NOT VERIFY THE SECURITY BOUNDARY, AND NOTHING HAS. The post-apply
+// queries confirmed the objects EXIST; no one has ever executed a DENIAL.
+// ArcBase has effectively one account, so `coalesce(uploaded_by = auth.uid(),
+// false) or public.is_admin()` has never returned false in anger — the refusal
+// path has not run once, here or in production. The caveat at the top of this
+// block therefore stands unchanged: these tests pin file text, and the one
+// behaviour that matters most is still unobserved.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SCRIPT = join(process.cwd(), "supabase", "outreach-void.sql");

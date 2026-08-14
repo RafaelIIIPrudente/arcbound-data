@@ -75,9 +75,10 @@ describe("AddClientFormView — picking services at registration", () => {
   });
 
   it("⚠️ still allows registration when the registry cannot be read", () => {
-    // ⚠️ TRUE TODAY: S1's SQL is not applied, so `listServices()` throws. Blocking
-    // client registration on an unrelated unapplied migration would break a
-    // working screen; saying so and carrying on does not.
+    // ⚠️ UNCOMMON SINCE 2026-08-14, WHEN THE REGISTRY SQL WAS CONFIRMED APPLIED —
+    // and still worth guarding: `listServices()` can fail for reasons unrelated
+    // to migrations. Blocking client registration on a failed registry read
+    // would break a working screen; saying so and carrying on does not.
     render(<AddClientFormView {...baseProps} services={null} />);
 
     expect(screen.queryByRole("checkbox")).toBeNull();

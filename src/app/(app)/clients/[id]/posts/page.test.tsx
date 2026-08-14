@@ -117,7 +117,8 @@ describe("ClientPostsPage — gated on linkedin_post_metrics (ADR 0015)", () => 
   });
 
   it("⚠️ renders normally AND warns, when the registry could not be read", async () => {
-    // ⚠️ THIS IS THE LIVE PATH TODAY (S1's SQL is not applied). `canSee` fails
+    // ⚠️ NOT THE EVERYDAY PATH SINCE 2026-08-14 (`arcbound-services.sql` is
+    // applied), but still the one a failed registry read lands on. `canSee` fails
     // OPEN on a null read, so the real content still renders — the notice is what
     // stops an empty result underneath from being mistaken for "ran and found
     // nothing" when the true state is "we don't know if this even applies".

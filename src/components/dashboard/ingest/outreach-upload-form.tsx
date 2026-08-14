@@ -6,6 +6,7 @@ import { ingestOutreachAction } from "@/app/(app)/upload/outreach-actions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { OUTREACH_HEADERS } from "@/lib/parse-outreach";
+import { checkUploadSize } from "@/lib/upload-size";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The Outreach snapshot upload — the second tab of Add Data.
@@ -17,8 +18,18 @@ import { OUTREACH_HEADERS } from "@/lib/parse-outreach";
 // ceremony — an empty "choose input" toggle with one option, a counts step with
 // no counts — so this is three steps in the same visual language.
 //
-// ⚠️ THE LINKEDIN FORM IS NOT TOUCHED BY THIS FILE, and that is a hard rule: the
-// working metrics upload must carry no risk from this feature.
+// ⚠️ THIS FILE DOES NOT REACH INTO `upload-form.tsx`, and that is a hard rule:
+// the working metrics upload must carry no risk from an outreach change.
+//
+// ⚠️ THE ISOLATION IS NO LONGER TOTAL, AND THE ONE EXCEPTION IS DELIBERATE. Both
+// forms import `@/lib/upload-size` (S4) — the over-limit guard that refuses a
+// too-large file in the browser, because past the Server Action body limit the
+// request dies in transport with no message either form could render. That is a
+// SHARED MODULE, not one form reaching into the other, and it is shared on
+// purpose: two copies of the byte arithmetic would drift, and the copy that
+// drifted low would silently reopen the invisible failure. ⚠️ So do NOT cite the
+// rule above as grounds for duplicating the size guard — the rule forbids
+// coupling the forms to each other, not depending on a common lib.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -47,10 +58,25 @@ function OutreachFlow({ clientId, onReset }: { clientId: string; onReset: () => 
 
   const [csvText, setCsvText] = React.useState("");
   const [csvFileName, setCsvFileName] = React.useState("");
+  // ⚠️ A CLIENT-SIDE REFUSAL, HELD SEPARATELY FROM THE ACTION'S ERRORS. The
+  // action never runs in this case — see `checkUploadSize` — so there is no
+  // server state to put it in.
+  const [tooLarge, setTooLarge] = React.useState<string | null>(null);
 
   const errors = state?.status === "error" ? state.errors : undefined;
 
   function submit() {
+    // ⚠️ BEFORE `formAction`, SO NOTHING IS DISPATCHED. Past the body limit the
+    // request dies in transport with no message the form could ever render, so
+    // the only way this is visible is by not sending it. Returning here is the
+    // whole guard.
+    const size = checkUploadSize(csvText, "outreach");
+    if (size.status === "too-large") {
+      setTooLarge(size.message);
+      return;
+    }
+    setTooLarge(null);
+
     const formData = new FormData();
     formData.set("clientId", clientId);
     formData.set("rawText", csvText);
@@ -109,7 +135,11 @@ function OutreachFlow({ clientId, onReset }: { clientId: string; onReset: () => 
         <p className="mt-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground/80">
           Expected columns: <span className="text-muted-foreground">{EXPECTED_COLUMNS}</span>
         </p>
-        <FieldError message={errors?.rawText?.[0] ?? errors?.payload?.[0]} />
+        {/* ⚠️ THE SAME SURFACE THE ACTION'S ERRORS USE. A second, differently
+            styled banner would teach the reader that a size refusal is a
+            different KIND of problem from a validation failure; from where they
+            sit it is the same thing — the file did not go. */}
+        <FieldError message={tooLarge ?? errors?.rawText?.[0] ?? errors?.payload?.[0]} />
       </Step>
 
       <Separator />

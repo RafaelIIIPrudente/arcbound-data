@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // the FORM sends, not what the action does with it (that lives in actions.test).
 const { actionMock } = vi.hoisted(() => ({ actionMock: vi.fn() }));
 vi.mock("@/app/(app)/upload/actions", () => ({ ingestMetricsAction: actionMock }));
+
+import { MAX_UPLOAD_TEXT_BYTES } from "@/lib/upload-size";
 
 import { UploadForm } from "./upload-form";
 
@@ -130,5 +132,83 @@ describe("⚠️ the Client is a PROP now, and survives a reset (D12)", () => {
 
     expect(lastSubmission().get("clientId")).toBe(CLIENT);
     expect(lastSubmission().get("followerCount")).toBe("18500");
+  });
+});
+
+describe("an over-limit payload is refused before dispatch", () => {
+  // ⚠️ THE FAILURE THIS PREVENTS IS INVISIBLE. Past the Server Action body limit
+  // the request is rejected in transport — no validation message, no parse
+  // error, nothing this form could render.
+
+  const OVERSIZE = "a".repeat(MAX_UPLOAD_TEXT_BYTES + 1);
+
+  /** Put a large payload in without `user.type` walking it a keystroke at a time. */
+  async function pasteOversize(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Paste JSON" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Paste JSON" }), {
+      target: { value: OVERSIZE },
+    });
+  }
+
+  it("⚠️ DISPATCHES NOTHING — the action is never called", async () => {
+    const user = userEvent.setup();
+    render(<UploadForm clientId={CLIENT} />);
+
+    await pasteOversize(user);
+    await user.type(screen.getByLabelText("Follower count"), "18420");
+    await user.click(screen.getByRole("button", { name: /upload metrics/i }));
+
+    expect(actionMock).not.toHaveBeenCalled();
+  });
+
+  it("⚠️ fires on the FIRST submit — the format review is never reached", async () => {
+    // ⚠️ THE GUARD LIVES INSIDE `submit()`, WHICH IS THE SINGLE CHOKE POINT for
+    // all three dispatches: the initial upload, the review CONFIRM and the
+    // review SKIP. Sited at the button instead, someone could work through the
+    // entire format-review screen — reading post titles, choosing formats — for
+    // a payload that was never going to land, and only discover it on the second
+    // press. Here the review screen is never reached at all.
+    const user = userEvent.setup();
+    render(<UploadForm clientId={CLIENT} />);
+
+    await pasteOversize(user);
+    await user.type(screen.getByLabelText("Follower count"), "18420");
+    await user.click(screen.getByRole("button", { name: /upload metrics/i }));
+
+    expect(actionMock).not.toHaveBeenCalled();
+    // The review UI is a response to the action; with nothing dispatched it
+    // cannot appear, and the form stays on step 02.
+    expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /upload metrics/i })).toBeInTheDocument();
+  });
+
+  it("⚠️ tells THIS uploader to split the file — safe here, unlike Outreach", async () => {
+    // Posts are matched on their own id and upserted, so the parts converge on
+    // one set. The Outreach form says the opposite, deliberately: there every
+    // upload is a complete snapshot and a half file would record a shrunken one.
+    const user = userEvent.setup();
+    render(<UploadForm clientId={CLIENT} />);
+
+    await pasteOversize(user);
+    await user.click(screen.getByRole("button", { name: /upload metrics/i }));
+
+    const message = await screen.findByText(/one upload can carry about 3\.5 MB/);
+    expect(message).toHaveTextContent(/Re-uploading the same file will not help/);
+    expect(message).toHaveTextContent(/Split the export into smaller files/);
+  });
+
+  it("lets a NORMAL payload through untouched", async () => {
+    // The discriminator: a guard that blocked everything would satisfy the tests
+    // above.
+    const user = userEvent.setup();
+    render(<UploadForm clientId={CLIENT} />);
+
+    await user.click(screen.getByRole("button", { name: "Paste JSON" }));
+    await user.type(screen.getByRole("textbox", { name: "Paste JSON" }), "scraped rows");
+    await user.type(screen.getByLabelText("Follower count"), "18420");
+    await user.click(screen.getByRole("button", { name: /upload metrics/i }));
+
+    expect(lastSubmission().get("rawText")).toBe("scraped rows");
+    expect(screen.queryByText(/one upload can carry about/)).toBeNull();
   });
 });

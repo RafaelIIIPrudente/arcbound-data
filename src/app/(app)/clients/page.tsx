@@ -35,11 +35,11 @@ export default async function ClientsPage({
   // The registry the Add-Client dialog offers, or `null` when it cannot be read.
   //
   // ⚠️ DEGRADES TO `null`, NEVER TO `[]`, AND NEVER THROWS. This is a working
-  // screen; `supabase/arcbound-services.sql` is not applied yet, so `listServices()`
-  // throws against the live database today. Letting that propagate would take the
-  // whole Client List down over an unrelated migration, and `[]` would claim
-  // Arcbound sells nothing. The dialog says it could not load them and still
-  // registers the client (ADR 0015).
+  // screen. `supabase/arcbound-services.sql` has been applied since 2026-08-14,
+  // so `listServices()` ordinarily succeeds — but it can still fail, and letting
+  // that propagate would take the whole Client List down over a registry read,
+  // while `[]` would claim Arcbound sells nothing. The dialog says it could not
+  // load them and still registers the client (ADR 0015).
   const services = admin ? await listServices().catch(() => null) : null;
 
   // The table shows every row it is given and has no pagination (neither does

@@ -18,11 +18,12 @@ export const metadata: Metadata = { title: "Add data" };
  * claim, and acting on it would send staff off to assign Services that may already
  * be assigned, over what might be a transient error.
  *
- * Throwing would be worse. `supabase/arcbound-services.sql` IS NOT APPLIED, so
- * these reads throw against the live database on every request right now — a
- * propagating error would have taken the entire weekly ingestion routine offline
- * the moment this shipped. `null` sends the panel to its fallback, which shows
- * every pipeline and says why (ADR 0015: code backstops the table).
+ * Throwing would be worse. `supabase/arcbound-services.sql` has been applied
+ * since 2026-08-14, so these reads ordinarily succeed — but a propagating error
+ * on the day they do not would take the entire weekly ingestion routine offline,
+ * which is a self-inflicted outage far worse than the read that caused it.
+ * `null` sends the panel to its fallback, which shows every pipeline and says
+ * why (ADR 0015: code backstops the table).
  */
 async function loadRegistry(): Promise<IngestRegistry> {
   try {

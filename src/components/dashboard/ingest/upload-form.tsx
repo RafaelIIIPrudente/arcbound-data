@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { checkUploadSize } from "@/lib/upload-size";
 import { cn } from "@/lib/utils";
 import type { SourceType } from "@/services/types";
 
@@ -48,9 +49,30 @@ function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => vo
   // action is the one place that decides what blank means.
   const [connections, setConnections] = React.useState("");
 
+  // ⚠️ A CLIENT-SIDE REFUSAL, HELD SEPARATELY FROM THE ACTION'S ERRORS, because
+  // in this case the action never runs — see `checkUploadSize`.
+  const [tooLarge, setTooLarge] = React.useState<string | null>(null);
+
   const errors = state?.status === "error" ? state.errors : undefined;
 
   function submit(extra?: { skipReview?: boolean; resolvedFormatTypes?: Record<string, string> }) {
+    // ⚠️ GUARDED INSIDE `submit`, WHICH IS WHY IT FIRES ON THE **FIRST** SUBMIT.
+    // This function is the single choke point for all three dispatches — the
+    // initial upload, the format-review confirm, and the review skip. A guard
+    // placed at the button instead would let someone work through the whole
+    // format-review screen for a payload that was never going to land, and only
+    // discover it on the second press. Sited here, the review screen is never
+    // reached at all.
+    //
+    // ⚠️ BEFORE `formAction`, SO NOTHING IS DISPATCHED. Past the body limit the
+    // request dies in transport with no message this form could render.
+    const size = checkUploadSize(sourceType === "csv" ? csvText : jsonText, "metrics");
+    if (size.status === "too-large") {
+      setTooLarge(size.message);
+      return;
+    }
+    setTooLarge(null);
+
     const formData = new FormData();
     formData.set("clientId", clientId);
     formData.set("sourceType", sourceType);
@@ -147,7 +169,10 @@ function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => vo
             aria-label="Paste JSON"
           />
         )}
-        <FieldError message={errors?.rawText?.[0] ?? errors?.payload?.[0]} />
+        {/* ⚠️ THE SAME SURFACE THE ACTION'S ERRORS USE — from the reader's seat a
+            size refusal and a validation failure are the same event: the file
+            did not go. */}
+        <FieldError message={tooLarge ?? errors?.rawText?.[0] ?? errors?.payload?.[0]} />
       </Step>
 
       <Separator />

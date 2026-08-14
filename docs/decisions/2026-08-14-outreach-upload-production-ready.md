@@ -451,15 +451,214 @@ login. Recorded so the guard is not mistaken for tested.
 
 ---
 
+## S4 — the growth ceiling (LANDED, planner-verified)
+
+Unstaged on top of `2612c7d` (the operator committed S3 mid-slice; `35704cc`
+verified an ancestor, nothing lost). New `src/lib/upload-size.ts` + test; both
+upload forms + tests; `next.config.ts` **comment only**.
+Gate: **136 files / 2,236 tests** (+27).
+
+⚠️ **THIS SLICE DOES NOT RAISE THE CEILING — it makes it visible.** The failure
+past `bodySizeLimit` is rejected before any action code runs, so no server-side
+fix is possible. The browser is the only place it can be caught.
+
+### The threshold
+
+```
+Next's limit      4 × 1024²  = 4,194,304   ⚠️ "4mb" via the `bytes` package, NOT 4,000,000
+Envelope reserve  512 × 1024 =   524,288
+MAX_UPLOAD_TEXT_BYTES        = 3,670,016   (3.5 MiB, ≈ 3,500 prospects)
+```
+
+Derived, not hardcoded — `MAX = SERVER_ACTION_BODY_LIMIT_BYTES - ENVELOPE_HEADROOM_BYTES`.
+The reserve is dominated by `resolvedFormatTypes` (LinkedIn's second submit, ~60
+bytes/post), and is documented in-source as **"A JUDGEMENT, NOT A MEASUREMENT"**.
+
+### ⚠️ THE FINDING: the remedy diverges, and getting it backwards corrupts data
+
+The obvious advice — _"split the file"_ — is **safe on LinkedIn and damaging on
+Outreach**, and the executer caught this unprompted.
+
+| Path     | Ingest semantics                                                                                                                                  | Advice                                              |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| LinkedIn | ⚠️ **constraint-free upsert on `linkedin_post_id`** (`ingest-write.sql:55`, and the function comment at `:181`) — halves converge on the same set | ✅ "Split the export… the parts merge into one set" |
+| Outreach | ⚠️ **complete snapshot of the roster** (ADR 0012), and the Client's report reads the LATEST one                                                   | 🚫 "**Do not split the file either**"               |
+
+Half an Outreach export becomes a snapshot **asserting the prospect list halved**
+— a confident wrong number on a client-facing surface, which the movement panel
+would then report as a collapse. One sentence, opposite consequences.
+
+**Planner-verified independently:** the LinkedIn upsert claim is true, read from
+the SQL rather than taken on report. **Planner mutation:** routed Outreach into
+the LinkedIn branch (i.e. told outreach uploaders to split) → **2 RED**, at both
+the unit level (`tells the Outreach uploader NOT to split — which would CORRUPT
+the data`) and the form level. Restored, sha256 `d736c864…b5cb` identical.
+
+### Other planner verification
+
+- **F2 flake fired on the planner's machine, not the executer's** — the same three
+  calendar files, **55/55 green in isolation in 7.6 s**. Documented signature,
+  not this slice's doing.
+- The message quotes **3.5 MB, not 4 MB** — telling someone the ceiling is 4 MB
+  would send them to trim to a size that still will not send.
+- ⚠️ **The boundary rounding is deliberate**: the file rounds UP, the limit rounds
+  DOWN, so they stay distinct at the worst moment. Found by the executer's own test
+  producing _"This file is 3.5 MB, and one upload can carry about 3.5 MB"_ — a
+  refusal that reads as an ArcBase bug. Fixed in the message, not the test.
+- **Empty input is `ok`, deliberately** — "you have not chosen a file" is the
+  existing field validation's job.
+
+### ⚠️ Cost, stated rather than buried
+
+The guard **reduces effective capacity** from `next.config.ts`'s stated ~4,000
+prospects to ~3,500, because the reserve comes off the top. Against 1,435 today
+that is ~2.4× of room. Real reduction, not a free win — the price of the message.
+
+### ✅ ANSWERED — the executer's open question about enforcing the config pair
+
+They flagged that `next.config.ts` and `upload-size.ts` now duplicate the 4 MiB
+figure, held together only by comments, and asked rather than widening scope.
+
+**Planner's answer: yes, add the source assertion — it is idiomatic here.** The
+repo has two precedents: `supabase/sql-sync.test.ts` asserts two files agree, and
+`src/lib/auth/roles.test.ts:213` reads its own module's source to pin a rule
+nothing else would catch. A test reading `next.config.ts` for `"4mb"` is the same
+move. **Queued, not urgent.**
+
+### Open after this slice
+
+- The `next.config.ts` ⇄ `upload-size.ts` drift guard (above).
+- ⚠️ `supabase/outreach-void.test.ts:27-28` still carries a **committed** false
+  claim that the SQL is unapplied.
+- A stale absolute in `outreach-upload-form.tsx`'s header — _"THE LINKEDIN FORM IS
+  NOT TOUCHED BY THIS FILE, and that is a hard rule"_ — still true of that file,
+  but the slice now touches both forms, so the isolation claim reads more
+  absolutely than the codebase warrants.
+- ⚠️ **Unverifiable here:** no test sends a real over-limit request, so the
+  threshold's placement relative to Vercel's actual behaviour is unproven, and the
+  512 KiB reserve is reasoned from an unmeasured ~60-bytes-per-post estimate. The
+  guard **shrinks** the silent-failure window; it cannot be shown to close it.
+- The durable fix remains **browser→storage upload with server-side ingest**, not
+  another `bodySizeLimit` bump — Vercel's ~4.5 MB cap sits upstream of Next, where
+  the setting stops being consulted. Not warranted at 1,435 of ~3,500.
+
+---
+
+## S5 — stale-claim cleanup + the drift guard (LANDED, planner-verified)
+
+Uncommitted on `2612c7d`. Gate: **136 files / 2,244 tests** (+8). Two comment-only
+edits and one new test. ⚠️ `next.config.ts` and `upload-size.ts` verified
+**byte-identical** to their pre-slice state (sha256 `feab8552…becb` and
+`d736c864…b5cb`).
+
+### The drift guard — planner-proved against the REAL config, not a fixture
+
+The executer could only prove it against fixtures, because `next.config.ts` was
+DO-NOT-TOUCH for them. **The planner mutated the real file** — `"4mb"` → `"8mb"`
+— and the guard fired:
+
+```
+× ⚠️ the declared limit PARSES TO the constant this module ships
+  → next.config.ts and SERVER_ACTION_BODY_LIMIT_BYTES have drifted — change both:
+    expected 8388608 to be 4194304
+```
+
+Restored, sha256 identical. ✅ **The guard guards the real file, and its failure
+message names the remedy rather than just the mismatch.**
+
+It parses rather than string-matches (⚠️ `mb` = 1024², and `parseBytes("4mb")`
+is pinned `.not.toBe(4_000_000)`), strips comments first — necessary, because
+`next.config.ts`'s prose mentions "1 MB", "4 MB" and "4.5 MB" — and **fails
+loudly when extraction finds nothing** rather than passing vacuously.
+
+⚠️ The executer **replaced their own S4 string-match version**, which was exactly
+the `toContain("4mb")` shape that pins a literal instead of a relationship.
+
+### Site 1 — a false claim replaced without creating the opposite false claim
+
+`supabase/outreach-void.test.ts` no longer says the SQL is unapplied. ⚠️ **And it
+does not say the security boundary is verified, because it is not.** The
+post-apply queries confirmed the objects EXIST; **nobody has ever executed a
+denial.** ArcBase has effectively one account, so
+`coalesce(uploaded_by = auth.uid(), false) or public.is_admin()` has never
+returned false in anger — here or in production.
+
+Replacing a false _"not applied"_ with a false _"verified"_ would have been the
+same defect pointing the other way. The register is deliberately deflationary.
+
+### Site 2 — the rule survives; only its absolutism was wrong
+
+`outreach-upload-form.tsx`'s hard rule is kept and rephrased from "IS NOT TOUCHED
+BY THIS FILE" to "DOES NOT REACH INTO" — the original wording is precisely what
+became false once both forms imported `@/lib/upload-size`.
+
+⚠️ An **anti-citation clause** was added: _"do NOT cite the rule above as grounds
+for duplicating the size guard."_ That is the specific misreading the amended
+comment invites — someone honouring isolation by copying the byte arithmetic, and
+**the copy that drifts low silently reopens the invisible failure**.
+
+### ⚠️ OPEN — a fourth family of claims, flagged and correctly NOT touched
+
+Eight sites assert `supabase/arcbound-services.sql` **is not applied**, several
+saying so as "THE LIVE PATH TODAY" — e.g. `src/services/arcbound-services.ts:153`:
+
+> ⚠️ THIS IS THE LIVE PATH TODAY. `supabase/arcbound-services.sql` is not applied,
+> so both reads below throw on every request against the real database, and every
+> Client's tabs and gated pages run on the `null` branch until it is.
+
+Also at `clients/page.tsx:38`, `clients/[id]/page.tsx:129`,
+`add-client-dialog.tsx:92`, and four test files.
+
+⚠️ **These are from a DIFFERENT workstream (ADR 0015 Services registry) — their
+"S1" is not this workstream's S1**, so nothing here bears on them. The executer
+declined to guess, which was right.
+
+**This is consequential either way and needs one query to settle:**
+
+- If the script **has** been applied since, eight comments are false.
+- If it **has not**, the entire Services registry feature is running on its
+  **fail-open fallback** in production, with four comments asserting that is
+  expected.
+
+### ✅ RESOLVED 2026-08-14 — it IS applied; the eight comments are STALE
+
+| Check                                                           | Result                                                               |
+| --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `to_regclass('public.services')` / `('public.client_services')` | both **non-null**                                                    |
+| `services` rows                                                 | **2** — exactly what §9 seeds (`linkedin-growth`, `outreach-system`) |
+| `client_services` rows                                          | **5**, from §10's evidence-derived backfill                          |
+| The six RPCs                                                    | **6/6 present**                                                      |
+
+**The Services registry is live and gating correctly.** The feature is NOT on its
+fallback, and ~8 in-code comments now assert the opposite of the truth.
+
+### ⚠️ TWO QUERY TRAPS THE PLANNER HIT, RECORDED SO THEY ARE NOT REPEATED
+
+1. ⚠️ **The planner's first query was VACUOUS and its answer was worthless.** It
+   asked `to_regclass('public.arcbound_services')` — **there is no such table.**
+   `arcbound_services` is only the migration FILENAME; the real tables are
+   `services` and `client_services`. That `null` was guaranteed whether or not the
+   script had been applied, and the planner briefly reported it as confirmation
+   that the feature was unapplied. **A check that cannot distinguish its two
+   outcomes is worse than no check** — it is the "guard the guard" failure this
+   repo writes into every brief, committed by the person writing the briefs.
+2. ⚠️ **The Supabase editor renders ONLY the last statement's result set**, so the
+   two-statement version silently discarded the table check and showed only the
+   RPC count. Combine into ONE statement returning one row.
+
+---
+
 ## Feedback & revisions log
 
-| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 4   | 2026-08-14 | **S1 landed and planner-verified** at 133 files / 2,160 tests; the one-predicate `report_link_read` diff confirmed by independent extraction-and-diff, not by reading the executer's test. ⚠️ **One defect found by the planner and NOT by the suite: the Q4 guard is not NULL-safe and fails OPEN** — `uploaded_by` is nullable, `null = auth.uid()` is NULL, and `if NULL then` does not fire, so any authenticated user can void a snapshot with no recorded uploader. Fix is `coalesce(…, false)` in both functions, and it must land before the script is pasted. Mutation showed the fix moves 3 tests RED (both predicate assertions + the pair check), confirming the tests pin the predicate's TEXT and not its SEMANTICS.                                                                                                                                                                                                                                              |
-| 7   | 2026-08-14 | **S3 landed and planner-verified** at **135 / 2,209** (+38) on top of `35704cc` — **the void feature is complete: SQL applied, service reading, UI wired.** Permission holds STRUCTURALLY (both actions are `(uploadId: string)`, planner-verified — no parameter exists through which a forged `canVoid` could arrive). Q6 gained a necessary third outcome, "Not recorded", with the null check FIRST because `null === null` is `true`; planner mutation reordering it → 1 RED, restored, sha256 `8d8631cf…abe5`. ✅ The out-of-scope `outreach-attribution.ts` was correctly created and disclosed — the RSC client-reference trap that opened this workstream, avoided rather than re-hit. ⚠️ **OPEN: `supabase/outreach-void.test.ts:27-28` now carries a COMMITTED false claim** that the SQL is unapplied. ⚠️ **The RPC's refusal has never executed and may not be closable — ArcBase has effectively one account.**                                                    |
-| 6   | 2026-08-14 | **S2 landed and planner-verified** at 133 / **2,171** (+10). Required-no-default `includeVoided` opt-in; query-side `.is("voided_at", null)` because post-read filtering would wrongly report `all-voided` when a live snapshot sits below the truncation cap; `LatestSnapshot` gains a fourth member. Planner mutation (flipping `latestSnapshot` to `includeVoided: true`) → **3 RED**, restored, sha256 `33b6ec17…b7a5` identical. ⚠️ **The executer corrected the planner's brief and was right: S1's SQL is NOT applied** — the planner inferred it from a "go" that approved proceeding, not a paste. Hard deploy-order dependency recorded, with severity measured rather than assumed (PostgREST's undefined-column error → `paged.ts:129` → `unavailable`, so an un-migrated DB degrades honestly and self-heals). Two stale "mirrors LatestSnapshot exactly" comments confirmed in `report-links.ts:196` and `outreach-summary.tsx:32`, correctly left, queued for S3. |
-| 5   | 2026-08-14 | **Defect fixed before any database saw the script.** All four sites now `coalesce(…, false)`; planner confirmed zero bare comparisons remain in executable SQL, and ran the MIRROR mutation (reverting `void` where the executer had reverted `un-void`) → 2 RED, restored, sha256 `bf64e473…f006` identical. Gate 133 / **2,161** (+1 exactly). FLAG 1 independently audited across every `auth.uid()` in `supabase/*.sql`: all others are insert stamps, an RLS `using`, or an `exists(…)` — all fail CLOSED, so no second instance exists. ⚠️ Recorded a consequence for S3 (a null-uploader snapshot is admin-only in practice, so the UI must not offer a control that always raises 42501) and the one check only a live database can make (call `void_outreach_upload` as a non-admin against a null-uploader row, expect 42501).                                                                                                                                         |
-| 2   | 2026-08-14 | Q1–Q6 settled, all matching the planner's recommendation. Records D1 (flag not delete — an un-undoable fix for a mis-click is a second mis-click) and **D2, a retraction: the planner's Q5 mockup showed uploader names that are not buildable** — `staff_roles` carries no name/email, its RLS is own-row by design, and `uploaded_by` is written but never read. Blast radius verified: two independent read paths, the client one being SQL; the client-facing edit is ONE line and Q3's all-voided case falls out of the existing jsonb-null branch for free. ✅ Corrected an earlier planner claim that both report-link SQL files change — only the newest does.                                                                                                                                                                                                                                                                                                           |
+| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4   | 2026-08-14 | **S1 landed and planner-verified** at 133 files / 2,160 tests; the one-predicate `report_link_read` diff confirmed by independent extraction-and-diff, not by reading the executer's test. ⚠️ **One defect found by the planner and NOT by the suite: the Q4 guard is not NULL-safe and fails OPEN** — `uploaded_by` is nullable, `null = auth.uid()` is NULL, and `if NULL then` does not fire, so any authenticated user can void a snapshot with no recorded uploader. Fix is `coalesce(…, false)` in both functions, and it must land before the script is pasted. Mutation showed the fix moves 3 tests RED (both predicate assertions + the pair check), confirming the tests pin the predicate's TEXT and not its SEMANTICS.                                                                                                                                                                                                                                                          |
+| 9   | 2026-08-14 | **S5 (stale-claim cleanup + drift guard) landed and planner-verified** at **136 / 2,244** (+8). ✅ **Planner proved the drift guard against the REAL `next.config.ts`** — mutating `"4mb"`→`"8mb"` fired it with a remedy-naming message; restored, both protected files byte-identical (`feab8552…becb`, `d736c864…b5cb`). The executer replaced their own S4 string-match version with a parse-and-compare that strips comments and fails loudly on empty extraction. Site 1 replaced a false "not applied" **without** creating a false "verified" — the refusal path has still never executed. Site 2 kept the isolation rule, corrected only its absolutism, and added an anti-citation clause against duplicating the byte arithmetic. ⚠️ **OPEN: a fourth family of claims** — eight sites assert `supabase/arcbound-services.sql` is unapplied (a DIFFERENT workstream, ADR 0015). Consequential either way; one query settles it: `select to_regclass('public.arcbound_services');` |
+| 8   | 2026-08-14 | **S4 (growth ceiling) landed and planner-verified** at **136 / 2,236** (+27) on top of `2612c7d`. Browser-side pre-flight guard at **3,670,016 bytes**, derived from `4 × 1024² − 512 KiB`; UTF-8 bytes not string length. ⚠️ **THE FINDING: the remedy DIVERGES by path** — "split the file" is safe on LinkedIn (constraint-free upsert on `linkedin_post_id`, planner-verified at `ingest-write.sql:55`) and **data-damaging on Outreach** (ADR 0012 complete-snapshot semantics: half an export records a snapshot asserting the roster halved). Planner mutation routing Outreach into the LinkedIn branch → **2 RED** at unit AND form level; restored, sha256 `d736c864…b5cb`. Cost stated: effective capacity drops ~4,000 → ~3,500 prospects. ✅ Answered the executer's held question — **yes, add the config⇄guard source assertion**; precedents are `sql-sync.test.ts` and `roles.test.ts:213`. F2 flake fired on the planner's machine only (55/55 green in isolation, 7.6 s). |
+| 7   | 2026-08-14 | **S3 landed and planner-verified** at **135 / 2,209** (+38) on top of `35704cc` — **the void feature is complete: SQL applied, service reading, UI wired.** Permission holds STRUCTURALLY (both actions are `(uploadId: string)`, planner-verified — no parameter exists through which a forged `canVoid` could arrive). Q6 gained a necessary third outcome, "Not recorded", with the null check FIRST because `null === null` is `true`; planner mutation reordering it → 1 RED, restored, sha256 `8d8631cf…abe5`. ✅ The out-of-scope `outreach-attribution.ts` was correctly created and disclosed — the RSC client-reference trap that opened this workstream, avoided rather than re-hit. ⚠️ **OPEN: `supabase/outreach-void.test.ts:27-28` now carries a COMMITTED false claim** that the SQL is unapplied. ⚠️ **The RPC's refusal has never executed and may not be closable — ArcBase has effectively one account.**                                                                |
+| 6   | 2026-08-14 | **S2 landed and planner-verified** at 133 / **2,171** (+10). Required-no-default `includeVoided` opt-in; query-side `.is("voided_at", null)` because post-read filtering would wrongly report `all-voided` when a live snapshot sits below the truncation cap; `LatestSnapshot` gains a fourth member. Planner mutation (flipping `latestSnapshot` to `includeVoided: true`) → **3 RED**, restored, sha256 `33b6ec17…b7a5` identical. ⚠️ **The executer corrected the planner's brief and was right: S1's SQL is NOT applied** — the planner inferred it from a "go" that approved proceeding, not a paste. Hard deploy-order dependency recorded, with severity measured rather than assumed (PostgREST's undefined-column error → `paged.ts:129` → `unavailable`, so an un-migrated DB degrades honestly and self-heals). Two stale "mirrors LatestSnapshot exactly" comments confirmed in `report-links.ts:196` and `outreach-summary.tsx:32`, correctly left, queued for S3.             |
+| 5   | 2026-08-14 | **Defect fixed before any database saw the script.** All four sites now `coalesce(…, false)`; planner confirmed zero bare comparisons remain in executable SQL, and ran the MIRROR mutation (reverting `void` where the executer had reverted `un-void`) → 2 RED, restored, sha256 `bf64e473…f006` identical. Gate 133 / **2,161** (+1 exactly). FLAG 1 independently audited across every `auth.uid()` in `supabase/*.sql`: all others are insert stamps, an RLS `using`, or an `exists(…)` — all fail CLOSED, so no second instance exists. ⚠️ Recorded a consequence for S3 (a null-uploader snapshot is admin-only in practice, so the UI must not offer a control that always raises 42501) and the one check only a live database can make (call `void_outreach_upload` as a non-admin against a null-uploader row, expect 42501).                                                                                                                                                     |
+| 2   | 2026-08-14 | Q1–Q6 settled, all matching the planner's recommendation. Records D1 (flag not delete — an un-undoable fix for a mis-click is a second mis-click) and **D2, a retraction: the planner's Q5 mockup showed uploader names that are not buildable** — `staff_roles` carries no name/email, its RLS is own-row by design, and `uploaded_by` is written but never read. Blast radius verified: two independent read paths, the client one being SQL; the client-facing edit is ONE line and Q3's all-voided case falls out of the existing jsonb-null branch for free. ✅ Corrected an earlier planner claim that both report-link SQL files change — only the newest does.                                                                                                                                                                                                                                                                                                                       |
 
 | 3 | 2026-08-14 | Delivery sequence proposed (S1 data+SQL → S2 service → S3 UI), pending the user's confirmation of shared understanding before any handoff is written. |
 | 1 | 2026-08-14 | Created at the start of the grill. Ground truth established read-only: the write path is well-built (attribution, blanks, parse-before-seam, RPC grants, RLS select-only, the dropped 2-arg overload); the 4 MB transport ceiling is documented with ~4,000 prospects of headroom and a silent failure mode past it; **the open gap is operational recovery — no delete/undo path exists anywhere, and the Client's report reads the latest snapshot.** |

@@ -91,9 +91,10 @@ describe("⚠️ branch 1 — no Client picked yet", () => {
 
 describe("⚠️ branch 2 — the registry could not be read", () => {
   it("⚠️ RENDERS BOTH PIPELINE TABS rather than taking ingestion offline", () => {
-    // ⚠️ CODE BACKSTOPS THE TABLE (ADR 0015), AND THIS IS THE LIVE STATE TODAY:
-    // `supabase/arcbound-services.sql` is not applied, so these reads throw against
-    // the real database right now.
+    // ⚠️ CODE BACKSTOPS THE TABLE (ADR 0015). `supabase/arcbound-services.sql`
+    // has been applied since 2026-08-14, so these reads ordinarily succeed and
+    // this is the degraded path rather than the everyday one — reached whenever
+    // a registry read fails, which nothing about being applied prevents.
     //
     // When ArcBase cannot tell which Services a Client holds, showing NOTHING would
     // take the weekly upload routine offline over a failed read — a self-inflicted

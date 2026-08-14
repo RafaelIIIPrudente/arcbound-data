@@ -150,9 +150,24 @@ export interface ClientServiceAccess {
  * here for a failed read would make every database hiccup look exactly like every
  * Client having no Services at once.
  *
- * ⚠️ THIS IS THE LIVE PATH TODAY. `supabase/arcbound-services.sql` is not applied,
- * so both reads below throw on every request against the real database, and every
- * Client's tabs and gated pages run on the `null` branch until it is.
+ * ⚠️ THE `null` BRANCH IS THE DEGRADED PATH, NOT THE ORDINARY ONE — CORRECTED
+ * 2026-08-14. `supabase/arcbound-services.sql` IS applied to the live database.
+ * Verified that day: `public.services` holds 2 rows (the script's §9 seed —
+ * `linkedin-growth`, `outreach-system`), `public.client_services` holds 5 from
+ * §10's backfill, and all six RPCs are present. So both reads below now succeed
+ * on an ordinary request, and every Client's tabs and gated pages run on the
+ * REAL registry.
+ *
+ * ⚠️ THAT MAKES THE `null` BRANCH RARE, NOT DEAD, AND IT MUST NOT BE REMOVED.
+ * Being applied is not the same as being infallible: a registry read can still
+ * fail — an outage, a permissions change, a timeout — and this branch is what
+ * that moment lands on. Everything above about never collapsing `null` into `[]`
+ * applies exactly as before.
+ *
+ * ⚠️ THE TABLES ARE `public.services` AND `public.client_services`.
+ * `arcbound_services` is only the migration FILENAME; no table of that name
+ * exists, so a `to_regclass('public.arcbound_services')` check returns null
+ * whether or not the script ran, and has fooled at least one reader already.
  *
  * ⚠️ MEMOISED WITH REACT `cache()` — REQUEST-SCOPED ONLY, NEVER `unstable_cache`.
  * Same reasoning as `getClient` in `src/services/clients.ts`: the read is

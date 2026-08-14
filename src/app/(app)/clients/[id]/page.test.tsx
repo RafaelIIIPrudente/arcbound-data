@@ -100,10 +100,11 @@ describe("the Client Overview — Services", () => {
   });
 
   it("⚠️ survives a services read failure instead of taking the whole page down", async () => {
-    // ⚠️ THIS IS NOT HYPOTHETICAL: S1's SQL is not applied yet, so
-    // `getClientServices()` throws against the live database TODAY. The Client
-    // Overview is an existing, working screen — this must not let an unapplied
-    // migration break the client's uploads, KPIs and report link too.
+    // ⚠️ RARE SINCE 2026-08-14, WHEN `supabase/arcbound-services.sql` WAS
+    // CONFIRMED APPLIED — but still reachable, because a registry read can fail
+    // for reasons that have nothing to do with migrations. The Client Overview
+    // is an existing, working screen, and a failed services read must not break
+    // the client's uploads, KPIs and report link with it.
     getClientServicesMock.mockResolvedValueOnce(null);
 
     render(await ClientDetailPage(params()));

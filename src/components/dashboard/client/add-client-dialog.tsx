@@ -88,9 +88,11 @@ interface FormViewProps {
   /**
    * The registry, or `null` when it could not be read.
    *
-   * ⚠️ `null` IS NOT "NO SERVICES". It means ArcBase could not list them — true
-   * right now, because `supabase/arcbound-services.sql` is not applied. Registering
-   * a Client must not be blocked by that, so the form says so and carries on.
+   * ⚠️ `null` IS NOT "NO SERVICES". It means ArcBase could not list them.
+   * `supabase/arcbound-services.sql` has been applied since 2026-08-14, so this
+   * is now the uncommon case rather than the everyday one — but registering a
+   * Client must never be blocked by a registry read either way, so the form says
+   * so and carries on.
    */
   services: ArcboundService[] | null;
 }
