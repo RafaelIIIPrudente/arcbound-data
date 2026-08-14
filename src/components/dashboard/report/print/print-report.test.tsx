@@ -63,6 +63,27 @@ describe("the printable document", () => {
     };
   });
 
+  it("carries NO metric ⓘ — a popover cannot be opened on paper", () => {
+    // ⚠️ `KeyPerformance` is shared with the staff report, where each figure now
+    // offers a click-to-open definition. This document is printed, so a trigger
+    // here would render as an inert icon in the margin of a PDF a client keeps.
+    // The prop defaults to false and this caller does not set it.
+    const rows = [biRow({ linkedin_post_id: "p1" })];
+    render(
+      <PrintReport
+        report={buildClientReport(rows, new Map(), {
+          period: ALL_TIME,
+          now: NOW,
+          followers: 1000,
+          connections: 50,
+          availablePeriods: availablePeriods(rows),
+        })}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /^What is / })).not.toBeInTheDocument();
+  });
+
   it("renders the cover and every empty state for a client with no posts", () => {
     const report = buildClientReport([], new Map(), {
       period: ALL_TIME,

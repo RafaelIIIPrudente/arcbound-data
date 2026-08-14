@@ -1,3 +1,5 @@
+import { MetricInfo } from "@/components/dashboard/metric-info";
+import { OUTREACH_SUMMARY_METRIC_KEYS } from "@/lib/metric-definitions";
 import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/report-links";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,8 +29,11 @@ import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/rep
 // staff tab's `EmailFunnelPanel`. It degrades independently of the five
 // LinkedIn figures above, which keep rendering regardless.
 //
-// ⚠️ F1 (2026-08-10) — THE WHOLE READ IS THREE STATES, NOT TWO, MIRRORING
-// `ReportLinkOutreach` (which mirrors `LatestSnapshot`, staff side): `ok` /
+// ⚠️ F1 (2026-08-10) — THE WHOLE READ IS THREE STATES, NOT TWO, FOLLOWING
+// `ReportLinkOutreach` (which shares its vocabulary with `LatestSnapshot`, staff
+// side, but is NOT a mirror of it — the staff type gained a fourth member,
+// `all-voided`, on 2026-08-14 and this path deliberately did not: a Client whose
+// snapshots are all voided reads as `empty`, per Q3): `ok` /
 // `empty` / `unavailable`. Before F1 a malformed aggregate arrived here as
 // `null` — identical to "this Client has never had an outreach snapshot" —
 // so a Client whose read had genuinely broken was told nothing had been done
@@ -59,11 +64,27 @@ function formatIsoDate(iso: string): string | null {
   return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+/**
+ * The ⓘ for one aggregate figure.
+ *
+ * ⚠️ EVERY SENTENCE IT CAN REACH IS AGGREGATE-ONLY (ADR 0012). No definition
+ * here describes a prospect, and none may: this component is the public
+ * boundary, and a definition is prose that crosses it exactly like a number.
+ *
+ * "Combined meetings" is intentionally unmapped — it already carries its own
+ * sentence on screen, so it renders no ⓘ rather than a second copy of one.
+ */
+function figureInfo(label: string) {
+  const key = OUTREACH_SUMMARY_METRIC_KEYS[label];
+  return key ? <MetricInfo metric={key} /> : null;
+}
+
 function Figure({ label, value }: { label: string; value: number }) {
   return (
     <div className="space-y-1" data-testid={`outreach-${label.toLowerCase().replace(/ /g, "-")}`}>
-      <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
         {label}
+        {figureInfo(label)}
       </div>
       <div className="text-2xl leading-none font-semibold text-foreground tabular-nums">
         {value.toLocaleString()}

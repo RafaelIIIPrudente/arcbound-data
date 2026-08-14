@@ -1,3 +1,4 @@
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import type { RateReconciliation } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,14 +13,30 @@ import type { RateReconciliation } from "@/services/types";
 // reporting view's figure", never `provided_engagement_rate`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Figure({ label, value }: { label: string; value: React.ReactNode }) {
+function Figure({
+  label,
+  value,
+  infoMetric,
+}: {
+  label: string;
+  value: React.ReactNode;
+  /**
+   * ⚠️ EVERY FIGURE HERE HAS A DENOMINATOR THAT EXCLUDES SOMETHING, and which
+   * posts were left out is the whole meaning of the number. "Rates that differ"
+   * counts only posts carrying BOTH rates; "Matches our overall formula" only
+   * those with a rate, a numerator and at least one impression. A reader cannot
+   * size any of them without being told that, so each carries its own ⓘ.
+   */
+  infoMetric: string;
+}) {
   return (
     <div className="min-w-40 flex-1 rounded-lg border bg-card px-5 py-4">
       <div className="font-display text-2xl leading-none font-extrabold tracking-tight tabular-nums">
         {value}
       </div>
-      <div className="mt-2 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+      <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
         {label}
+        <MetricInfo metric={infoMetric} />
       </div>
     </div>
   );
@@ -56,11 +73,19 @@ export function RateReconciliationPanel({ rates }: { rates: RateReconciliation }
           —
         </span>
         Engagement rate
+        {/* ⚠️ THIS HEADING IS THE ONE PLACE "Engagement rate" NAMES NO RATE AT
+            ALL. The panel reports where three definitions of the rate disagree
+            — it is not a fifth figure to be read alongside them. Anyone who
+            reads this heading as "the engagement rate, on the data-quality
+            page" has the wrong idea of the whole section, so the definition
+            says what the section IS. */}
+        <MetricInfo metric="rateReconciliation" />
       </div>
 
       <div className="flex flex-wrap gap-3.5">
         <Figure
           label="Posts with no rate"
+          infoMetric="postsMissingRate"
           value={
             // ⚠️ FOUR STATES. A bare count is half a sentence — its two siblings
             // carry "of N", so this must too. But "0 of 0" would assert a
@@ -87,6 +112,7 @@ export function RateReconciliationPanel({ rates }: { rates: RateReconciliation }
         />
         <Figure
           label="Rates that differ"
+          infoMetric="ratesThatDiffer"
           value={
             <>
               {rates.rateDisagreements.toLocaleString()}
@@ -98,6 +124,7 @@ export function RateReconciliationPanel({ rates }: { rates: RateReconciliation }
         />
         <Figure
           label="Matches our overall formula"
+          infoMetric="matchesOverallFormula"
           value={
             rates.aggregateFormulaMatches === null ? (
               <>

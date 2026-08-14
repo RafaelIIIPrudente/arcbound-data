@@ -2,7 +2,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DashboardFilters, DEFAULT_RANGE, PRESET_DAYS } from "./dashboard-filters";
+import { DashboardFilters } from "./dashboard-filters";
+// The vocabulary moved out of the client module (it was a client reference over
+// there, and `page.tsx` crashed on it) — see dashboard-range.ts.
+import { DEFAULT_RANGE, PRESET_DAYS } from "./dashboard-range";
 
 // Radix drives Select and Popover with Pointer Events + layout APIs jsdom does
 // not implement (same stubs as report-period-picker.test.tsx).
@@ -80,12 +83,32 @@ describe("DashboardFilters — the trigger states the window on screen", () => {
 });
 
 describe("DashboardFilters — the URL it writes", () => {
-  it("OMITS the param at the default, keeping `/` a clean address", async () => {
+  it("WRITES the param at the default too — a clean URL hid a crash here", async () => {
+    // ⚠️ THIS ASSERTION WAS INVERTED ON 2026-08-13, DELIBERATELY. It previously
+    // read "OMITS the param at the default, keeping `/` a clean address" and
+    // expected `"/"`. Stripping `30d` meant the default preset never travelled
+    // as a param, so it never reached `decodeRange` — and `decodeRange` was
+    // throwing on every preset it DID reach, because `PRESET_DAYS` came from a
+    // "use client" module. The one preset that appeared to work was the only
+    // one nobody was exercising, and the crash reached an external reviewer.
+    //
+    // `report-period.ts` already carried this rule for `?period=` after the
+    // same class of bug. Both surfaces now always write their param.
     const user = renderBar("7d");
     await user.click(rangeTrigger());
     await user.click(screen.getByRole("button", { name: "Last 30 days" }));
 
-    expect(replace).toHaveBeenCalledWith("/", { scroll: false });
+    expect(replace).toHaveBeenCalledWith("/?range=30d", { scroll: false });
+  });
+
+  it("writes the default alongside a client, rather than only the client", async () => {
+    // The other shape the stripping produced: `/?client=c1`, whose range is
+    // implied rather than stated. Now every URL the picker writes says both.
+    const user = renderBar(DEFAULT_RANGE, "all");
+    await user.click(screen.getByRole("combobox", { name: "Filter by client" }));
+    await user.click(await screen.findByRole("option", { name: "Ada Lovelace" }));
+
+    expect(replace).toHaveBeenCalledWith("/?client=c1&range=30d", { scroll: false });
   });
 
   it("writes each non-default preset", async () => {

@@ -1188,6 +1188,28 @@ export interface OutreachUpload {
   rowCount: number;
   createdAt: string;
   /**
+   * Which auth user submitted this snapshot, or `null` when none was recorded.
+   *
+   * ⚠️ NULLABLE IN THE DATABASE, AND THE NULL IS REAL. `auth.uid()` is null when
+   * a write happens outside a user session — pasting into the Supabase SQL
+   * editor, for one — so rows genuinely carry no uploader. S1 found a live
+   * privilege-escalation caused by treating that null as a comparable value;
+   * never widen this to `string`, and never `?? ""` it.
+   */
+  uploadedBy: string | null;
+  /**
+   * When this snapshot was voided, or `null` when it is LIVE.
+   *
+   * ⚠️ THE TIMESTAMP IS THE ONLY ENCODING — there is no boolean twin in the
+   * database and there must not be one here. A derived `isVoided` field would be
+   * a second source of truth for one fact, and the two drift the first time one
+   * is written without the other. A caller that wants a boolean writes
+   * `voidedAt !== null` at the point of use.
+   */
+  voidedAt: string | null;
+  /** Which auth user voided it, or `null` when it is live. Nullable for the same reason as `uploadedBy`. */
+  voidedBy: string | null;
+  /**
    * Did THIS upload's file carry the 15 `Email — *` columns? (D3, 2026-08-03.)
    *
    * ⚠️ THIS IS WHAT LETS A PRE-CHANGE SNAPSHOT RENDER "NOT IN THIS EXPORT"
@@ -1254,12 +1276,26 @@ export interface OutreachProspect {
 /**
  * The result of reading a Client's most recent snapshot.
  *
- * ⚠️ THREE STATES, AND THEY MUST NOT COLLAPSE INTO TWO. "the read broke",
- * "this Client has never had an outreach upload", and "here is the snapshot"
- * license three different sentences on screen, and the middle one is the only
- * one that may render as an empty dashboard. A nullable return would fuse the
- * first two and let a failed read display as a Client with no outreach — the
- * same defect `listUploads` and `postsCount` were both fixed for.
+ * ⚠️ FOUR STATES, AND THEY MUST NOT COLLAPSE INTO THREE. "the read broke",
+ * "this Client has never had an outreach upload", "every snapshot they had was
+ * voided", and "here is the snapshot" license four different sentences on
+ * screen, and only the middle two may render without a dashboard. A nullable
+ * return would fuse the first two and let a failed read display as a Client with
+ * no outreach — the same defect `listUploads` and `postsCount` were both fixed
+ * for.
+ *
+ * ⚠️ `all-voided` IS A MEMBER, NOT A FLAG ON `empty`. It was added when voided
+ * snapshots started being skipped: without it those Clients fell into `empty`,
+ * whose sentence is "nothing has been uploaded for this client" — FALSE for
+ * someone whose colleague voided their upload an hour ago, and false in the
+ * direction that invites re-uploading data that is already there. A distinct
+ * member makes the compiler ask every consumer what it wants to say.
+ *
+ * ⚠️ STAFF-ONLY. The Client's own report reaches its outreach through
+ * `report_link_read`, which skips voided snapshots in SQL and returns jsonb null
+ * when none remain — rendering as "no outreach", which is correct and settled
+ * (Q3: a Client is not owed a record of ArcBase's internal corrections). This
+ * fourth state must not reach `report-links.ts` or `/r/[token]`.
  */
 export type LatestSnapshot =
   | {
@@ -1278,8 +1314,43 @@ export type LatestSnapshot =
        */
       total: number | null;
     }
+  /** The read worked and this Client has NEVER had an outreach upload. */
   | { status: "empty" }
+  /**
+   * The read worked, this Client HAS had uploads, and every one of them is
+   * voided. Distinct from `empty` because the sentences differ: one invites an
+   * upload, the other invites an un-void.
+   */
+  | {
+      status: "all-voided";
+      /**
+       * How many voided snapshots they have, per the database's own count.
+       *
+       * `null` means "not known" and never 0 — see `PagedRead.total`. A 0 here
+       * would be a contradiction in terms: this state exists precisely because
+       * there is at least one.
+       */
+      voidedCount: number | null;
+    }
   | { status: "unavailable" };
+
+/**
+ * What `void_outreach_upload` / `unvoid_outreach_upload` report back.
+ *
+ * ⚠️ THE STATE AFTER THE CALL, NOT A RECORD OF WHAT THE CALL DID. Both RPCs are
+ * idempotent: voiding an already-voided snapshot leaves the ORIGINAL
+ * `voidedAt`/`voidedBy` untouched, because the first void is the fact. So a
+ * `voidedAt` that predates the call is a correct answer, not a stale one, and
+ * nothing here should be read as "this call is what voided it".
+ *
+ * After `unvoid`, both fields are `null` — the live state, with no boolean twin.
+ */
+export interface OutreachVoidResult {
+  uploadId: string;
+  clientId: string;
+  voidedAt: string | null;
+  voidedBy: string | null;
+}
 
 /**
  * The result of reading a snapshot the caller NAMES, by upload id.

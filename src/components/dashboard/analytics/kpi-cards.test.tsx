@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Kpi } from "@/services/types";
 
@@ -80,5 +81,100 @@ describe("KpiCards — ALL TIME, where no prior period exists", () => {
 
     expect(screen.getByText("200%")).toBeInTheDocument(); // Posts keeps its chip
     expect(screen.queryByText("12%")).not.toBeInTheDocument(); // Likes has none
+  });
+});
+
+describe("KpiCards — the ⓘ that says what each figure measures", () => {
+  // Radix drives Popover with Pointer Events jsdom does not implement.
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  const ALL: Kpi[] = [
+    { label: "Posts", value: 3, delta: 1, direction: "up" },
+    { label: "Likes", value: 150, delta: 1, direction: "up" },
+    { label: "Comments", value: 12, delta: 1, direction: "up" },
+    { label: "Shares", value: 4, delta: 1, direction: "up" },
+    { label: "Saves", value: 7, delta: 1, direction: "up" },
+  ];
+
+  it("gives the hero AND all five secondary KPIs one, each naming its own metric", () => {
+    render(<KpiCards hero={HERO} kpis={ALL} rangeLabel="30 days" />);
+
+    for (const label of ["Impressions", "Posts", "Likes", "Comments", "Shares", "Saves"]) {
+      expect(screen.getByRole("button", { name: `What is ${label}?` }), label).toBeInTheDocument();
+    }
+  });
+
+  it("defines the ▲/▼ chips on the line that says what they compare against", () => {
+    render(<KpiCards hero={HERO} kpis={ALL} rangeLabel="30 days" />);
+
+    expect(
+      screen.getByRole("button", { name: "What is Change vs. prior period?" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the definition on click", async () => {
+    const user = userEvent.setup();
+    render(<KpiCards hero={HERO} kpis={ALL} rangeLabel="30 days" />);
+
+    await user.click(screen.getByRole("button", { name: "What is Shares?" }));
+
+    // The rename is the thing worth surfacing here: the data column is `reposts`.
+    expect(await screen.findByText(/reposts/i)).toBeInTheDocument();
+  });
+
+  it("drops the delta ⓘ with the delta itself when there is no prior period", async () => {
+    // ⚠️ Defining a comparison that is not on screen would reintroduce exactly
+    // the claim the absent chip exists to avoid.
+    render(<KpiCards hero={noPrior(HERO)} kpis={ALL.map(noPrior)} rangeLabel="all time" />);
+
+    expect(
+      screen.queryByRole("button", { name: "What is Change vs. prior period?" }),
+    ).not.toBeInTheDocument();
+    // …while the metric definitions themselves stay, because the FIGURES stay.
+    expect(screen.getByRole("button", { name: "What is Impressions?" })).toBeInTheDocument();
+  });
+
+  it("renders NO ⓘ for a label nobody has defined — never an empty one", async () => {
+    // ⚠️ The service cannot emit this today (`metric-definitions.test.ts` fails
+    // if it ever does), but the render site must still fail safe rather than
+    // draw a control that opens onto nothing.
+    render(
+      <KpiCards
+        hero={HERO}
+        kpis={[{ label: "Reach", value: 1, delta: 1, direction: "up" }]}
+        rangeLabel="30 days"
+      />,
+    );
+
+    expect(screen.getByText("Reach")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /What is Reach/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps the 3×3 grid intact — the ⓘ must not add a row or orphan a card", () => {
+    // ⚠️ kpi-cards.tsx documents the geometry: 4 hero cells + 5 KPIs = 9, which
+    // tiles md:grid-cols-3 exactly, and stacks single-column on mobile. An ⓘ
+    // that changed the column classes would orphan Saves onto a fourth row.
+    const { container } = render(<KpiCards hero={HERO} kpis={ALL} rangeLabel="30 days" />);
+
+    const grid = container.querySelector(".grid")!;
+    expect(grid.className).toContain("grid-cols-1");
+    expect(grid.className).toContain("md:grid-cols-3");
+    // The hero still spans 2×2 on desktop and one column on mobile.
+    const heroCell = grid.firstElementChild!;
+    expect(heroCell.className).toContain("col-span-1");
+    expect(heroCell.className).toContain("md:col-span-2");
+    expect(heroCell.className).toContain("md:row-span-2");
+    // 1 hero + 5 cards = 6 grid children, unchanged by the triggers inside them.
+    expect(grid.children).toHaveLength(6);
   });
 });

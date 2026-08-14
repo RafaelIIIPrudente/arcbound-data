@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import type { BiPostRow } from "@/services/analytics";
+import { periodRange } from "@/services/bi-posts";
+import { CUSTOM_PREFIX, availablePeriods, parseReportPeriod } from "@/services/client-report";
+
 import {
   DAILY_MAX_DAYS,
   WEEKLY_MAX_DAYS,
@@ -10,6 +14,7 @@ import {
   resolveWindow,
   spanLabel,
   toDayKey,
+  toPeriodToken,
   triggerLabel,
   utcDayBounds,
 } from "./date-range";
@@ -17,6 +22,29 @@ import type { RangeSelection } from "./date-range";
 
 const DAY_MS = 86_400_000;
 const PRESETS = [7, 30, 90] as const;
+
+/** A row that exists only to put its month into `availablePeriods`. */
+function postOn(day: string): BiPostRow {
+  return {
+    client_id: "c1",
+    client_name: "Client One",
+    linkedin_post_id: `p-${day}`,
+    post_url: null,
+    post_content: null,
+    post_age: null,
+    estimated_post_date: day,
+    impressions: 100,
+    likes: null,
+    comments: null,
+    reposts: null,
+    saves: null,
+    interactions: null,
+    provided_engagement_rate: null,
+    calculated_engagement_rate: null,
+    scraped_at: null,
+    uploaded_at: null,
+  };
+}
 
 /** The dashboard's own custom window: 12 Jun – 29 Jul 2026 is 48 days inclusive. */
 const CUSTOM: RangeSelection = { kind: "custom", startDay: "2026-06-12", endDay: "2026-07-29" };
@@ -202,15 +230,44 @@ describe("utcDayBounds", () => {
 
 // ── the window and its baseline ──────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ A PRESET IS A RUN OF WHOLE UTC DAYS, NOT A ROLLING N × 24 HOURS.
+//
+// It used to be the latter — `startMs = nowMs − N × DAY_MS` — which put every
+// preset boundary at the current TIME OF DAY. That is not wrong about WHICH
+// posts are in the window (`estimated_post_date` is date-only, so exactly N
+// days' worth still qualified), and the measurements below pin that it stays
+// right. It was wrong about what the window IS: every daily bucket then ran
+// noon-to-noon and straddled two calendar days, so the chart labelled each bar
+// with the day BEFORE the posts inside it — a post published on the 23rd was
+// drawn under "22 Jul", and today's posts under yesterday's date.
+//
+// Snapping the boundary to 00:00 UTC makes a preset the same KIND of object as
+// a custom range (which has always been whole days, via `utcDayBounds`), so
+// there is one definition of a window rather than two that mostly agree.
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe("resolveWindow — presets", () => {
   const now = new Date("2026-07-29T12:00:00.000Z");
+  /** 00:00 UTC on the day `now` falls in. */
+  const todayStart = Date.UTC(2026, 6, 29);
 
-  it("ends at now and reaches back the preset's own length", () => {
+  it("runs whole UTC days: from midnight N−1 days back to the end of today", () => {
     const w = resolveWindow({ kind: "preset", days: 30 }, now);
 
-    expect(w.endMs).toBe(now.getTime());
-    expect(w.startMs).toBe(now.getTime() - 30 * DAY_MS);
+    expect(new Date(w.startMs).toISOString()).toBe("2026-06-30T00:00:00.000Z");
+    expect(new Date(w.endMs).toISOString()).toBe("2026-07-29T23:59:59.999Z");
     expect(w.spanDays).toBe(30);
+  });
+
+  it("does not move when the clock does, only when the DAY does", () => {
+    // The defining property of the change: any instant on 29 July resolves the
+    // same window. Under the old rolling-hours rule, every page load produced a
+    // slightly different one.
+    const early = resolveWindow({ kind: "preset", days: 7 }, new Date("2026-07-29T00:00:01.000Z"));
+    const late = resolveWindow({ kind: "preset", days: 7 }, new Date("2026-07-29T23:59:58.000Z"));
+
+    expect(early).toEqual(late);
   });
 
   it("baselines against the equal-length window immediately before it", () => {
@@ -220,11 +277,66 @@ describe("resolveWindow — presets", () => {
     expect(w.priorStartMs).toBe(w.startMs - 30 * DAY_MS); // and exactly as long
   });
 
-  it("reproduces the rule analytics.ts already applies to 7 / 30 / 90", () => {
+  it("covers exactly N whole days, and the prior window the N before those", () => {
     for (const days of PRESETS) {
       const w = resolveWindow({ kind: "preset", days }, now);
-      expect(w.startMs, `${days}d`).toBe(now.getTime() - days * DAY_MS);
-      expect(w.priorStartMs, `${days}d`).toBe(now.getTime() - 2 * days * DAY_MS);
+
+      expect(w.startMs, `${days}d`).toBe(todayStart - (days - 1) * DAY_MS);
+      expect(w.endMs, `${days}d`).toBe(todayStart + DAY_MS - 1);
+      expect(w.priorStartMs, `${days}d`).toBe(todayStart - (2 * days - 1) * DAY_MS);
+    }
+  });
+
+  it("INCLUDES a post at 00:00 UTC on the window's oldest day", () => {
+    // ⚠️ The invariant the whole snap exists to make unambiguous. It happened to
+    // hold under the rolling-hours rule too — the day that got cut there was the
+    // N+1th the window touched, not one of the N it meant — so this is a pin on
+    // behaviour that must SURVIVE the change, not evidence that the change was
+    // needed. The bucket alignment below is that evidence.
+    for (const days of PRESETS) {
+      const w = resolveWindow({ kind: "preset", days }, now);
+      const oldestDay = todayStart - (days - 1) * DAY_MS;
+
+      expect(oldestDay, `${days}d oldest`).toBeGreaterThanOrEqual(w.startMs);
+      expect(todayStart, `${days}d today`).toBeLessThanOrEqual(w.endMs);
+      // …and the day BEFORE the oldest is out, so the window is not N+1 days.
+      expect(oldestDay - DAY_MS, `${days}d cutoff`).toBeLessThan(w.startMs);
+    }
+  });
+
+  it("draws every daily bar under the date of the posts inside it", () => {
+    // ⚠️ THE DEFECT THIS CHANGE ACTUALLY FIXES, AND THE ONE A USER COULD SEE.
+    // A bucket is `widthMs` wide starting at `startMs`, and is labelled by that
+    // instant. With `startMs` at midday, bucket 0 ran 22 Jul 12:00 → 23 Jul
+    // 12:00 and was labelled "22 Jul" while holding the posts published on the
+    // 23rd. Every bar on every preset was captioned with the previous day.
+    const w = resolveWindow({ kind: "preset", days: 7 }, now);
+    const plan = bucketPlan(w.spanDays);
+
+    for (let i = 0; i < plan.count; i++) {
+      const bucketStart = w.startMs + i * plan.widthMs;
+      // The posts that land in this bucket are the ones dated on this day.
+      const postDate = new Date(bucketStart);
+
+      expect(bucketLabel(plan.unit, bucketStart), `bucket ${i}`).toBe(
+        `${postDate.getUTCDate()} Jul`,
+      );
+      expect(Math.floor((bucketStart - w.startMs) / plan.widthMs), `bucket ${i}`).toBe(i);
+    }
+    // And the last bar is TODAY, not yesterday.
+    expect(bucketLabel(plan.unit, w.startMs + (plan.count - 1) * plan.widthMs)).toBe("29 Jul");
+  });
+
+  it("resolves the same window from every zone the process might run in", () => {
+    // The boundary is UTC. Read through local parts instead and a UTC+14 machine
+    // would snap to tomorrow for most of its working day.
+    const expected = resolveWindow({ kind: "preset", days: 7 }, now);
+
+    for (const tz of ZONES) {
+      expect(
+        underTz(tz, () => resolveWindow({ kind: "preset", days: 7 }, now)),
+        tz,
+      ).toEqual(expected);
     }
   });
 });
@@ -454,5 +566,119 @@ describe("triggerLabel", () => {
         tz,
       ).toBe("12 JUN – 29 JUL 2026");
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE DRILL-THROUGH: the dashboard's `?range=` window, in the posts screen's
+// `?period=` dialect.
+//
+// ⚠️ THESE TESTS ROUND-TRIP; THEY DO NOT MATCH STRINGS. Asserting that a token
+// starts with "custom:" proves nothing about where the reader lands, because
+// `parseReportPeriod` does not throw on a token it cannot read — it falls back
+// to the NEWEST MONTH. A wrong translation therefore produces a perfectly
+// plausible table of the wrong posts, and a string assertion would pass while it
+// happened. Every test below feeds the produced token through the real
+// `parseReportPeriod` and compares the window it actually resolves to.
+//
+// ⚠️ THE END BOUND IS NOT THE SAME KIND ON BOTH SIDES. `resolveWindow.endMs` is
+// INCLUSIVE — the last instant of the end day, 23:59:59.999Z. `periodRange`
+// returns a HALF-OPEN `end`, which every consumer filters as `ms < end`. The
+// conversion is `+ 1`, landing exactly on the next day's midnight. Assert them
+// equal without it and the drill-through silently drops its last day.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("toPeriodToken — the dashboard window, spoken in the posts screen's dialect", () => {
+  const NOW = new Date("2026-07-29T09:41:00.000Z");
+
+  /** A realistic period list: exactly what the posts screen builds from its rows. */
+  const AVAILABLE = availablePeriods(
+    ["2026-07-20", "2026-06-15", "2026-05-02", "2025-12-31"].map(postOn),
+  );
+
+  /** Follow a dashboard selection all the way to the window the posts screen shows. */
+  function drillThrough(sel: RangeSelection) {
+    const token = toPeriodToken(sel, NOW, CUSTOM_PREFIX);
+    const period = parseReportPeriod(token, AVAILABLE);
+    return { token, period, bounds: periodRange(period) };
+  }
+
+  /** Every window the dashboard can be showing. */
+  const SELECTIONS: RangeSelection[] = [
+    { kind: "preset", days: 7 },
+    { kind: "preset", days: 30 },
+    { kind: "preset", days: 90 },
+    CUSTOM,
+  ];
+
+  it("lands each preset on EXACTLY the window the dashboard resolved", () => {
+    for (const sel of SELECTIONS) {
+      const want = resolveWindow(sel, NOW);
+      const { bounds, token } = drillThrough(sel);
+
+      expect(bounds.start, token).toBe(want.startMs);
+      // Inclusive → half-open. The `+ 1` is the last day of the window.
+      expect(bounds.end, token).toBe(want.endMs + 1);
+    }
+  });
+
+  it("keeps all-time as all-time, by KEY MATCH rather than by translation", () => {
+    // `availablePeriods` always emits `{kind:"all", key:"all"}` first, so the
+    // bare token "all" matches a real period and never reaches the fallback.
+    const { token, period, bounds } = drillThrough({ kind: "all" });
+
+    expect(token).toBe("all");
+    expect(period.kind).toBe("all");
+    expect(bounds.start).toBe(resolveWindow({ kind: "all" }, NOW).startMs);
+    // ⚠️ THE ONE BOUND THAT IS DELIBERATELY NOT `endMs + 1`. The dashboard closes
+    // all-time at `now` (no post can carry a later timestamp); the posts screen
+    // leaves it unbounded. Both select the same rows — see the FLAG in the report
+    // for the future-dated-row edge this leaves open.
+    expect(bounds.end).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  // ── the failure this slice exists to prevent ────────────────────────────────
+  it("NEVER lands on a month period — the silent fallback is the whole hazard", () => {
+    for (const sel of [...SELECTIONS, { kind: "all" } as RangeSelection]) {
+      const { period, token } = drillThrough(sel);
+      expect(period.kind, `${token} fell back to a month`).not.toBe("month");
+    }
+  });
+
+  it("keeps the two dialects distinct — the dashboard cannot read its own output", () => {
+    // One window, one URL per surface. If the dashboard's decoder accepted these
+    // tokens too, the same window would have two spellings on the same screen.
+    for (const sel of SELECTIONS) {
+      const { token } = drillThrough(sel);
+      if (token === "all") continue;
+      expect(decodeRange(token, [...PRESETS]), token).toBeNull();
+    }
+  });
+
+  it("derives its days from the RESOLVED window, not from its own arithmetic", () => {
+    // A preset is a run of whole UTC days ending TODAY, so the token names those
+    // exact days. Recomputing "N days back" anywhere else is how the two screens
+    // drift apart; this pins the days to `resolveWindow`'s answer.
+    const { startMs, endMs } = resolveWindow({ kind: "preset", days: 7 }, NOW);
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+    expect(toPeriodToken({ kind: "preset", days: 7 }, NOW, CUSTOM_PREFIX)).toBe(
+      `custom:${day(startMs)}..${day(endMs)}`,
+    );
+  });
+
+  it("records the exact token for each window — a readable pin, not the proof", () => {
+    // The proof is the round-trip above. This is here so a reader can see what
+    // actually travels in the URL without running the suite.
+    expect(SELECTIONS.map((sel) => toPeriodToken(sel, NOW, CUSTOM_PREFIX))).toEqual([
+      "custom:2026-07-23..2026-07-29",
+      "custom:2026-06-30..2026-07-29",
+      "custom:2026-05-01..2026-07-29",
+      "custom:2026-06-12..2026-07-29",
+    ]);
+  });
+
+  it("defaults to the bare dialect, like `encodeRange`", () => {
+    expect(toPeriodToken(CUSTOM, NOW)).toBe("2026-06-12..2026-07-29");
   });
 });

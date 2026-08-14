@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId } from "react";
+import { useActionState, useId, useState } from "react";
 
 import {
   setClientServicesAction,
@@ -37,6 +37,23 @@ import type { ArcboundService } from "@/services/types";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const IDLE: ServiceAssignmentState = { status: "idle" };
+
+/**
+ * A set of Service ids as one comparable string, order-independent.
+ *
+ * ⚠️ THE UNIT OF COMPARISON IS THE SET, NOT "DID THE USER CLICK SOMETHING". Those
+ * are different questions, and only the first belongs on a Save button: tick a box
+ * and untick it again and there is nothing to save, however many clicks happened.
+ *
+ * SORTED, because the browser submits in DOM order and a reordered registry
+ * would otherwise read as a change nobody made. Joined on NUL, written as an
+ * ESCAPE rather than a raw byte — a literal NUL in the source makes git treat
+ * this file as binary and renders the diff unreviewable. No uuid contains it, so
+ * no two ids can run together into a third spelling.
+ */
+function selectionKey(ids: Iterable<string>): string {
+  return [...ids].sort().join("\u0000");
+}
 
 /** ⚠️ NOT AN EM DASH — that marker means "could not be read". This is on record. */
 function pipelineLabel(service: ArcboundService): string {
@@ -79,6 +96,41 @@ export function ClientServicesCardView({
   );
   const offered = [...active, ...heldArchived];
   const assigned = offered.filter((service) => held.has(service.id));
+
+  // ── is there anything to save? ─────────────────────────────────────────────
+  //
+  // ⚠️ TRACKED WITHOUT TAKING OWNERSHIP OF THE INPUTS. The checkboxes stay
+  // `defaultChecked` (see the ⚠️ on the input below) because this form REPLACES
+  // the whole set, and the browser posting exactly what is on screen is what
+  // carries a held-but-archived Service through an unrelated save. So nothing
+  // here is a `useState` per checkbox — the form's own `onChange` reads the
+  // submitted set back off the DOM and reduces it to ONE string. React never
+  // writes `checked`; the browser stays the owner of every tick.
+  //
+  // The baseline is what the form WOULD post untouched, which is `assigned`
+  // (offered ∩ held) rather than `assignedIds` — an archived id the registry no
+  // longer offers is not in the form and must not count toward the comparison.
+  const savedKey = selectionKey(assigned.map((service) => service.id));
+  const [baseline, setBaseline] = useState(savedKey);
+  const [selection, setSelection] = useState(savedKey);
+  const [settled, setSettled] = useState<ServiceAssignmentState | null>(null);
+
+  // ⚠️ RE-BASELINE ON A COMPLETED SAVE, OR THE BUG COMES BACK ONE LAYER UP. If
+  // the baseline stayed at the originally-rendered set, the button would re-enable
+  // permanently the moment anything was saved.
+  //
+  // ⚠️ KEYED ON THE STATE OBJECT'S IDENTITY, NOT ON `status`. `useActionState`
+  // hands back a NEW object per completed action and the SAME one across ordinary
+  // re-renders, so this fires once per save. Comparing `status` alone would
+  // re-baseline on every render while the card sat in its saved state — which
+  // would silently mark a freshly-ticked box as "nothing to save", the original
+  // defect wearing the fix as a disguise.
+  if (state.status === "saved" && state !== settled) {
+    setSettled(state);
+    setBaseline(selection);
+  }
+
+  const dirty = selection !== baseline;
 
   const header = (
     <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
@@ -127,7 +179,17 @@ export function ClientServicesCardView({
 
       {assigned.length === 0 ? emptyNotice : null}
 
-      <form action={formAction} className="space-y-4">
+      <form
+        action={formAction}
+        // Change events from the checkboxes bubble to here, so ONE listener reads
+        // the whole submitted set. No per-input handler, and no per-input state.
+        onChange={(event) =>
+          setSelection(
+            selectionKey(new FormData(event.currentTarget).getAll("service_id").map(String)),
+          )
+        }
+        className="space-y-4"
+      >
         {/* Whose set this is. The action validates it; the FK enforces it. */}
         <input type="hidden" name="client_id" value={clientId} />
 
@@ -175,13 +237,23 @@ export function ClientServicesCardView({
             {state.message}
           </p>
         ) : null}
-        {state.status === "saved" ? (
+        {/* ⚠️ ONLY WHILE IT IS STILL TRUE. "Saved." is a claim about the selection
+            ON SCREEN, so the moment the user ticks something new it becomes a lie
+            and must go. This is the other half of the fix: a stale success message
+            beside a live Save button is what made the card unreadable, and hiding
+            the message and disabling the button are driven by the SAME flag so the
+            two can never contradict each other. */}
+        {state.status === "saved" && !dirty ? (
           <p role="status" className="text-xs text-muted-foreground">
             {state.message}
           </p>
         ) : null}
 
-        <Button type="submit" variant="outline" size="sm" disabled={pending}>
+        {/* ⚠️ DISABLED WHEN THE TICKED SET ALREADY IS THE SAVED SET — never because
+            the set is EMPTY. Deselecting every Service is a legitimate change an
+            admin must be able to save; "nothing ticked" and "nothing to do" are
+            different states and only the second one blocks the button. */}
+        <Button type="submit" variant="outline" size="sm" disabled={pending || !dirty}>
           {pending ? "Saving…" : "Save services"}
         </Button>
       </form>

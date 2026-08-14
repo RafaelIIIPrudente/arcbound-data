@@ -204,8 +204,22 @@ function formatShortDate(dateStr: string): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
+/**
+ * The last-sync instant, as `2026-07-16 06:00 UTC`.
+ *
+ * ⚠️ THE ZONE IS PART OF THE MEASUREMENT. `toISOString` means this figure has
+ * always BEEN UTC; it simply never said so, and "last sync 2026-07-16 06:00"
+ * reads as local time to everyone who sees it — wrong by 5½ hours for a reviewer
+ * in India, by 8 for an operator in Manila, with nothing on screen to reveal it.
+ * The instant is unchanged; only the label is new.
+ *
+ * ⚠️ FORMATTED HERE, IN THE SERVICE, so this string IS `DashboardAnalytics
+ * .lastSync` — `page.tsx` prints it as given. A caller wanting a different
+ * rendering would need the raw millisecond value, which this seam does not
+ * currently publish.
+ */
 function formatSync(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 // ── the aggregation (pure, deterministic given `now`) ────────────────────────

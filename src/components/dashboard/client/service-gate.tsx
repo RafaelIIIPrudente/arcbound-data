@@ -64,10 +64,12 @@ export function NotAssignedGate({
  * The Services registry could not be read, so this page cannot tell whether the
  * Client is assigned this section or not.
  *
- * ⚠️ THIS IS THE LIVE PATH TODAY, NOT AN EDGE CASE. `supabase/arcbound-services.sql`
- * has not been applied, so `getClientServices` fails on every request against the
- * real database — this notice is what staff currently see on every Client's
- * Posts, LinkedIn Report and Outreach page.
+ * ⚠️ NO LONGER THE EVERYDAY PATH — CORRECTED 2026-08-14, WHEN
+ * `supabase/arcbound-services.sql` WAS CONFIRMED APPLIED. `getClientServices`
+ * now succeeds on an ordinary request, so staff do not routinely see this
+ * notice; it appears when the registry read actually fails. That is a change of
+ * FREQUENCY only — the notice is exactly as necessary as it was, because the
+ * failure it describes is still reachable.
  *
  * ⚠️ MUST NAME THE AMBIGUITY IN WORDS. An unlabelled empty section below this
  * notice would re-create the exact production bug this slice closes: it would

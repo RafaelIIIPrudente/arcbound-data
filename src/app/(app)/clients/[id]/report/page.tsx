@@ -8,6 +8,7 @@ import {
   AnalyticsUnavailable,
 } from "@/components/dashboard/analytics/analytics-unavailable";
 import { ClientTabs } from "@/components/dashboard/client/client-tabs";
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import {
   NotAssignedGate,
   ServicesUnreadableNotice,
@@ -23,6 +24,7 @@ import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
+import { REPORT_METRIC_KEYS } from "@/lib/metric-definitions";
 import { canSee } from "@/lib/service-access";
 import { paths } from "@/paths";
 import { getClientServices } from "@/services/arcbound-services";
@@ -30,6 +32,27 @@ import { getClientReport } from "@/services/client-report";
 import { getClient } from "@/services/clients";
 
 export const metadata: Metadata = { title: "Client LinkedIn report" };
+
+/**
+ * The ⓘ for one Key Performance label — the staff report's opt-in.
+ *
+ * ⚠️ THIS FUNCTION IS THE WHOLE REASON THE IMPORT EDGE IS SAFE HERE. It lives on
+ * the staff page, so `MetricInfo` (and the Radix Popover behind it) is reachable
+ * from THIS route and from no other. `key-performance.tsx` used to own this and
+ * gate it on a boolean, which meant the print export and `/r/[token]` bundled the
+ * popover they were never allowed to show. See `RenderInfo` in
+ * `components/dashboard/report/key-performance.tsx`.
+ *
+ * ⚠️ NOT EXPORTED — Next rejects arbitrary named exports from a `page.tsx`. Its
+ * wiring is covered through the page in `page.test.tsx`, which asserts the real ⓘ
+ * this produces, rather than a stub.
+ *
+ * An unmapped label renders nothing at all: no ⓘ, never an invented definition.
+ */
+function reportMetricInfo(label: string) {
+  const key = REPORT_METRIC_KEYS[label];
+  return key ? <MetricInfo metric={key} /> : null;
+}
 
 function SectionHeader({
   title,
@@ -172,8 +195,23 @@ export default async function ClientReportPage({
             <KeyPerformance
               keyPerformance={report.keyPerformance}
               hasPosts={report.totalPostsAllTime > 0}
+              // ⚠️ THE ONLY CALLER THAT PASSES THIS, AND THE IMPORT LIVES HERE
+              // FOR THAT REASON. The same component renders the PRINT export and
+              // `/r/[token]`, the report a Client holds; a popover is meaningless
+              // on paper and would change what crosses the public boundary.
+              //
+              // This used to be a `showDefinitions` boolean, which stopped the ⓘ
+              // RENDERING on those two but could not stop it being BUNDLED for
+              // them — a static import is resolved by the bundler long before any
+              // prop is read, so `/r/[token]` shipped 4 kB of Radix it could never
+              // run. Handing the ⓘ in from here means the edge only exists on the
+              // staff path. Pinned by `src/rsc-boundary.test.ts`.
+              renderInfo={reportMetricInfo}
             />
-            <InteractionsComparison rows={report.interactionsComparison} />
+            <InteractionsComparison
+              rows={report.interactionsComparison}
+              info={<MetricInfo metric="panelInteractionsComparison" />}
+            />
           </section>
 
           <section className="space-y-4">
@@ -205,7 +243,9 @@ export default async function ClientReportPage({
               self-guards on a zero total). */}
           {report.cadence.totalPosts > 0 ? (
             <section className="space-y-4">
-              <SectionHeader title="Posting cadence" scope={scopeCaption(report.period)} />
+              <SectionHeader title="Posting cadence" scope={scopeCaption(report.period)}>
+                <MetricInfo metric="panelPostingCadence" />
+              </SectionHeader>
               <PostingCadence cadence={report.cadence} />
             </section>
           ) : null}
@@ -231,7 +271,9 @@ export default async function ClientReportPage({
               when the selected period has no posts (the component also self-guards). */}
           {report.composition.totalPosts > 0 ? (
             <section className="space-y-4">
-              <SectionHeader title="Content composition" scope={scopeCaption(report.period)} />
+              <SectionHeader title="Content composition" scope={scopeCaption(report.period)}>
+                <MetricInfo metric="panelContentComposition" />
+              </SectionHeader>
               <ContentComposition composition={report.composition} />
             </section>
           ) : null}

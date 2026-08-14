@@ -259,3 +259,144 @@ describe("the form posts the client id alongside the set", () => {
     expect(formAction).toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE BUTTON MUST NOT LIE ABOUT WHETHER THERE IS ANYTHING TO SAVE.
+//
+// The card used to read "Saved. 2 services assigned." with a fully enabled Save
+// button directly beneath it. Both statements were live at once, so a user could
+// not tell persisted from pending — and the safe move was to press Save again.
+// A control that trains people to press it when it does nothing is one they will
+// ignore on the day it matters.
+//
+// ⚠️ DIRTINESS IS TRACKED WITHOUT CONTROLLING THE INPUTS. The checkboxes stay
+// `defaultChecked`, because `setClientServices` REPLACES the whole set and the
+// browser submitting exactly what is ticked is what carries a held-but-archived
+// Service through an unrelated save. The tests below therefore drive real DOM
+// clicks and read the submitted set off the DOM, never off React state.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("⚠️ the Save button reflects whether there is anything to save", () => {
+  const saveButton = () => screen.getByRole("button", { name: /save services/i });
+
+  it("is DISABLED on first render — the ticked set already is the saved set", () => {
+    render(<ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id, OUTREACH.id]} />);
+
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("ENABLES when a box is ticked", () => {
+    render(<ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /outreach system/i }));
+
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("⚠️ DISABLES again when the selection returns to the saved set", () => {
+    // ⚠️ THE ONE A LATCHING IMPLEMENTATION FAILS. "Has the user touched anything?"
+    // is a different question from "is the selection different?", and only the
+    // second one is worth putting on a button.
+    render(<ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} />);
+    const outreach = screen.getByRole("checkbox", { name: /outreach system/i });
+
+    fireEvent.click(outreach);
+    expect(saveButton()).toBeEnabled();
+
+    fireEvent.click(outreach);
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("⚠️ ENABLES when everything is deselected — that is a real change, not an empty form", () => {
+    // ⚠️ "NOTHING TICKED" IS NOT "NOTHING TO DO". Removing a Client's last Service
+    // is a legitimate admin action, and blocking it would be a different defect
+    // wearing the same fix.
+    const { container } = render(
+      <ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /linkedin growth/i }));
+
+    expect(submittedIds(container)).toEqual([]);
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("⚠️ DISABLES after a successful save — the baseline moves to what was saved", () => {
+    // ⚠️ IF THE BASELINE STAYED AT THE ORIGINALLY-RENDERED SET, the button would
+    // re-enable permanently after the first save and the bug would be rebuilt one
+    // layer up. Proven by mutation, not by inspection.
+    const { rerender } = render(
+      <ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /outreach system/i }));
+    expect(saveButton()).toBeEnabled();
+
+    rerender(
+      <ClientServicesCardView
+        {...baseProps}
+        assignedIds={[LINKEDIN.id]}
+        state={{ status: "saved", message: "Saved. 2 services assigned." }}
+      />,
+    );
+
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("⚠️ never shows “Saved.” beside an enabled Save button", () => {
+    // ⚠️ THE CONTRADICTION THAT STARTED THIS. A success message is a claim about
+    // the CURRENT selection; the moment the selection moves on, the claim is false
+    // and must go — in both directions.
+    //
+    // ⚠️ ONE STATE OBJECT, REUSED ACROSS BOTH RENDERS, AND THAT IS THE FAITHFUL
+    // MODEL. `useActionState` returns a NEW object only when an action completes,
+    // and the SAME one across every ordinary re-render. Passing a fresh literal on
+    // the second render would be simulating a SECOND SAVE — after which
+    // re-baselining and showing "Saved." again is the correct behaviour, not a bug.
+    // The card distinguishes those two cases by object identity, so the test has to
+    // as well.
+    const SAVED = { status: "saved", message: "Saved. 1 service assigned." } as const;
+    const { rerender } = render(
+      <ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} state={SAVED} />,
+    );
+
+    // Freshly saved: message shown, nothing to do.
+    expect(screen.getByRole("status")).toHaveTextContent(/saved/i);
+    expect(saveButton()).toBeDisabled();
+
+    // The user ticks something new — the message is now a lie and must vanish.
+    fireEvent.click(screen.getByRole("checkbox", { name: /advisory/i }));
+
+    expect(saveButton()).toBeEnabled();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    // And it must not come back merely because the parent re-rendered.
+    rerender(<ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} state={SAVED} />);
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("⚠️ keeps a held ARCHIVED Service ticked and submitted while tracking dirtiness", () => {
+    // ⚠️ THE CONSTRAINT THIS FIX HAD TO RESPECT. Dirtiness tracking must not take
+    // ownership of the input values: the archived Service is ticked by the browser,
+    // not by React, and it must still ride along in the POST body.
+    const { container } = render(
+      <ClientServicesCardView {...baseProps} assignedIds={[OUTREACH.id, LEGACY_ARCHIVED.id]} />,
+    );
+
+    expect(screen.getByRole("checkbox", { name: /legacy audit/i })).toBeChecked();
+    expect(saveButton()).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /linkedin growth/i }));
+
+    expect(saveButton()).toBeEnabled();
+    expect(submittedIds(container)).toContain(LEGACY_ARCHIVED.id);
+  });
+
+  it("stays disabled while a save is in flight, and says so", () => {
+    render(<ClientServicesCardView {...baseProps} assignedIds={[LINKEDIN.id]} pending />);
+
+    expect(screen.getByRole("button", { name: /saving/i })).toBeDisabled();
+  });
+});

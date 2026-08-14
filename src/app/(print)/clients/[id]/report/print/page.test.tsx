@@ -98,9 +98,11 @@ describe("⚠️ the print export is gated exactly as the on-screen report is", 
     // ⚠️ THIS BANNER USED TO REACH PAPER, ON EVERY REPORT. `ServicesUnreadableNotice`
     // ("...the check itself failed. Try again shortly") is written for STAFF
     // reading the app; before this fix it printed verbatim into the document
-    // handed to a Client — live on every report today, since
-    // `supabase/arcbound-services.sql` is unapplied and this read fails on every
-    // request. The GATE itself is unchanged: `canSee` still fails OPEN on
+    // handed to a Client. It reached every report while the registry read was
+    // failing; `supabase/arcbound-services.sql` has been applied since
+    // 2026-08-14, so the banner is now rare — and it would still print on any
+    // report rendered while a read fails, which is why this stays. The GATE
+    // itself is unchanged: `canSee` still fails OPEN on
     // `access === null` (D14), so the real report still renders — only the
     // on-page disclosure is gone, because paper has no later chance to retry.
     getClientServicesMock.mockResolvedValue(null);

@@ -139,8 +139,9 @@ describe("⚠️ ClientTabs — the tab list is now a function of what the Clien
   });
 
   it("⚠️ shows every pipeline, CODE-LABELLED, when the registry could not be read", async () => {
-    // ⚠️ THIS IS THE LIVE PATH TODAY: `supabase/arcbound-services.sql` is not
-    // applied, so this is what every Client's tab row actually renders right now.
+    // ⚠️ NO LONGER THE EVERYDAY PATH: `supabase/arcbound-services.sql` has been
+    // applied since 2026-08-14, so a real tab row is what renders now. This is
+    // what a FAILED registry read renders, which is still reachable.
     // Hiding tabs over a failed read would take a working screen offline over a
     // database problem — the same self-inflicted-outage reasoning as S4's
     // `/upload` fallback. The labels come from `service-access.ts`'s own

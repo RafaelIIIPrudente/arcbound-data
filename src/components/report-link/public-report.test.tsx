@@ -178,6 +178,19 @@ describe("PublicReportView — the client-facing wrapper (pure)", () => {
     expect(screen.getByText(/posting cadence/i)).toBeInTheDocument();
   });
 
+  it("DOES carry the metric ⓘ — a Client may see what each figure measures", () => {
+    // ⚠️ THIS ASSERTION WAS INVERTED ON 2026-08-13, DELIBERATELY. It previously
+    // read "carries NO metric ⓘ — the definitions are a staff affordance" and
+    // asserted their absence: the opt-in prop existed so an ⓘ could not reach
+    // the public boundary by inheritance. It now reaches it by DECISION, which
+    // is the distinction the prop was built to preserve — and this test still
+    // guards it, by pinning that the wrapper opts in explicitly rather than
+    // inheriting a default.
+    render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
+
+    expect(screen.getAllByRole("button", { name: /^What is / }).length).toBeGreaterThan(0);
+  });
+
   it("keeps the period picker", () => {
     render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
     expect(screen.getByLabelText(/reporting period/i)).toBeInTheDocument();

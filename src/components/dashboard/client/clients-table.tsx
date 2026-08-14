@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -20,10 +21,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { metricDefinition } from "@/lib/metric-definitions";
 import { cn } from "@/lib/utils";
 import type { ClientListRow } from "@/services/types";
 
-import { columns } from "./columns";
+import { columns, type ClientColumnMeta } from "./columns";
 
 /** Keystrokes settle for this long before the URL is rewritten. */
 const FILTER_DEBOUNCE_MS = 300;
@@ -88,18 +90,36 @@ export function ClientsTable({ data, q = "" }: { data: ClientListRow[]; q?: stri
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
-                  const meta = header.column.columnDef.meta as { className?: string } | undefined;
+                  const meta = header.column.columnDef.meta as ClientColumnMeta | undefined;
                   const sortable = header.column.getCanSort();
                   const direction = header.column.getIsSorted();
                   const label = flexRender(header.column.columnDef.header, header.getContext());
+                  const info = meta?.infoMetric ? metricDefinition(meta.infoMetric) : undefined;
                   return (
-                    <TableHead key={header.id} scope="col" className={meta?.className}>
+                    <TableHead
+                      key={header.id}
+                      scope="col"
+                      className={cn(meta?.className, info && "whitespace-nowrap")}
+                      // ⚠️ AN EXPLICIT NAME, AND ONLY WHERE AN ⓘ SITS. A `<th>`
+                      // computes its name from its content, so without this the
+                      // ⓘ's own label ("What is Posts?") would be read out as
+                      // part of the column header on every cell in the column.
+                      // Stating the name here keeps BOTH buttons out of it while
+                      // leaving each individually reachable under its own name.
+                      aria-label={info?.term}
+                    >
                       {header.isPlaceholder ? null : sortable ? (
                         <button
                           type="button"
                           onClick={header.column.getToggleSortingHandler()}
                           className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
-                          aria-label={`Sort by ${header.column.id === "name" ? "client" : header.column.id === "postsCount" ? "posts" : "last upload"}`}
+                          // ⚠️ MUST AGREE WITH THE VISIBLE HEADER IN `columns.tsx`.
+                          // This is hardcoded rather than derived, so a header
+                          // rename does NOT reach it — "last upload" survived the
+                          // rename to "Last ArcBase upload" here until it was
+                          // changed by hand, which would have left the control
+                          // announced as something other than what it reads.
+                          aria-label={`Sort by ${header.column.id === "name" ? "client" : header.column.id === "postsCount" ? "posts" : "last ArcBase upload"}`}
                         >
                           {label}
                           {direction === "asc" ? (
@@ -113,6 +133,16 @@ export function ClientsTable({ data, q = "" }: { data: ClientListRow[]; q?: stri
                       ) : (
                         label
                       )}
+                      {/* ⚠️ A SIBLING OF THE SORT CONTROL, NEVER INSIDE IT. The
+                          sortable header's content is rendered within a
+                          `<button>`, so an ⓘ placed in `columnDef.header` would
+                          nest one button in another — invalid markup that no
+                          keyboard can reach. `columns.tsx` therefore declares
+                          the metric and this renders it. Unmapped keys render
+                          nothing at all; `MetricInfo` owns that branch. */}
+                      {meta?.infoMetric ? (
+                        <MetricInfo metric={meta.infoMetric} className="ml-1.5" />
+                      ) : null}
                     </TableHead>
                   );
                 })}
@@ -124,7 +154,7 @@ export function ClientsTable({ data, q = "" }: { data: ClientListRow[]; q?: stri
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id} className="relative cursor-pointer">
                   {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta as { className?: string } | undefined;
+                    const meta = cell.column.columnDef.meta as ClientColumnMeta | undefined;
                     return (
                       <TableCell key={cell.id} className={cn(meta?.className)}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

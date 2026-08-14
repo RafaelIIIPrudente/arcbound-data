@@ -1,3 +1,5 @@
+import { MetricInfo } from "@/components/dashboard/metric-info";
+import { REPORT_STATUS_METRIC_KEYS } from "@/lib/metric-definitions";
 import type { ClientReport, MonthPoint } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,11 +79,28 @@ const DIRECTION_COPY: Record<"up" | "down" | "steady", string> = {
   steady: "Holding steady across this period",
 };
 
+/**
+ * The ⓘ for one status label.
+ *
+ * ⚠️ THIS IMPORT EDGE IS DELIBERATE, AND IT IS WHY IT LIVES HERE RATHER THAN IN A
+ * SHARED HELPER. Reaching for `MetricInfo` is what puts the Radix popover into a
+ * route's bundle — see `RenderInfo` in `key-performance.tsx`. This component is
+ * rendered only by `/r/[token]`, which is a surface the reader can actually
+ * click, so the edge is paid where it is used.
+ *
+ * An unmapped label renders nothing at all: no ⓘ, never an invented definition.
+ */
+function statusInfo(label: string) {
+  const key = REPORT_STATUS_METRIC_KEYS[label];
+  return key ? <MetricInfo metric={key} /> : null;
+}
+
 function StatBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
         {label}
+        {statusInfo(label)}
       </div>
       <div className="text-sm font-medium text-foreground">{children}</div>
     </div>

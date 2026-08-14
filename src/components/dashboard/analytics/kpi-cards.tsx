@@ -1,3 +1,4 @@
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import type { Kpi } from "@/services/types";
 
 /**
@@ -47,8 +48,15 @@ export function KpiCards({
           style={{ background: "radial-gradient(circle, var(--primary), transparent 65%)" }}
           aria-hidden
         />
-        <div className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+        {/* ⚠️ THE ⓘ IS INLINE, INSIDE THE EXISTING LABEL ROW. The grid tiles 4
+            hero cells + 5 cards into 3×3 exactly (see the comment above), so a
+            control that added a row to a card would orphan one onto a fourth.
+            `metric` is the LABEL the service emitted, and
+            `metric-definitions.test.ts` fails if the service ever emits one this
+            record does not define. */}
+        <div className="flex items-center gap-1.5 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
           {hero.label}
+          <MetricInfo metric={hero.label} />
         </div>
         <div className="mt-4 flex items-end gap-3.5">
           <div className="font-display text-5xl leading-[0.9] font-extrabold tracking-tight tabular-nums sm:text-6xl">
@@ -62,16 +70,22 @@ export function KpiCards({
             prior all time") would assert a comparison the figures do not carry.
             Keyed off the hero's own delta, the same signal the chip uses. */}
         {hero.delta === null ? null : (
-          <div className="mt-3 font-mono text-[11px] tracking-wide text-muted-foreground">
+          <div className="mt-3 flex items-center gap-1.5 font-mono text-[11px] tracking-wide text-muted-foreground">
             vs. prior {rangeLabel}
+            {/* The ⓘ for the ▲/▼ chips, sited on the line that explains what
+                they are compared against. It defines the UNIT (percent change,
+                not points), the ▲100% "grew from nothing" branch, and why an
+                absent chip is not "unchanged". */}
+            <MetricInfo metric="kpiDelta" />
           </div>
         )}
       </div>
 
       {kpis.map((kpi) => (
         <div key={kpi.label} className="overflow-hidden rounded-lg border bg-card p-5">
-          <div className="font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
+          <div className="flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
             {kpi.label}
+            <MetricInfo metric={kpi.label} />
           </div>
           <div className="mt-3 font-display text-2xl leading-none font-extrabold tracking-tight tabular-nums sm:text-[34px]">
             {kpi.value.toLocaleString()}

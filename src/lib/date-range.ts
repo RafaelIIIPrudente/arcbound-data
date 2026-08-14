@@ -204,10 +204,52 @@ export function decodeRange(
   return { kind: "custom", startDay, endDay };
 }
 
+/**
+ * The same window, spoken in the REPORT's `?period=` dialect — the drill-through
+ * from a dashboard figure to the posts behind it.
+ *
+ * ⚠️ NOT `encodeRange` WITH A PREFIX, AND THE DIFFERENCE IS THE POINT. The posts
+ * screen offers named periods, not day-counts: `parseReportPeriod` decodes with
+ * `presets: []`, so `"30d"` is not a period there at all. And an unreadable token
+ * does not throw and does not fall back to all-time — it falls back to the NEWEST
+ * MONTH. Hand that screen a bare `"30d"` and the reader lands on a plausible,
+ * confident table of the wrong posts, with nothing anywhere to notice it by. Every
+ * preset must therefore travel as the explicit run of days it actually covers.
+ *
+ * ⚠️ THE DAYS COME FROM `resolveWindow`, NEVER FROM ARITHMETIC HERE. One
+ * definition of "the window" is the only reason this translation is exact. A
+ * second computation of "N days back" in this function would agree today and
+ * drift the first time the preset branch changes — which it already did once,
+ * when presets were snapped to whole UTC days. Since that snap a preset IS a run
+ * of whole days, so it has an exact `custom:` spelling; before it, one did not
+ * exist and this function could not have been written honestly.
+ *
+ * All-time alone survives as itself: `availablePeriods` always emits
+ * `{kind: "all", key: "all"}`, so the bare token matches a real period by key.
+ *
+ * @param customPrefix The destination's dialect — `"custom:"` for `?period=`.
+ *   Defaults to the bare form, matching `encodeRange`.
+ */
+export function toPeriodToken(sel: RangeSelection, now: Date, customPrefix = ""): string {
+  if (sel.kind === "all") return "all";
+
+  const { startMs, endMs } = resolveWindow(sel, now);
+  // `startMs` is a day's opening midnight and `endMs` its closing 23:59:59.999Z,
+  // so both name their own day in UTC. Read as instants, matching the windowing —
+  // there is nothing local to preserve here, unlike `toDayKey`.
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  return `${customPrefix}${day(startMs)}..${day(endMs)}`;
+}
+
 // ── the window ───────────────────────────────────────────────────────────────
 
 /**
  * The instants a selection covers, and the baseline it is measured against.
+ *
+ * ⚠️ EVERY WINDOW IS A RUN OF WHOLE UTC DAYS — presets included, since 2026-08-13.
+ * A preset used to be a rolling `now − N × 24h`, which put its boundaries at the
+ * current time of day; see the preset branch for what that cost. Custom windows
+ * were always whole days. One kind of object now, not two that mostly agree.
  *
  * ⚠️ THE BASELINE IS THE EQUAL-LENGTH WINDOW IMMEDIATELY BEFORE THIS ONE — a
  * 48-day range compares against the 48 days before it, with no gap and no
@@ -239,10 +281,32 @@ export function resolveWindow(sel: RangeSelection, now: Date): ResolvedWindow {
   }
 
   if (sel.kind === "preset") {
-    const startMs = nowMs - sel.days * DAY_MS;
+    // ⚠️ SNAPPED TO THE UTC DAY, NOT A ROLLING N × 24 HOURS. `startMs = nowMs −
+    // N × DAY_MS` put both boundaries at the current TIME OF DAY, which made a
+    // preset a different KIND of object from a custom range — the one thing the
+    // note above says this module exists to prevent.
+    //
+    // It picked the right POSTS either way (`estimated_post_date` is date-only,
+    // so exactly N days' worth qualified), but it drew them wrong: buckets are
+    // `widthMs` wide from `startMs` and labelled by that instant, so every daily
+    // bar ran noon-to-noon, straddled two calendar days, and was captioned with
+    // the day BEFORE the posts it held. Today's posts appeared under yesterday.
+    //
+    // Through `utcDayBounds`, so the header's rule holds: a day becomes instants
+    // in exactly ONE place. `toISOString` is the right reading of `now` here —
+    // it is a true instant, not a calendar's local midnight, so unlike
+    // `toDayKey` there is nothing local to preserve. A local reading would snap
+    // a UTC+14 machine to tomorrow for most of its working day.
+    const today = utcDayBounds(now.toISOString().slice(0, 10));
+    // N days INCLUDING today, so `spanDays` still means what it says and the
+    // prior window is still the equal-length one immediately before this.
+    const startMs = today.startMs - (sel.days - 1) * DAY_MS;
     return {
       startMs,
-      endMs: nowMs,
+      // INCLUSIVE, like the custom branch below: the last instant of today. No
+      // post can carry a later timestamp than `now`, so this widens the window
+      // by nothing — it just states the end in the same units as the start.
+      endMs: today.endMs,
       spanDays: sel.days,
       priorStartMs: startMs - sel.days * DAY_MS,
       priorEndMs: startMs,

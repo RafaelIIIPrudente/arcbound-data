@@ -1,7 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import type { ClientPostRow } from "@/services/types";
 
 import { PostsTable } from "./posts-table";
@@ -414,5 +415,81 @@ describe("engagement rate — the VIEW's figure, never one ArcBase computed", ()
 
     await user.click(sortRate);
     expect(snippets()).toEqual(["Post mid", "Post high", "Post none"]);
+  });
+});
+
+describe("PostsTable — which engagement rate this column is", () => {
+  // Radix's Popover needs the Pointer Events jsdom does not implement.
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("offers a definition on the Engagement rate header", () => {
+    render(<PostsTable data={[post({ id: "a" })]} />);
+
+    expect(screen.getByRole("button", { name: "What is Engagement rate?" })).toBeInTheDocument();
+  });
+
+  it("says it is the source's PER-POST figure, not the dashboard's window-wide rate", async () => {
+    // ⚠️ THE OTHER HALF OF THE COLLISION. Wiring only the dashboard would leave
+    // a reader holding two screens that disagree under one label, with a
+    // definition on one of them confirming the wrong reading.
+    const user = userEvent.setup();
+    render(<PostsTable data={[post({ id: "a" })]} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Engagement rate?" }));
+
+    expect(
+      await screen.findByText(METRIC_DEFINITIONS.engagementRatePerPost.definition),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the ⓘ OUT of the column header's accessible name", () => {
+    // ⚠️ A `<th>` computes its name from its content, so without an explicit
+    // name the ⓘ's label would be announced as part of the column on every one
+    // of its cells. The header is called exactly what it is called.
+    render(<PostsTable data={[post({ id: "a" })]} />);
+
+    const header = screen.getByRole("columnheader", { name: "Engagement rate" });
+    expect(header).toBeInTheDocument();
+    expect(header.getAttribute("aria-label")).toBe("Engagement rate");
+  });
+
+  it("leaves the SORT control reachable under its own name, beside the ⓘ", () => {
+    // Two buttons in one header, each individually addressable — the ⓘ must not
+    // have displaced or swallowed the sort control.
+    render(<PostsTable data={[post({ id: "a" })]} />);
+
+    const header = screen.getByRole("columnheader", { name: "Engagement rate" });
+    expect(within(header).getByRole("button", { name: "Sort by engagement rate" })).toBeVisible();
+    expect(within(header).getByRole("button", { name: "What is Engagement rate?" })).toBeVisible();
+  });
+
+  it("still sorts after the ⓘ was added — the nested-button trap would break this", async () => {
+    const user = userEvent.setup();
+    render(
+      <PostsTable
+        data={[post({ id: "low", engagementRate: 1.1 }), post({ id: "high", engagementRate: 9.9 })]}
+      />,
+    );
+
+    // The first click sorts descending, as every other column here does.
+    await user.click(screen.getByRole("button", { name: "Sort by engagement rate" }));
+
+    expect(within(screen.getAllByRole("row")[1]!).getByText("9.9%")).toBeInTheDocument();
+  });
+
+  it("gives NO other column an ⓘ — only the one that shares its label", () => {
+    render(<PostsTable data={[post({ id: "a" })]} />);
+
+    expect(screen.getAllByRole("button", { name: /^What is / })).toHaveLength(1);
   });
 });

@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 
+import { DASHBOARD_PRESETS } from "@/components/dashboard/analytics/dashboard-range";
 import { DateRangePicker } from "@/components/dashboard/date-range/date-range-picker";
 import {
   Select,
@@ -11,30 +12,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/**
- * The range options this surface offers, and the ONE list both the picker and
- * the URL decoder read.
- *
- * ⚠️ PLAIN DATA, DELIBERATELY — no function is exported from this "use client"
- * module. `report-period.ts` documents why that distinction matters: a Server
- * Component cannot CALL a client reference, so the pure helpers there had to
- * live outside the client module. Constants are not references; `page.tsx`
- * imports these to keep its decoder's whitelist and these buttons in step,
- * because a key the picker offers and the decoder rejects would silently snap
- * back to the default.
- */
-export const DASHBOARD_PRESETS = [
-  { key: "7d", label: "Last 7 days" },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
-  { key: "all", label: "All time" },
-];
-
-/** The preset LENGTHS the decoder will accept. All-time is not a length. */
-export const PRESET_DAYS = [7, 30, 90];
-
-/** Omitted from the URL, so the default view has a clean address. */
-export const DEFAULT_RANGE = "30d";
+// ⚠️ THE RANGE VOCABULARY LIVES IN `dashboard-range.ts`, AND IS NOT RE-EXPORTED
+// FROM HERE. It used to be declared in this file, under a comment that read
+// "PLAIN DATA, DELIBERATELY — no function is exported from this 'use client'
+// module … Constants are not references." That was FALSE, and it shipped a
+// crash: a "use client" directive converts every EXPORT of a module into a
+// client reference, a `const` array exactly like a function, so `page.tsx` —
+// an RSC — received a proxy rather than `PRESET_DAYS` and threw on the first
+// property access (`presets.includes(days)`) for `/?range=7d` and `/?range=90d`.
+//
+// Re-exporting the names from here would rebuild that trap for the next
+// importer, which is why this module imports what it needs and publishes
+// nothing. `dashboard-range.test.ts` pins that; `src/rsc-boundary.test.ts`
+// pins the general rule across `src/`.
 
 const TRIGGER = "w-auto gap-2 font-mono text-[11.5px] tracking-wide uppercase";
 
@@ -46,10 +36,10 @@ const TRIGGER = "w-auto gap-2 font-mono text-[11.5px] tracking-wide uppercase";
  * hence no Suspense boundary needed).
  *
  * ⚠️ THE ROUTER LIVES HERE, NOT IN THE PICKER. `DateRangePicker` is shared with
- * the Client report, whose URL rule differs — it must ALWAYS write its param,
- * never strip it. This surface strips `range` at its default. Both rules cannot
- * live in one component, so the picker hands back a token and each caller builds
- * its own href.
+ * the Client report, whose URL dialect differs (`?period=`, `custom:`-prefixed).
+ * The two surfaces cannot share one href builder, so the picker hands back a
+ * token and each caller builds its own — but both now follow the SAME rule about
+ * defaults: always write the param.
  */
 export function DashboardFilters({
   clients,
@@ -70,11 +60,19 @@ export function DashboardFilters({
   function hrefFor(nextClient: string, nextRange: string) {
     const params = new URLSearchParams();
     if (nextClient !== "all") params.set("client", nextClient);
-    // Still omitted at the default, so `/` stays the clean address. Unlike the
-    // report, an absent `range` here has exactly one meaning.
-    if (nextRange !== DEFAULT_RANGE) params.set("range", nextRange);
-    const qs = params.toString();
-    return qs ? `${pathname}?${qs}` : pathname;
+    // ⚠️ ALWAYS WRITES `range`, INCLUDING THE DEFAULT. It used to be stripped
+    // to keep `/` tidy, and that tidiness hid a crash for weeks: `30d` was the
+    // ONE preset that never reached `decodeRange`, so the only preset that
+    // appeared to work was the only one nobody was testing. `report-period.ts`
+    // records the same rule for `?period=` after the same class of bug.
+    //
+    // An ABSENT `range` is still valid and still resolves to the default
+    // (`normalizeRange` in page.tsx), so a bare `/` — the nav link, a bookmark,
+    // a first visit — is unaffected. This only concerns what the picker WRITES.
+    params.set("range", nextRange);
+    // No empty-query branch: `range` is now unconditional, so the string is
+    // never empty and a `qs ? … : pathname` ternary would be a dead one.
+    return `${pathname}?${params.toString()}`;
   }
 
   return (

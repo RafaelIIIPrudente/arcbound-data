@@ -1,18 +1,21 @@
 import Link from "next/link";
-import { CloudOff, Inbox, Layers } from "lucide-react";
+import { Ban, CloudOff, Inbox, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { paths } from "@/paths";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE THREE READ STATES OF AN OUTREACH SNAPSHOT, WORDED APART ON PURPOSE.
+// THE READ STATES OF AN OUTREACH SNAPSHOT, WORDED APART ON PURPOSE.
 //
-// `latestSnapshot` returns three outcomes and they license three different
+// `latestSnapshot` returns four outcomes and they license four different
 // sentences:
 //
 //   unavailable  — the read broke. Figures are meaningless; the page shows none.
-//   empty        — the read worked; this Client has never had an upload. The ONLY
-//                  state that may render as an empty dashboard.
+//   empty        — the read worked; this Client has never had an upload.
+//   all-voided   — the read worked; they HAVE uploaded, and every snapshot was
+//                  voided. ⚠️ NOT `empty`. "Nothing has been uploaded for this
+//                  client" is FALSE here, and false in the direction that
+//                  invites re-uploading data that is already recorded.
 //   truncated    — the read worked but stopped at the pager's cap. Figures are
 //                  REAL BUT INCOMPLETE, so they still render, beneath a banner,
 //                  and every one of them is a LOWER BOUND.
@@ -60,6 +63,51 @@ export function OutreachNoSnapshot() {
       <Button asChild>
         <Link href={paths.upload}>Go to Add Data</Link>
       </Button>
+    </div>
+  );
+}
+
+/**
+ * The read SUCCEEDED, this Client HAS uploaded, and every snapshot is voided.
+ *
+ * ⚠️ ITS OWN PANEL BECAUSE ITS SENTENCE IS THE OPPOSITE OF `OutreachNoSnapshot`'s.
+ * That one says "nothing has been uploaded" and offers Add Data; said to a
+ * Client whose colleague voided their upload an hour ago it is false, and it
+ * invites re-uploading data ArcBase already holds. This one says the data exists
+ * and is voided.
+ *
+ * ⚠️ NO "GO TO ADD DATA" BUTTON, DELIBERATELY. Uploading again is the wrong
+ * remedy here — the right one is un-voiding, and that control does not exist
+ * yet (S3). A CTA pointing at the wrong fix is worse than no CTA; a CTA
+ * pointing at a screen that does not exist is worse still.
+ *
+ * ⚠️ STAFF VOCABULARY IS CORRECT HERE. This is an internal surface, "voided" and
+ * "upload" are the words staff use, and hedging them would obscure which action
+ * is needed.
+ */
+export function OutreachAllVoided({ voidedCount }: { voidedCount: number | null }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-20 text-center">
+      <Ban className="size-6 text-muted-foreground" aria-hidden />
+      <div>
+        <p className="font-display text-lg font-semibold">Every snapshot voided</p>
+        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+          {/* ⚠️ A NULL COUNT PRINTS NO FIGURE — never 0. `voidedCount` is null
+              only when the database declined to report an exact count, and a 0
+              would contradict the state itself: this panel exists precisely
+              because at least one voided snapshot is there. */}
+          {voidedCount === null ? (
+            <>This client&rsquo;s outreach snapshots have all been voided</>
+          ) : (
+            <>
+              All {voidedCount.toLocaleString("en-US")} of this client&rsquo;s outreach snapshot
+              {voidedCount === 1 ? " has" : "s have"} been voided
+            </>
+          )}
+          , so there is no current snapshot to show. This is not the same as never having uploaded —
+          the data is still recorded, and voiding can be reversed.
+        </p>
+      </div>
     </div>
   );
 }

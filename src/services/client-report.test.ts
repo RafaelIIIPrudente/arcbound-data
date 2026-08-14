@@ -919,6 +919,70 @@ describe("buildClientReport (pure)", () => {
     expect(perThousandFollowers.approximate).toBe(true);
   });
 
+  // ── the monthly rates count only the posts they can place ──────────────────
+  //
+  // ⚠️ AN UNDATED POST HAS NO MONTH, SO IT CANNOT BE IN A PER-MONTH RATE. The
+  // BI view leaves `estimated_post_date` NULL for hour-age scrapes, and those
+  // rows were being counted in the NUMERATOR of both monthly averages while the
+  // denominator — the month span — and the maxima beside them were drawn only
+  // from datable posts. The denominator was never the problem: a month span can
+  // only be measured from posts that have a month.
+  it("never reports an average month bigger than the maximum month", () => {
+    // ⚠️ THE ABSURDITY THE OLD ARITHMETIC COULD PRINT, ON A PDF A CLIENT KEEPS.
+    // One datable post (a one-month span, so max = 1 post / 40 interactions)
+    // plus five undated ones lifted the average to 6 posts and 340 interactions
+    // per month — an average nearly six times its own maximum.
+    const rows = [
+      row({ linkedin_post_id: "dated", estimated_post_date: "2026-07-10", interactions: 40 }),
+      ...[1, 2, 3, 4, 5].map((n) =>
+        row({ linkedin_post_id: `undated-${n}`, estimated_post_date: null, interactions: 60 }),
+      ),
+    ];
+    const periods = availablePeriods(rows);
+    const { matrix } = buildClientReport(rows, new Map(), {
+      period: parseReportPeriod("all", periods),
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: periods,
+    }).keyPerformance;
+
+    const avg = matrix.find((r) => r.label === "Monthly avg")!;
+    const max = matrix.find((r) => r.label === "Monthly max")!;
+
+    expect(avg.posts.value!).toBeLessThanOrEqual(max.posts.value!);
+    expect(avg.interactions.value!).toBeLessThanOrEqual(max.interactions.value!);
+  });
+
+  it("draws both monthly rates from the SAME posts the month span was measured over", () => {
+    // The exact figures, so the fix is pinned rather than merely bounded: one
+    // datable post in one month is 1 post and 40 interactions per month. The
+    // five undated posts and their 300 interactions are excluded from BOTH
+    // rates — they are still counted everywhere a month is not involved.
+    const rows = [
+      row({ linkedin_post_id: "dated", estimated_post_date: "2026-07-10", interactions: 40 }),
+      ...[1, 2, 3, 4, 5].map((n) =>
+        row({ linkedin_post_id: `undated-${n}`, estimated_post_date: null, interactions: 60 }),
+      ),
+    ];
+    const periods = availablePeriods(rows);
+    const { matrix } = buildClientReport(rows, new Map(), {
+      period: parseReportPeriod("all", periods),
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: periods,
+    }).keyPerformance;
+    const avg = matrix.find((r) => r.label === "Monthly avg")!;
+
+    expect(avg.posts.value).toBe(1);
+    expect(avg.interactions.value).toBe(40);
+    // ⚠️ THE PER-POST CELL IS UNCHANGED AND STAYS OVER EVERY POST. It involves
+    // no month, so both its numerator and denominator already covered the same
+    // population: 340 interactions over 6 posts.
+    expect(avg.perPost!.value).toBe(56.7);
+  });
+
   it("renders months with no posts as gaps, not as zero", () => {
     // ALL_TIME, not JULY: a month period now buckets by WEEK, so months with
     // gaps in them only exist for the wider periods. The rule under test — an

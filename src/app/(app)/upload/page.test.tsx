@@ -75,10 +75,10 @@ describe("the upload page — what it reads", () => {
 
 describe("⚠️ the services read must never take this page down", () => {
   it("⚠️ degrades to an unreadable registry when listServices throws", async () => {
-    // ⚠️ THIS IS THE LIVE STATE TODAY: `supabase/arcbound-services.sql` is not
-    // applied, so this read throws against the real database on every request. If
-    // that propagated, adding Services to /upload would have taken the entire
-    // weekly ingestion routine offline the moment it shipped.
+    // ⚠️ RARE SINCE 2026-08-14, WHEN `supabase/arcbound-services.sql` WAS
+    // CONFIRMED APPLIED — the read ordinarily succeeds now. It can still fail,
+    // and if that propagated it would take the entire weekly ingestion routine
+    // offline, which is why this degradation is tested rather than assumed.
     servicesMock.mockRejectedValueOnce(new Error('relation "services" does not exist'));
 
     render(await UploadPage());

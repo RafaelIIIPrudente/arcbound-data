@@ -56,11 +56,18 @@ describe("NotAssignedGate — a Client is not signed up for this section", () =>
 });
 
 describe("ServicesUnreadableNotice — the registry could not be read", () => {
-  it("⚠️ THIS IS THE LIVE PATH TODAY — names the ambiguity in words", () => {
-    // ⚠️ `supabase/arcbound-services.sql` IS NOT APPLIED, so this read fails on
-    // EVERY request against the real database right now. This notice is what staff
-    // actually see on every Client's Posts, Report and Outreach page today — the
-    // main case, not the edge, and its wording has to carry that weight.
+  it("⚠️ THE DEGRADED PATH — names the ambiguity in words", () => {
+    // ⚠️ RENAMED 2026-08-14, FROM "THIS IS THE LIVE PATH TODAY".
+    // `supabase/arcbound-services.sql` was confirmed applied that day, so this
+    // read ordinarily succeeds: the notice is NOT what staff see on every page
+    // any more, it is what a failed registry read produces. The old title had
+    // become the loudest false claim left in the repo, and a test name is read
+    // far more often than the body beneath it.
+    //
+    // ⚠️ THE TEST ITSELF IS UNCHANGED, AND SO IS ITS IMPORTANCE. Only the name
+    // moved — no assertion was touched. Rarer is not the same as unnecessary:
+    // an unreadable registry is still reachable, and this notice's wording still
+    // has to carry the ambiguity out loud when it happens.
     render(<ServicesUnreadableNotice />);
 
     expect(screen.getByRole("alert")).toHaveTextContent(/could not be read/i);

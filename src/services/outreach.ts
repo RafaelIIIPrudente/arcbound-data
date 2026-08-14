@@ -9,6 +9,7 @@ import type {
   OutreachProspect,
   OutreachRow,
   OutreachUpload,
+  OutreachVoidResult,
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,6 +40,12 @@ export interface UploadRow {
   row_count: number;
   created_at: string;
   has_email_channel: boolean;
+  // ⚠️ ALL THREE NULLABLE, AND THE NULLS ARE REAL STATES. `uploaded_by` is null
+  // whenever the write happened outside a user session; `voided_at is null` IS
+  // the live state, with no boolean twin anywhere in the schema.
+  uploaded_by: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
 }
 
 /**
@@ -98,7 +105,8 @@ export interface ProspectRow {
 // ⚠️ AN OMITTED COLUMN IS A SILENT, PERMANENT GAP — same rule as
 // `PROSPECT_COLUMNS` below. This list and `UploadRow` are a PAIR that
 // `outreach.test.ts` holds to account structurally. Exported for that test only.
-export const UPLOAD_COLUMNS = "id, client_id, row_count, created_at, has_email_channel";
+export const UPLOAD_COLUMNS =
+  "id, client_id, row_count, created_at, has_email_channel, uploaded_by, voided_at, voided_by";
 
 // ⚠️ AN OMITTED COLUMN IS A SILENT, PERMANENT GAP. PostgREST returns exactly the
 // columns asked for, so a name left out here maps to `undefined` on every row —
@@ -160,6 +168,13 @@ function toUpload(row: UploadRow): OutreachUpload {
     rowCount: row.row_count,
     createdAt: row.created_at,
     hasEmailChannel: row.has_email_channel,
+    // ⚠️ `?? null`, NEVER `?? ""` AND NEVER A DERIVED BOOLEAN. `voidedAt` stays
+    // the timestamp it is: a computed `isVoided` here would be a second source
+    // of truth for one fact. Callers that want a boolean write
+    // `voidedAt !== null` where they need it.
+    uploadedBy: row.uploaded_by ?? null,
+    voidedAt: row.voided_at ?? null,
+    voidedBy: row.voided_by ?? null,
   };
 }
 
@@ -276,16 +291,36 @@ export async function ingestOutreach(
  * two uploads can share a timestamp — and pages 1..n are issued CONCURRENTLY, so
  * an ambiguous sort lets the database return a row twice across two ranges, or
  * not at all.
+ *
+ * ⚠️ `includeVoided` IS REQUIRED, WITH NO DEFAULT, BECAUSE THE TWO CALLERS WANT
+ * OPPOSITE THINGS. `listOutreachUploads` is the staff upload history and MUST
+ * show voided rows — a reversible flag nobody can see is not reversible.
+ * `latestSnapshot` is the dashboard and MUST skip them, or a voided snapshot
+ * stays on screen as the Client's current position. A blanket filter here would
+ * be wrong in one direction whichever way it pointed, and a DEFAULT would let
+ * the next caller inherit whichever way this one happened to lean. Making it
+ * required costs one argument and removes the whole class of mistake.
  */
-function uploadPageReader(clientId: string): PageReader<UploadRow> {
+function uploadPageReader(
+  clientId: string,
+  { includeVoided }: { includeVoided: boolean },
+): PageReader<UploadRow> {
   let supabase: ReturnType<typeof createServerClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createServerClient(cookies());
+    const query = supabase
+      .from("outreach_uploads")
+      .select(UPLOAD_COLUMNS, opts)
+      .eq("client_id", clientId);
+    // ⚠️ FILTERED IN THE QUERY, NOT AFTER THE READ. Truncation drops the OLDEST
+    // rows, so a TypeScript filter applied to a capped page could report a
+    // Client as having no live snapshot while one sat below the cap. Paging over
+    // live rows only means the first row is the newest live snapshot wherever
+    // the cap falls. `.is()` rather than `.eq()` because SQL null is not a value
+    // `=` can match.
+    const scoped = includeVoided ? query : query.is("voided_at", null);
     return asPage<UploadRow>(
-      supabase
-        .from("outreach_uploads")
-        .select(UPLOAD_COLUMNS, opts)
-        .eq("client_id", clientId)
+      scoped
         .order("created_at", { ascending: false })
         .order("id", { ascending: true })
         .range(from, to),
@@ -329,10 +364,16 @@ function prospectPageReader(clientId: string, uploadId: string): PageReader<Pros
  * `null` on failure OR truncation — a partial upload history would misdate the
  * "tracked since" end of any trend built from it, and the same rule already
  * governs `listUploads` on the LinkedIn side.
+ *
+ * ⚠️ VOIDED SNAPSHOTS ARE INCLUDED, DELIBERATELY. This is the staff history, and
+ * Q3 says staff see the voids: a reversible flag nobody can see is not
+ * reversible, and hiding voided rows here would leave a voided snapshot
+ * indistinguishable from one that never existed. Each row carries `voidedAt`, so
+ * a caller renders the distinction rather than inferring it from an absence.
  */
 export async function listOutreachUploads(clientId: string): Promise<OutreachUpload[] | null> {
   const { rows, unavailable, truncated } = await readAllPages(
-    uploadPageReader(clientId),
+    uploadPageReader(clientId, { includeVoided: true }),
     "public.outreach_uploads",
   );
   if (unavailable || truncated) return null;
@@ -342,10 +383,18 @@ export async function listOutreachUploads(clientId: string): Promise<OutreachUpl
 /**
  * The Client's most recent snapshot: its header and every prospect row in it.
  *
- * ⚠️ THREE OUTCOMES, KEPT APART ON PURPOSE (see `LatestSnapshot`). "the read
- * broke", "this Client has never had an outreach upload", and "here is the
- * snapshot" license three different sentences on screen, and only the middle one
- * may render as an empty dashboard.
+ * ⚠️ FOUR OUTCOMES, KEPT APART ON PURPOSE (see `LatestSnapshot`). "the read
+ * broke", "this Client has never had an outreach upload", "every snapshot they
+ * had was voided", and "here is the snapshot" license four different sentences
+ * on screen, and only the middle two may render without a dashboard.
+ *
+ * ⚠️ VOIDED SNAPSHOTS ARE SKIPPED — the opposite of `listOutreachUploads` above,
+ * from the same reader, by explicit opt-out. A voided snapshot is not the
+ * Client's current position; the next live one down is. When none remain this
+ * returns `all-voided` rather than `empty`, because "nothing has been uploaded
+ * for this client" is FALSE for someone whose colleague voided their upload an
+ * hour ago — and false in the direction that invites re-uploading data that is
+ * already there.
  *
  * ⚠️ A FAILED PROSPECT READ IS `unavailable`, NOT AN `ok` WITH NO ROWS. A
  * snapshot header whose rows cannot be read is not a snapshot of zero prospects;
@@ -360,13 +409,16 @@ export async function listOutreachUploads(clientId: string): Promise<OutreachUpl
  * short read that stays quiet, so `truncated` is not optional to check.
  */
 export async function latestSnapshot(clientId: string): Promise<LatestSnapshot> {
-  const headers = await readAllPages(uploadPageReader(clientId), "public.outreach_uploads");
+  const headers = await readAllPages(
+    uploadPageReader(clientId, { includeVoided: false }),
+    "public.outreach_uploads",
+  );
   if (headers.unavailable) return { status: "unavailable" };
 
-  // Newest-first, so the first header is the latest snapshot. Truncation cannot
-  // hide it for the same reason: a cap drops the OLDEST rows.
+  // Newest-first, so the first header is the latest LIVE snapshot. Truncation
+  // cannot hide it for the same reason: a cap drops the OLDEST rows.
   const newest = headers.rows[0];
-  if (newest === undefined) return { status: "empty" };
+  if (newest === undefined) return await noLiveSnapshot(clientId);
 
   const { rows, unavailable, truncated, total } = await readAllPages(
     prospectPageReader(clientId, newest.id),
@@ -380,6 +432,45 @@ export async function latestSnapshot(clientId: string): Promise<LatestSnapshot> 
     prospects: rows.map(toProspect),
     truncated,
     total,
+  };
+}
+
+/**
+ * Which state a Client with NO LIVE SNAPSHOT is actually in.
+ *
+ * ⚠️ "NO LIVE SNAPSHOT" IS NOT YET AN ANSWER — it is two answers wearing one
+ * face. A Client who never uploaded and a Client whose every snapshot was voided
+ * both read as zero live rows, and they license opposite sentences: one invites
+ * an upload, the other invites an un-void. Telling them apart needs a second
+ * read, which is why this exists rather than a `?? empty` at the call site.
+ *
+ * ⚠️ IT COSTS A ROUND TRIP ONLY ON THIS BRANCH. Every Client with a live
+ * snapshot — which is every Client in the ordinary case — returns above without
+ * reaching here.
+ *
+ * ⚠️ A FAILED SECOND READ IS `unavailable`, NEVER `all-voided` AND NEVER
+ * `empty`. If it breaks we know there is no live snapshot and nothing else, so
+ * naming either state would assert something nothing measured.
+ */
+async function noLiveSnapshot(clientId: string): Promise<LatestSnapshot> {
+  const all = await readAllPages(
+    uploadPageReader(clientId, { includeVoided: true }),
+    "public.outreach_uploads",
+  );
+  if (all.unavailable) return { status: "unavailable" };
+
+  // No rows at all, voided or otherwise: this Client has genuinely never had an
+  // outreach upload. `empty` keeps exactly the meaning it has always had.
+  if (all.rows.length === 0) return { status: "empty" };
+
+  // ⚠️ `total` FIRST — it is the database's own exact count and survives
+  // truncation, whereas `rows.length` is a floor once the cap is hit. Falling
+  // back to a truncated length would print a confident undercount; `null` says
+  // "not known", which `LatestSnapshot` documents and the UI renders as no
+  // figure at all rather than as zero.
+  return {
+    status: "all-voided",
+    voidedCount: all.total ?? (all.truncated ? null : all.rows.length),
   };
 }
 
@@ -408,4 +499,72 @@ export async function snapshotById(clientId: string, uploadId: string): Promise<
   if (unavailable) return { status: "unavailable" };
 
   return { status: "ok", prospects: rows.map(toProspect), truncated, total };
+}
+
+/**
+ * The envelope both void RPCs return. Validated at the boundary, exactly as
+ * `ingestSummarySchema` validates the ingest RPC's.
+ *
+ * ⚠️ `.nullable()` ON BOTH VOID FIELDS, NEVER `.optional()`. A missing key and a
+ * key holding null are different answers: `unvoid` reports `voided_at: null`
+ * deliberately — that IS the live state — whereas an absent key means the
+ * function returned a shape this app does not understand, and should throw.
+ */
+const voidResultSchema = z.object({
+  upload_id: z.string().min(1),
+  client_id: z.string().min(1),
+  voided_at: z.string().nullable(),
+  voided_by: z.string().nullable(),
+});
+
+function toVoidResult(data: unknown): OutreachVoidResult {
+  const parsed = voidResultSchema.parse(data);
+  return {
+    uploadId: parsed.upload_id,
+    clientId: parsed.client_id,
+    voidedAt: parsed.voided_at,
+    voidedBy: parsed.voided_by,
+  };
+}
+
+/**
+ * Void one outreach snapshot, reversibly.
+ *
+ * ⚠️ THIS SEAM CARRIES NO PERMISSION LOGIC, AND MUST NEVER GROW ANY. The RPC is
+ * SECURITY DEFINER and enforces `coalesce(uploaded_by = auth.uid(), false) or
+ * public.is_admin()` inside its own body — that check IS the security boundary,
+ * because RLS does not apply within a definer function. A copy of the rule here
+ * would add no safety (the database refuses either way) while inviting the next
+ * reader to believe the application is what protects the row. What the UI
+ * computes decides what to SHOW; this decides nothing.
+ *
+ * ⚠️ A REFUSAL ARRIVES AS AN ERROR AND IS RETHROWN. 42501 must reach the caller
+ * as a failure — swallowing it into a success would leave the list unchanged
+ * beside a message saying it changed.
+ *
+ * Idempotent at the database: voiding an already-voided snapshot is a no-op that
+ * returns the ORIGINAL void, not a fresh one.
+ */
+export async function voidOutreachUpload(uploadId: string): Promise<OutreachVoidResult> {
+  const supabase = createServerClient(cookies());
+  const { data, error } = await supabase.rpc("void_outreach_upload", { p_upload_id: uploadId });
+  if (error) {
+    throw new Error(`Void failed: ${error.message}`);
+  }
+  return toVoidResult(data);
+}
+
+/**
+ * Restore a voided snapshot. The same rule, and the same non-role here: the
+ * database decides, this reports.
+ *
+ * Idempotent: un-voiding a live snapshot is a no-op rather than an error.
+ */
+export async function unvoidOutreachUpload(uploadId: string): Promise<OutreachVoidResult> {
+  const supabase = createServerClient(cookies());
+  const { data, error } = await supabase.rpc("unvoid_outreach_upload", { p_upload_id: uploadId });
+  if (error) {
+    throw new Error(`Un-void failed: ${error.message}`);
+  }
+  return toVoidResult(data);
 }

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OutreachRow } from "@/services/types";
@@ -10,6 +12,7 @@ const { state, rpcMock } = vi.hoisted(() => ({
     errors: {} as Record<string, { message: string } | null>,
     fromCalls: [] as string[],
     eqCalls: [] as unknown[][],
+    isCalls: [] as unknown[][],
     orderCalls: [] as unknown[][],
     limitCalls: [] as number[],
     selectColumns: [] as string[],
@@ -43,6 +46,16 @@ vi.mock("@/lib/supabase/server", () => ({
       chain.eq = (column: string, value: unknown) => {
         filters.push([column, value]);
         state.eqCalls.push([column, value]);
+        return chain;
+      };
+      // PostgREST's `.is()` — the only way to compare against SQL null, which
+      // `.eq()` cannot express. Modelled with the same filter list because
+      // `is(col, null)` and `col === null` agree for the fixtures here; the
+      // separate call log is what lets a test assert the filter reached the
+      // QUERY rather than being applied in TypeScript afterwards.
+      chain.is = (column: string, value: unknown) => {
+        filters.push([column, value]);
+        state.isCalls.push([column, value]);
         return chain;
       };
       chain.order = (...args: unknown[]) => {
@@ -86,7 +99,9 @@ import {
   listOutreachUploads,
   PROSPECT_COLUMNS,
   snapshotById,
+  unvoidOutreachUpload,
   UPLOAD_COLUMNS,
+  voidOutreachUpload,
 } from "./outreach";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
@@ -142,6 +157,13 @@ const uploadRow = (id: string, createdAt: string, over: Record<string, unknown> 
   row_count: 1435,
   created_at: createdAt,
   has_email_channel: false,
+  // ⚠️ LIVE IS THE DEFAULT, AND IT IS SPELT `null` RATHER THAN `false`. S1 stores
+  // the void as a nullable timestamp with no boolean twin, so `voided_at: null`
+  // IS the live state — a fixture defaulting to `false` would model a column
+  // that does not exist.
+  uploaded_by: null,
+  voided_at: null,
+  voided_by: null,
   ...over,
 });
 
@@ -198,6 +220,7 @@ beforeEach(() => {
   state.errors = {};
   state.fromCalls = [];
   state.eqCalls = [];
+  state.isCalls = [];
   state.orderCalls = [];
   state.limitCalls = [];
   state.selectColumns = [];
@@ -325,6 +348,9 @@ describe("listOutreachUploads", () => {
         rowCount: 1435,
         createdAt: "2026-07-27T09:00:00.000Z",
         hasEmailChannel: false,
+        uploadedBy: null,
+        voidedAt: null,
+        voidedBy: null,
       },
       {
         id: "up1",
@@ -332,6 +358,9 @@ describe("listOutreachUploads", () => {
         rowCount: 1400,
         createdAt: "2026-07-20T09:00:00.000Z",
         hasEmailChannel: false,
+        uploadedBy: null,
+        voidedAt: null,
+        voidedBy: null,
       },
     ]);
   });
@@ -373,6 +402,124 @@ describe("listOutreachUploads", () => {
     expect(await listOutreachUploads(CLIENT)).toBeNull();
     warn.mockRestore();
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VOIDED SNAPSHOTS — ONE READER, TWO CALLERS, OPPOSITE REQUIREMENTS.
+//
+// `listOutreachUploads` is the staff upload history and MUST SHOW voided rows:
+// a reversible flag nobody can see is not reversible. `latestSnapshot` is the
+// dashboard and MUST SKIP them, or a voided snapshot stays on screen as the
+// Client's current position. A blanket filter in the shared reader would be
+// wrong in one direction whichever way it pointed, so the reader takes an
+// explicit, REQUIRED opt-in and neither caller can inherit the wrong default.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("listOutreachUploads — staff SEE the voids", () => {
+  it("INCLUDES voided snapshots, and carries the void fields through", async () => {
+    // ⚠️ THE WHOLE POINT OF A REVERSIBLE FLAG. Hiding voided rows here would
+    // leave staff unable to tell a voided snapshot from one that never existed,
+    // and unable to un-void it — the flag would be reversible only in SQL.
+    state.tables.outreach_uploads = [
+      uploadRow("live", "2026-07-27T09:00:00.000Z"),
+      uploadRow("void", "2026-07-20T09:00:00.000Z", {
+        uploaded_by: "user-1",
+        voided_at: "2026-08-14T10:00:00.000Z",
+        voided_by: "user-2",
+      }),
+    ];
+
+    const uploads = await listOutreachUploads(CLIENT);
+
+    expect(uploads!.map((u) => u.id)).toEqual(["live", "void"]);
+    expect(uploads!.find((u) => u.id === "void")).toMatchObject({
+      uploadedBy: "user-1",
+      voidedAt: "2026-08-14T10:00:00.000Z",
+      voidedBy: "user-2",
+    });
+    // Live rows carry nulls, never `false` and never "" — absence is the state.
+    expect(uploads!.find((u) => u.id === "live")).toMatchObject({
+      uploadedBy: null,
+      voidedAt: null,
+      voidedBy: null,
+    });
+  });
+
+  it("does NOT filter on voided_at at all — the history is unfiltered", async () => {
+    state.tables.outreach_uploads = [uploadRow("up1", "2026-07-27T09:00:00.000Z")];
+
+    await listOutreachUploads(CLIENT);
+
+    expect(state.isCalls).not.toContainEqual(["voided_at", null]);
+  });
+});
+
+describe("latestSnapshot — voided snapshots are not the Client's current position", () => {
+  it("SKIPS a voided newest snapshot and returns the live one beneath it", async () => {
+    state.tables.outreach_uploads = [
+      uploadRow("newest", "2026-07-27T09:00:00.000Z", { voided_at: "2026-08-14T10:00:00.000Z" }),
+      uploadRow("live", "2026-07-20T09:00:00.000Z"),
+    ];
+    state.tables.outreach_prospects = [prospectRow("p1", "live")];
+
+    const snapshot = await latestSnapshot(CLIENT);
+
+    expect(snapshot.status).toBe("ok");
+    expect(snapshot.status === "ok" && snapshot.upload.id).toBe("live");
+  });
+
+  it("filters in the QUERY, not in TypeScript after the read", async () => {
+    // ⚠️ NOT A STYLE PREFERENCE. Filtering after the read would mean the newest
+    // LIVE snapshot could sit below the pager's cap: truncation drops the OLDEST
+    // rows, so a client whose newest 50,000 snapshots were all voided would read
+    // as all-voided while a live one existed underneath. A query-side filter
+    // pages over live rows only, so `rows[0]` is the newest live snapshot no
+    // matter where the cap falls.
+    state.tables.outreach_uploads = [uploadRow("up1", "2026-07-27T09:00:00.000Z")];
+    state.tables.outreach_prospects = [prospectRow("p1", "up1")];
+
+    await latestSnapshot(CLIENT);
+
+    expect(state.isCalls).toContainEqual(["voided_at", null]);
+  });
+
+  it("reports ALL-VOIDED — not empty — when every snapshot was voided", async () => {
+    // ⚠️ THE STATE THIS SLICE EXISTS FOR. `empty` means "this Client has never
+    // had an outreach upload". For a Client whose snapshots were all voided that
+    // sentence is FALSE, and false in a way that invites re-uploading data that
+    // is already there.
+    state.tables.outreach_uploads = [
+      uploadRow("v1", "2026-07-27T09:00:00.000Z", { voided_at: "2026-08-14T10:00:00.000Z" }),
+      uploadRow("v2", "2026-07-20T09:00:00.000Z", { voided_at: "2026-08-14T10:00:00.000Z" }),
+    ];
+
+    expect(await latestSnapshot(CLIENT)).toEqual({ status: "all-voided", voidedCount: 2 });
+  });
+
+  it("still reports EMPTY when there are no snapshots AT ALL", async () => {
+    // ⚠️ THE DISCRIMINATOR. Without this, the test above could pass by simply
+    // relabelling `empty` as `all-voided` — merging the two states while looking
+    // like it separated them. `empty` must still mean exactly what it meant.
+    state.tables.outreach_uploads = [];
+
+    expect(await latestSnapshot(CLIENT)).toEqual({ status: "empty" });
+  });
+
+  it("reports UNAVAILABLE when the read fails — voiding adds no new failure mode", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    state.errors.outreach_uploads = { message: "permission denied" };
+
+    expect(await latestSnapshot(CLIENT)).toEqual({ status: "unavailable" });
+    warn.mockRestore();
+  });
+
+  // ⚠️ NOT TESTED HERE, AND SAID SO RATHER THAN LEFT LOOKING COVERED: the branch
+  // where the LIVE read succeeds and the void-COUNT read then fails returns
+  // `unavailable`, because "no live snapshots" alone cannot tell all-voided from
+  // empty. This harness keys errors by TABLE, so both reads hit
+  // `outreach_uploads` together and that split cannot be staged without adding a
+  // test-only seam to the production signature — a worse trade than an
+  // uncovered branch. The branch is three lines and reads as its own comment.
 });
 
 describe("latestSnapshot — the three states stay apart", () => {
@@ -717,6 +864,13 @@ describe("UPLOAD_COLUMNS — the SELECT list and UploadRow must never drift (S2)
       row_count: 0,
       created_at: "2026-01-01T00:00:00.000Z",
       has_email_channel: false,
+      // The three S1 void columns. Omitting any of them from `UPLOAD_COLUMNS`
+      // would make `voidedAt` read `undefined` on every row — which
+      // `latestSnapshot`'s query filter would not notice, and which the staff
+      // history would render as "live" for a snapshot that is voided.
+      uploaded_by: null,
+      voided_at: null,
+      voided_by: null,
     };
 
     expect(UPLOAD_COLUMNS.split(", ").sort()).toEqual(Object.keys(fixture).sort());
@@ -818,5 +972,85 @@ describe("snapshotById — a NAMED snapshot, for comparison", () => {
     await snapshotById(CLIENT, "up1");
 
     expect(state.orderCalls).toContainEqual(["id", { ascending: true }]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE VOID SEAM. Two thin wrappers over SECURITY DEFINER RPCs.
+//
+// ⚠️ THE SEAM CARRIES NO PERMISSION LOGIC AT ALL, AND MUST NOT GROW ANY. The
+// RPC's `coalesce(uploaded_by = auth.uid(), false) or public.is_admin()` is the
+// security boundary; anything re-checked here would be a second, drifting copy
+// of it that adds no safety — the database refuses regardless — while inviting
+// a reader to believe the UI is what protects the row.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("voidOutreachUpload / unvoidOutreachUpload — the RPC seam", () => {
+  const UPLOAD = "22222222-2222-2222-2222-222222222222";
+  const VOIDED = {
+    upload_id: UPLOAD,
+    client_id: CLIENT,
+    voided_at: "2026-08-14T10:00:00.000Z",
+    voided_by: "user-1",
+  };
+  const LIVE = { upload_id: UPLOAD, client_id: CLIENT, voided_at: null, voided_by: null };
+
+  it("calls void_outreach_upload with the upload id and maps the result", async () => {
+    rpcMock.mockResolvedValue({ data: VOIDED, error: null });
+
+    const result = await voidOutreachUpload(UPLOAD);
+
+    expect(rpcMock.mock.calls[0]![0]).toBe("void_outreach_upload");
+    expect(rpcMock.mock.calls[0]![1]).toEqual({ p_upload_id: UPLOAD });
+    expect(result).toEqual({
+      uploadId: UPLOAD,
+      clientId: CLIENT,
+      voidedAt: "2026-08-14T10:00:00.000Z",
+      voidedBy: "user-1",
+    });
+  });
+
+  it("calls unvoid_outreach_upload and maps a CLEARED void back to nulls", async () => {
+    // ⚠️ `voidedAt: null` IS THE LIVE STATE, and the seam must carry the null
+    // through rather than dropping the key or coercing it. A `?? ""` here would
+    // make an un-voided row read as voided-at-the-empty-string.
+    rpcMock.mockResolvedValue({ data: LIVE, error: null });
+
+    const result = await unvoidOutreachUpload(UPLOAD);
+
+    expect(rpcMock.mock.calls[0]![0]).toBe("unvoid_outreach_upload");
+    expect(result).toEqual({
+      uploadId: UPLOAD,
+      clientId: CLIENT,
+      voidedAt: null,
+      voidedBy: null,
+    });
+  });
+
+  it.each(["void", "unvoid"] as const)("throws when the %s RPC returns an error", async (which) => {
+    // ⚠️ THE REFUSAL PATH. A caller who is neither the uploader nor an admin
+    // gets 42501 from the database, and it must reach the UI as a failure —
+    // never be swallowed into a success the list would then fail to reflect.
+    rpcMock.mockResolvedValue({ data: null, error: { message: "permission denied" } });
+
+    const call = which === "void" ? voidOutreachUpload(UPLOAD) : unvoidOutreachUpload(UPLOAD);
+    await expect(call).rejects.toThrow(/permission denied/);
+  });
+
+  it("VALIDATES THE RPC ENVELOPE rather than trusting it", async () => {
+    // A response missing client_id would otherwise surface as `undefined` and be
+    // handed to `revalidatePath`, quietly refreshing nothing.
+    rpcMock.mockResolvedValue({ data: { upload_id: UPLOAD }, error: null });
+
+    await expect(voidOutreachUpload(UPLOAD)).rejects.toThrow();
+  });
+
+  it("carries NO permission check of its own — the database is the boundary", async () => {
+    // ⚠️ A SOURCE ASSERTION, AND SAID SO. It shows the seam does not re-implement
+    // the owner-or-admin rule; it proves nothing about what the database does.
+    const source = readFileSync(join(process.cwd(), "src/services/outreach.ts"), "utf8");
+    const seam = source.slice(source.indexOf("export async function voidOutreachUpload"));
+
+    expect(seam).not.toMatch(/isAdmin|getRole|getSession|auth\.uid/);
   });
 });

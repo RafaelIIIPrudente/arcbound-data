@@ -11,6 +11,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 const { actionMock } = vi.hoisted(() => ({ actionMock: vi.fn() }));
 vi.mock("@/app/(app)/upload/outreach-actions", () => ({ ingestOutreachAction: actionMock }));
 
+import { MAX_UPLOAD_TEXT_BYTES } from "@/lib/upload-size";
+
 import { OutreachUploadForm } from "./outreach-upload-form";
 
 const CLIENT = "c2";
@@ -221,5 +223,79 @@ describe("OutreachUploadForm — the result panel", () => {
     expect(
       await screen.findByText("Choose a client to attach this snapshot to."),
     ).toBeInTheDocument();
+  });
+});
+
+describe("an over-limit file is refused HERE, because nowhere else can", () => {
+  // ⚠️ PAST THE SERVER ACTION BODY LIMIT THE REQUEST DIES IN TRANSPORT — no
+  // validation message, no parse error, nothing the form could render. The user
+  // presses the button and the app does not respond. The browser is the only
+  // place this is catchable, so these tests are the whole safety net.
+
+  /** A CSV comfortably past `MAX_UPLOAD_TEXT_BYTES` (3,670,016). */
+  const OVERSIZE = "a".repeat(MAX_UPLOAD_TEXT_BYTES + 1);
+
+  async function chooseFile(user: ReturnType<typeof userEvent.setup>, text: string, name: string) {
+    await user.upload(
+      screen.getByLabelText("Outreach CSV file"),
+      new File([text], name, { type: "text/csv" }),
+    );
+    // FileReader is async; the name appearing proves the read completed.
+    expect(await screen.findByText(name)).toBeInTheDocument();
+  }
+
+  it("⚠️ DISPATCHES NOTHING — the action is never called", async () => {
+    // ⚠️ THE ACCEPTANCE CASE. Not "the action returns an error" — the action must
+    // never be reached, because reaching it is exactly what cannot be made to
+    // work.
+    const user = userEvent.setup();
+    render(<OutreachUploadForm clientId={CLIENT} />);
+
+    await chooseFile(user, OVERSIZE, "huge.csv");
+    await user.click(screen.getByRole("button", { name: /upload snapshot/i }));
+
+    expect(actionMock).not.toHaveBeenCalled();
+  });
+
+  it("says how big the file is, what fits, and that nothing was sent", async () => {
+    const user = userEvent.setup();
+    render(<OutreachUploadForm clientId={CLIENT} />);
+
+    await chooseFile(user, OVERSIZE, "huge.csv");
+    await user.click(screen.getByRole("button", { name: /upload snapshot/i }));
+
+    const message = await screen.findByText(/one upload can carry about 3\.5 MB/);
+    expect(message).toHaveTextContent(/This file is 3\.6 MB/);
+    expect(message).toHaveTextContent(/Nothing was sent/);
+  });
+
+  it("⚠️ says re-uploading will not help, and does NOT say to split the file", async () => {
+    // ⚠️ SPLITTING WOULD CORRUPT THIS PATH. Every outreach upload is stored as a
+    // COMPLETE snapshot of the roster, so half the export becomes a snapshot
+    // asserting the prospect list halved — a wrong number on the Client's own
+    // report. The same advice is correct on the LinkedIn form and wrong here.
+    const user = userEvent.setup();
+    render(<OutreachUploadForm clientId={CLIENT} />);
+
+    await chooseFile(user, OVERSIZE, "huge.csv");
+    await user.click(screen.getByRole("button", { name: /upload snapshot/i }));
+
+    const message = await screen.findByText(/one upload can carry about 3\.5 MB/);
+    expect(message).toHaveTextContent(/Re-uploading the same file will not help/);
+    expect(message).toHaveTextContent(/Do not split the file/);
+  });
+
+  it("lets a NORMAL file through untouched — the guard is not a blanket block", async () => {
+    // The discriminator: without it, a guard that refused everything would pass
+    // every test above.
+    const user = userEvent.setup();
+    render(<OutreachUploadForm clientId={CLIENT} />);
+
+    const csv = "Full Name,LinkedIn URL\nDana Reyes,https://linkedin.com/in/dana";
+    await chooseFile(user, csv, "normal.csv");
+    await user.click(screen.getByRole("button", { name: /upload snapshot/i }));
+
+    await waitFor(() => expect(lastSubmission().get("rawText")).toBe(csv));
+    expect(screen.queryByText(/one upload can carry about/)).toBeNull();
   });
 });

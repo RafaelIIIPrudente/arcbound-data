@@ -29,6 +29,11 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    name: "outreach-void",
+    script: "outreach-void.sql",
+    migration: "migrations/20260814120000_outreach_void.sql",
+  },
+  {
     name: "outreach-email-report-link",
     script: "outreach-email-report-link.sql",
     migration: "migrations/20260810120000_outreach_email_report_link.sql",

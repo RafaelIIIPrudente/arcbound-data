@@ -1,13 +1,17 @@
+import type { ReactNode } from "react";
+
 import { ImpressionsByMonthChart } from "@/components/dashboard/report/impressions-by-month-chart";
 import { ImpressionsByWeekdayChart } from "@/components/dashboard/report/impressions-by-weekday-chart";
 import { InteractionsByAssetChart } from "@/components/dashboard/report/interactions-by-asset-chart";
 import { InteractionsComparison } from "@/components/dashboard/report/interactions-comparison";
 import { KeyPerformance } from "@/components/dashboard/report/key-performance";
 import { ContentComposition } from "@/components/dashboard/report/content-composition";
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import { PostingCadence } from "@/components/dashboard/report/posting-cadence";
 import { PostTypeDistributionChart } from "@/components/dashboard/report/post-type-distribution-chart";
 import { scopeCaption } from "@/components/dashboard/report/report-period";
 import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-picker";
+import { REPORT_METRIC_KEYS } from "@/lib/metric-definitions";
 import { getGateReadGrant } from "@/lib/report-link-session";
 import { availablePeriods, buildClientReport, parseReportPeriod } from "@/services/client-report";
 import { toFormatMap } from "@/services/post-attributes";
@@ -118,12 +122,39 @@ export async function PublicReport({ token, period }: { token: string; period?: 
   );
 }
 
-function SectionHeader({ title, scope }: { title: string; scope: string }) {
+/**
+ * The ⓘ for a figure on the CLIENT's own report.
+ *
+ * ⚠️ MIRRORS `reportMetricInfo` ON THE STAFF PAGE, and it has to be a second
+ * copy rather than a shared export: it is the IMPORT EDGE that decides which
+ * routes bundle the Radix popover, so a shared helper would hand the edge back
+ * to every caller of whatever module held it — the exact regression the
+ * `renderInfo` refactor removed. Two three-line functions is the price of the
+ * print export staying free of it.
+ *
+ * An unmapped label renders nothing at all: no ⓘ, never an invented definition.
+ */
+function publicMetricInfo(label: string) {
+  const key = REPORT_METRIC_KEYS[label];
+  return key ? <MetricInfo metric={key} /> : null;
+}
+
+function SectionHeader({
+  title,
+  scope,
+  children,
+}: {
+  title: string;
+  scope: string;
+  /** An optional ⓘ for the section as a whole, sited beside its title. */
+  children?: ReactNode;
+}) {
   return (
     <div>
       <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
         <span className="text-primary">—</span>
         {title}
+        {children}
       </div>
       <p className="mt-2 font-mono text-xs text-muted-foreground">{scope}</p>
     </div>
@@ -195,11 +226,22 @@ export function PublicReportView({
 
         <section className="space-y-4">
           <SectionHeader title="Key performance" scope={scope} />
+          {/* ⚠️ THE CLIENT'S OWN REPORT NOW SUPPLIES THE ⓘ, AS OF 2026-08-13, AND
+              THIS IMPORT EDGE IS THE DECISION. `key-performance.tsx` deliberately
+              does not know `MetricInfo` exists, so a surface gets the popover
+              only by reaching for it — which also means `/r/[token]` now bundles
+              Radix, this time as code the reader can actually run. `print-report
+              .tsx` still passes nothing and still bundles nothing: a popover
+              cannot be opened on paper. */}
           <KeyPerformance
             keyPerformance={report.keyPerformance}
             hasPosts={report.totalPostsAllTime > 0}
+            renderInfo={publicMetricInfo}
           />
-          <InteractionsComparison rows={report.interactionsComparison} />
+          <InteractionsComparison
+            rows={report.interactionsComparison}
+            info={<MetricInfo metric="panelInteractionsComparison" />}
+          />
         </section>
 
         <section className="space-y-4">
@@ -223,7 +265,9 @@ export function PublicReportView({
 
         {report.cadence.totalPosts > 0 ? (
           <section className="space-y-4">
-            <SectionHeader title="Posting cadence" scope={scope} />
+            <SectionHeader title="Posting cadence" scope={scope}>
+              <MetricInfo metric="panelPostingCadence" />
+            </SectionHeader>
             <PostingCadence cadence={report.cadence} />
           </section>
         ) : null}
@@ -246,7 +290,9 @@ export function PublicReportView({
 
         {report.composition.totalPosts > 0 ? (
           <section className="space-y-4">
-            <SectionHeader title="Content composition" scope={scope} />
+            <SectionHeader title="Content composition" scope={scope}>
+              <MetricInfo metric="panelContentComposition" />
+            </SectionHeader>
             <ContentComposition composition={report.composition} />
           </section>
         ) : null}

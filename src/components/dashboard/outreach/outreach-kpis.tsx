@@ -1,3 +1,4 @@
+import { MetricInfo, MetricInfoInline } from "@/components/dashboard/metric-info";
 import type { OutreachAnalytics } from "@/services/types";
 
 /**
@@ -16,6 +17,24 @@ import type { OutreachAnalytics } from "@/services/types";
  * added: meetings booked is roughly 8 of 1,220, and a rate drawn from that reads
  * as a verdict on a Client that the sample cannot support (ADR 0012).
  */
+/**
+ * ⚠️ WHY THE STEP CARDS BUILD THEIR OWN DEFINITION INSTEAD OF READING ONE FROM
+ * `metric-definitions.ts`. Each funnel step arrives from
+ * `buildOutreachAnalytics` already carrying the column it came from and the RULE
+ * it was counted by — and the Pipeline panel further down this page prints both
+ * on screen. Copying that rule into a definitions record would put the same
+ * sentence in two places, which is the drift this repo keeps commenting about;
+ * assembling it from the step means the ⓘ cannot fall behind the count.
+ *
+ * The Stage clause is the part no step carries, and it is the reason these cards
+ * needed an ⓘ at all: this row shows each step's `source` but NOT its `rule`, so
+ * "Replied 39" here beside "Replied 25" in the Stage chart reads as a defect
+ * until somebody explains that Stage is terminal.
+ */
+function stepDefinition(rule: string, source: string): string {
+  return `Counted when ${rule}, from the ${source} column. The Stage chart further down counts differently ON PURPOSE: Stage records the FURTHEST point each prospect reached, so someone who replied and then booked a meeting has left Stage “Replied” while still being a reply here. The two panels are not meant to reconcile, and neither is wrong.`;
+}
+
 export function OutreachKpis({ analytics }: { analytics: OutreachAnalytics }) {
   const cards = [
     {
@@ -24,11 +43,17 @@ export function OutreachKpis({ analytics }: { analytics: OutreachAnalytics }) {
       // Not a column: the total is the snapshot's own size, which is why it
       // leads the row and why its caption says so rather than naming a field.
       source: "This snapshot",
+      // The one card that is not a funnel step, so its meaning is not computed
+      // anywhere — it lives in the definitions module like every other figure.
+      info: <MetricInfo metric="outreachProspects" />,
     },
     ...analytics.funnel.map((step) => ({
       label: step.label,
       count: step.count,
       source: step.source,
+      info: (
+        <MetricInfoInline term={step.label} definition={stepDefinition(step.rule, step.source)} />
+      ),
     })),
   ];
 
@@ -42,8 +67,9 @@ export function OutreachKpis({ analytics }: { analytics: OutreachAnalytics }) {
                 could-not-read case never reaches it (see outreach-states). */}
             {card.count.toLocaleString("en-US")}
           </div>
-          <div className="mt-2.5 font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
+          <div className="mt-2.5 flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.12em] text-muted-foreground uppercase">
             {card.label}
+            {card.info}
           </div>
           <div className="mt-1 font-mono text-[10px] text-muted-foreground/70">{card.source}</div>
         </div>

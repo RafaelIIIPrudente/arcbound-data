@@ -9,6 +9,7 @@ import {
   FollowerTrendPanel,
 } from "@/components/dashboard/client/follower-trend";
 import { ClientServicesCard } from "@/components/dashboard/client/client-services-card";
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import { ReportLinkCard } from "@/components/dashboard/client/report-link-card";
 import { UploadHistory } from "@/components/dashboard/client/upload-history";
 import { getRole, isAdmin } from "@/lib/auth/roles";
@@ -65,11 +66,22 @@ function KpiCard({
   value,
   delta,
   deltaNoun,
+  metric,
 }: {
   label: string;
   value: string | number | null;
   delta?: UploadDelta | null;
   deltaNoun?: string;
+  /**
+   * The `metric-definitions.ts` key for this card's ⓘ.
+   *
+   * ⚠️ THE DEFINITION COVERS THE FIGURE AND THE CHANGE BESIDE IT, because on
+   * this tab those are not always the same measurement: the number next to
+   * Posts is the last upload's `rowsInserted`, NOT the change in the post count
+   * it sits beside. Two adjacent pipelines, one card — which is the single most
+   * misreadable thing on this screen and the reason these cards have an ⓘ.
+   */
+  metric?: string;
 }) {
   return (
     // Content-sized, NOT `flex-1`. Growing to fill stretched three small
@@ -93,8 +105,9 @@ function KpiCard({
           </div>
         ) : null}
       </div>
-      <div className="mt-2 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+      <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
         {label}
+        {metric ? <MetricInfo metric={metric} /> : null}
       </div>
     </div>
   );
@@ -113,8 +126,10 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // `null` (never `[]`) on failure, for the same reason the removed local
   // function did: a services read must not take the uploads, KPIs and report
   // link down with it, and `[]` would assert "no services" for a read that
-  // simply failed. `supabase/arcbound-services.sql` is not applied today, so
-  // this is the live path on every request, not a hypothetical.
+  // simply failed. `supabase/arcbound-services.sql` has been applied since
+  // 2026-08-14, so the read ordinarily succeeds and this degradation is the
+  // rare path — but it is still reachable whenever the registry read fails,
+  // which is the only reason it exists.
   const [client, uploads, reportLink, role, access] = await Promise.all([
     getClient(id),
     listUploads(id),
@@ -175,24 +190,31 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         <div className="flex flex-wrap gap-3.5">
           {/* Uploads carries no delta: "how many more uploads than last upload"
               is a restatement of the count, not a second fact. */}
-          <KpiCard label="Uploads" value={uploadsUnavailable ? null : uploads.length} />
+          <KpiCard
+            label="Uploads"
+            value={uploadsUnavailable ? null : uploads.length}
+            metric="overviewUploads"
+          />
           <KpiCard
             label="Posts"
             value={client.postsCount}
             delta={postsDelta(uploads)}
             deltaNoun="new posts"
+            metric="overviewPosts"
           />
           <KpiCard
             label="Followers"
             value={followers}
             delta={followersDelta(uploads)}
             deltaNoun="followers"
+            metric="overviewFollowers"
           />
           <KpiCard
             label="Connections"
             value={connections}
             delta={connectionsDelta(uploads)}
             deltaNoun="connections"
+            metric="overviewConnections"
           />
         </div>
       </div>

@@ -64,6 +64,38 @@ describe("UploadHistory", () => {
   });
 });
 
+describe("UploadHistory — the timestamp names its clock", () => {
+  it("marks the upload time UTC, because it is rendered in UTC", () => {
+    // ⚠️ AN INSTANT WITHOUT A ZONE IS NOT A TIME. This column is forced to
+    // `timeZone: "UTC"`, so "09:12" is 09:12 UTC — but a reviewer in India
+    // (UTC+5:30) and an operator in Manila (UTC+8) both read it as local and are
+    // both wrong, by different amounts, with nothing on screen to reveal it.
+    render(<UploadHistory uploads={uploads} />);
+
+    expect(
+      within(rowFor("Jul 16, 2026")).getByText("Jul 16, 2026 · 09:12 UTC"),
+    ).toBeInTheDocument();
+  });
+
+  it("labels EVERY timestamp, not just the newest", () => {
+    render(<UploadHistory uploads={uploads} />);
+
+    for (const cell of screen.getAllByText(/\d{2}:\d{2}/)) {
+      expect(cell.textContent, cell.textContent ?? "").toMatch(/\d{2}:\d{2} UTC$/);
+    }
+  });
+
+  it("leaves an unparseable timestamp exactly as it arrived, with no zone claimed", () => {
+    // ⚠️ The existing passthrough must NOT gain a "UTC" it cannot vouch for:
+    // labelling a string we failed to read as UTC would assert a zone nobody
+    // measured — the prose equivalent of a fabricated figure.
+    render(<UploadHistory uploads={[{ ...uploads[0]!, createdAt: "not-a-date" }]} />);
+
+    expect(screen.getByText("not-a-date")).toBeInTheDocument();
+    expect(screen.queryByText(/not-a-date.*UTC/)).not.toBeInTheDocument();
+  });
+});
+
 describe("UploadHistory — the connection count column", () => {
   it("gives connections its own column beside Followers", () => {
     render(<UploadHistory uploads={uploads} />);

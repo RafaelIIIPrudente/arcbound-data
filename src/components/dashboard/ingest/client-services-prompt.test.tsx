@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { paths } from "@/paths";
@@ -152,5 +152,107 @@ describe("⚠️ isAdmin is REQUIRED, and that is a source guard on purpose", ()
   it("strips comments without stripping the code it is checking", () => {
     expect(code).toContain("ClientServicesPromptView");
     expect(code).not.toContain("EJECT THEM FROM");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE ASSIGN BUTTON MUST NOT LIE ABOUT WHETHER THERE IS ANYTHING TO ASSIGN.
+//
+// The same defect the Client Overview card carried: a live success message beside
+// a fully enabled submit, so a user cannot tell persisted from pending and the
+// safe move is to press it again.
+//
+// ⚠️ THE RULE IS IDENTICAL TO THE CARD'S; THE BASELINE IS NOT, AND THAT IS THE
+// WHOLE DIFFERENCE. Both disable when the ticked set equals the SAVED set. On the
+// Overview the saved set can be non-empty, so deselecting everything is a real
+// change and must stay enabled. Here the Client holds NOTHING by definition — this
+// is the no-Services branch — so the saved set is empty, and "nothing ticked"
+// really is "nothing to do". Submitting an empty set here would assign nothing to
+// a Client that already has nothing.
+//
+// ⚠️ SO DO NOT "ALIGN" THE TWO BY MAKING EMPTY SUBMITTABLE HERE. That is not
+// consistency, it is a no-op round trip through an admin-only action.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("⚠️ the Assign button reflects whether there is anything to assign", () => {
+  const assignButton = () => screen.getByRole("button", { name: /assign services/i });
+
+  it("is DISABLED before anything is ticked — this Client holds nothing to change", () => {
+    render(<ClientServicesPromptView {...baseProps} />);
+
+    expect(assignButton()).toBeDisabled();
+  });
+
+  it("ENABLES once a service is ticked", () => {
+    render(<ClientServicesPromptView {...baseProps} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /linkedin growth/i }));
+
+    expect(assignButton()).toBeEnabled();
+  });
+
+  it("⚠️ DISABLES again when the last tick is removed", () => {
+    // ⚠️ THE ONE A LATCHING IMPLEMENTATION FAILS. Back to an empty selection is
+    // back to nothing to do — "did the user click?" is the wrong question.
+    render(<ClientServicesPromptView {...baseProps} />);
+    const linkedin = screen.getByRole("checkbox", { name: /linkedin growth/i });
+
+    fireEvent.click(linkedin);
+    expect(assignButton()).toBeEnabled();
+
+    fireEvent.click(linkedin);
+    expect(assignButton()).toBeDisabled();
+  });
+
+  it("⚠️ DISABLES after a successful assign — the baseline moves to what was saved", () => {
+    const { rerender } = render(<ClientServicesPromptView {...baseProps} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /linkedin growth/i }));
+    expect(assignButton()).toBeEnabled();
+
+    rerender(
+      <ClientServicesPromptView
+        {...baseProps}
+        state={{ status: "saved", message: "Saved. 1 service assigned." }}
+      />,
+    );
+
+    expect(assignButton()).toBeDisabled();
+  });
+
+  it("⚠️ never shows “Saved.” beside an enabled Assign button", () => {
+    // ⚠️ ONE STATE OBJECT ACROSS BOTH RENDERS — `useActionState` returns a new one
+    // only when an action completes. A fresh literal would be simulating a SECOND
+    // assign, after which re-baselining is correct rather than a bug.
+    const SAVED = { status: "saved", message: "Saved. 1 service assigned." } as const;
+    const { rerender } = render(<ClientServicesPromptView {...baseProps} state={SAVED} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(/saved/i);
+    expect(assignButton()).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /linkedin growth/i }));
+
+    expect(assignButton()).toBeEnabled();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    rerender(<ClientServicesPromptView {...baseProps} state={SAVED} />);
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(assignButton()).toBeEnabled();
+  });
+
+  it("stays disabled while an assign is in flight, and says so", () => {
+    render(<ClientServicesPromptView {...baseProps} pending />);
+
+    expect(screen.getByRole("button", { name: /assigning/i })).toBeDisabled();
+  });
+
+  it("⚠️ leaves the ANALYST branch with no button to disable in the first place", () => {
+    // Guard against the fix leaking across the isAdmin boundary: dirtiness tracking
+    // must not cause a control to render for someone who must never see one.
+    const { container } = render(<ClientServicesPromptView {...baseProps} isAdmin={false} />);
+
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(container.querySelector("form")).toBeNull();
   });
 });
