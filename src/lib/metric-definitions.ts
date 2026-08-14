@@ -122,6 +122,32 @@ export const METRIC_DEFINITIONS = {
       "The most recent connection count on record. It is captured separately from Followers, so one can be present without the other. It is a point-in-time count — a figure from a single moment, not a total over any period — and the record it comes from may be older than the most recent data elsewhere in this report. It is shown as a plain count, with no per-1,000 figure beside it. Blank means none has ever been recorded, which is the ordinary case; it does not mean zero.",
   },
 
+  // ── the Client List's two adjacent columns, which are two PIPELINES ────────
+  //
+  // ⚠️ THESE TWO SENTENCES EXIST BECAUSE THE COLUMNS ARE ADJACENT. Nothing on
+  // that screen is wrong: `Last ArcBase upload` reads `public.uploads` (this
+  // app's own `/upload`) and `Posts` reads `bi.linkedin_post_latest` (the
+  // external pipeline). Side by side under two bare labels, "Never" beside a
+  // real post count reads as a contradiction, and a reviewer filed it as one —
+  // correctly, because the screen was saying the wrong thing with true numbers.
+  // The fix is entirely in the words: each sentence names its OWN source and
+  // states that the other column is not measuring it.
+  //
+  // ⚠️ STAFF VOCABULARY IS CORRECT HERE AND MUST STAY. "Upload", "ingest" and
+  // "pipeline" are the words the people who perform uploads use, and naming the
+  // pipeline is the fix rather than a leak. Their key map is deliberately NOT
+  // one of the three client-visible maps — see `CLIENT_LIST_METRIC_KEYS`.
+  clientListLastArcbaseUpload: {
+    term: "Last ArcBase upload",
+    definition:
+      "When a file was last ingested for this client through ArcBase's own upload page. It measures nothing else — posts reach the reporting data through a separate external pipeline, so a client can read “Never” here and still have a Posts count beside it. The two columns describe two different pipelines and neither one contradicts the other. “Never” is a known fact, not missing data: nobody has ever uploaded a file for this client here. A dash is a third case again — the upload history could not be read at all.",
+  },
+  clientListPosts: {
+    term: "Posts",
+    definition:
+      "How many posts the reporting data attributes to this client. It arrives from the external pipeline rather than from ArcBase's uploads, so it is independent of the column beside it and the two are expected to disagree. Attribution is by name match, so a client whose name is recorded differently upstream than it is registered here will be under-counted — and an under-counted client looks exactly like one who posted less. A dash means the count could not be read, which is never a zero.",
+  },
+
   // ── the client LinkedIn report → Key performance ───────────────────────────
   //
   // ⚠️ THE HERO ROW IS THE SELECTED PERIOD; THE TWO ROWS BENEATH IT ARE ALL-TIME.
@@ -221,7 +247,7 @@ export const METRIC_DEFINITIONS = {
   statusCurrentAsOf: {
     term: "Current as of",
     definition:
-      "The date these figures were last refreshed — NOT the date of the most recent post. It says how current the report is, so a report can be freshly updated while the newest post in it is older. A dash means no date is on record.",
+      "The date of the most recent data recorded for this report — NOT the date of the most recent post. It says how current the figures are, so a report can hold recently recorded data while the newest post in it is older. A dash means no date is on record.",
   },
   statusTrackedSince: {
     term: "Tracked since",
@@ -422,6 +448,27 @@ export const OUTREACH_SUMMARY_METRIC_KEYS: Record<string, MetricKey> = {
   "Emails sent": "publicEmailsSent",
   "Email replies": "publicEmailReplies",
   "Email meetings booked": "publicEmailMeetingsBooked",
+};
+
+/**
+ * The Client List's column headers → their definition keys.
+ *
+ * ⚠️ A FOURTH MAP, AND DELIBERATELY NOT ONE OF THE THREE ABOVE. Those three are
+ * the maps a CLIENT's own report renders from, and `metric-definitions.test.ts`
+ * sweeps every definition reachable through them for ArcBase's ingestion
+ * vocabulary — "upload", "scrape", "pipeline" — because those words name steps a
+ * Client never sees.
+ *
+ * `/clients` is a STAFF screen, and its two sentences must use exactly those
+ * words: the defect they fix is that two columns drawn from two pipelines sit
+ * adjacent under labels that never say so. Folding these keys into any of the
+ * three maps would put staff vocabulary on a Client's screen AND fail the
+ * sweep — which is the correct outcome, and the reason this map is separate
+ * rather than the reason to loosen the sweep.
+ */
+export const CLIENT_LIST_METRIC_KEYS: Record<string, MetricKey> = {
+  "Last ArcBase upload": "clientListLastArcbaseUpload",
+  Posts: "clientListPosts",
 };
 
 /**

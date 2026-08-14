@@ -562,12 +562,175 @@ a baseline rather than left unmeasured.
 | **S3** | D3         | Range-translated "View posts" link (D9)                                                                                                                                                                                                                        | none       |
 | **S4** | D1 cost    | Cut the popover's import edge out of `KeyPerformance` (render prop) + the reachability guard                                                                                                                                                                   | S2         |
 | **S5** | D1 client  | Opt `/r/[token]` in deliberately: fix the call site, repoint the guard, measure the cost, client-facing copy pass                                                                                                                                              | S4         |
-| **S6** | D1 copy    | 🔴 **The three status-strip definitions S5's widening left leaking** (`statusCurrentAsOf`, `statusTrackedSince`, `statusMostRecentPost`) — same rule, same standard                                                                                            | S5         |
-| —      | C1 display | Relabel "Last upload" → "Last ArcBase upload" + "External pipeline" + a Last-sync column — **STILL UNDECIDED** (Q8 unanswered; the user reset Charlene's data instead, which does not fix the shape for any other Client)                                      | none       |
+| **S6** | D1 copy    | 🟢 **LANDED.** The three status-strip definitions — but `19f758c` had already rewritten them; what S6 actually caught was the **false friend** that rewrite left behind ("last refreshed"), plus the `FALSE_FRIENDS` guard that makes the class catchable      | S5         |
+| **S7** | C1 display | 🟢 **LANDED.** Rename → `Last ArcBase upload` + an ⓘ on both columns explaining the two pipelines. **No Last-sync column** (needs an unread value; ADR 0010 moots it). Q8 answered by the PLANNER after the user twice asked for a recommendation              | none       |
 | —      | P1 / P2    | ⏭️ **SKIPPED by the user, 2026-08-13** — asked to skip when Q3 was put to them a second time. Not rejected on the merits and not descoped: still parked at Q3, still the only two of Vaibhav's seven items with nothing shipped. See "P1 / P2 — skipped" below | —          |
 
 S1 first and alone: it is live on staging, it is the only crash, and it shares no
 file with the others.
+
+---
+
+## S6 — 🟢 LANDED (planner-verified). The brief's premise was wrong; its prediction was right.
+
+Planner-verified 2026-08-13. Two files, +51 −1, uncommitted on HEAD `41f8204`.
+
+### ⚠️ The brief described a defect that no longer existed
+
+S6's brief said the three leaking status definitions were at HEAD `997512f`. They
+were not, and the planner is the reason:
+
+- `git show 997512f:src/lib/metric-definitions.ts` contains **zero** status keys.
+  They arrived with S5's widening and lived **only in the uncommitted tree** the
+  planner audited.
+- Between that audit and the executer starting, the operator committed twice —
+  `19f758c` (14:17) and `41f8204` (14:21) — and `19f758c` **already carried the
+  rewrite**, with "upload" and "scraped" gone from all three.
+
+So the planner briefed a fix that had been done ~35 minutes earlier. **The
+executer read the history rather than the brief, said so plainly, and did not
+manufacture the work it had been sent to do.**
+
+### But the rewrite had walked into the trap the brief named
+
+`19f758c` traded ArcBase's nouns for the nearest friendly synonyms:
+
+> "The date these figures were **last refreshed** … a report can be **freshly
+> updated** while the newest post in it is older."
+
+⚠️ **The S6 brief predicted this exact substitution by name** — "refresh, sync,
+update … all three quietly change the claim … a process that ran is a process
+that may have run and found nothing." The claim warranted is that data was
+**recorded** by that date, not that anyone **looked** on it.
+
+`statusTrackedSince` ("this report's records begin") and `statusMostRecentPost`
+("arrived without a usable publish date") were already clean and were left alone.
+
+### What landed
+
+One definition changed. Planner-verified that every caveat is **verbatim**
+unchanged — "NOT the date of the most recent post", "the newest post in it is
+older", "A dash means no date is on record":
+
+> "The date of the **most recent data recorded** for this report — NOT the date of
+> the most recent post…"
+
+"Recorded" names the data's own state rather than an actor's activity, so there is
+no null outcome to imply. It also matches the register `statusTrackedSince`
+already speaks.
+
+### The second guard — and why one sweep was never enough
+
+The existing `PIPELINE` sweep **passed clean** on "last refreshed". It polices the
+word _removed_ and has no opinion about the word _substituted_. A companion
+`FALSE_FRIENDS` pattern (`refresh|sync|update` + inflections) now runs off the same
+three client maps.
+
+**Planner mutation proof** (independent, not taken on report): reverting
+`statusCurrentAsOf` to the exact `19f758c` wording fires **exactly one** test —
+the new guard — while `says nothing about uploads, scrapes, schemas or ingestion`
+**passes**. That is the blind spot demonstrated, not asserted. Restored by `cp`;
+sha256 `6fcf5ec8…19e7` identical before and after.
+
+| Gate              | Result                                                     |
+| ----------------- | ---------------------------------------------------------- |
+| `pnpm lint`       | ✅                                                         |
+| `pnpm type:check` | ✅                                                         |
+| `pnpm test`       | ✅ **132 files / 2,121 tests** (+1), no assertion weakened |
+| `pnpm build`      | ✅ `/r/[token]` 272 kB · print 229 kB — both unchanged     |
+
+Neither known flake fired, on the executer's run or the planner's.
+
+### ⚠️ The pattern, now three passes deep over six sentences
+
+S5 fixed two definitions and re-leaked three. `19f758c` fixed those three and
+re-leaked one. S6 fixed that one. **The general shape — a guard that polices the
+removal and not the replacement — should be assumed to exist elsewhere in this
+repo.** Recorded, not chased.
+
+**Residual, stated rather than papered over:** the guard forbids a fixed
+vocabulary, so a novel synonym ("as at last collection run") would pass both
+sweeps. The caveat assertions are the real backstop, which is why they are pinned
+to claims rather than to wording.
+
+---
+
+## S7 — C1 — 🟢 LANDED (planner-verified). The label was the defect; both figures were always right.
+
+Planner-verified 2026-08-14 on HEAD `41f8204`, uncommitted. Five files, ~+400.
+
+**Q8 is now answered — by the PLANNER, not the user**, after the user twice
+declined to answer and asked for a recommendation instead. Recorded as a planner
+call so it can be overturned cheaply:
+
+1. **Rename `Last upload` → `Last ArcBase upload`.** This is the whole fix. It
+   turns "Never" from a claim about _all of a Client's data_ into a claim about
+   _one pipeline_, so "Never" beside 45 posts stops being a contradiction.
+2. **An ⓘ on both columns**, reusing the machinery S2–S6 built.
+3. **No "Last sync" column** — it needs a freshness value not currently read, and
+   ADR 0010 would make it moot.
+
+⚠️ **NO FIGURE CHANGED, AND THAT IS ASSERTED RATHER THAN PROMISED**: a test renders
+the exact pairing Vaibhav filed — `Never` beside `45` — and pins that both still
+render, alongside the em dash for the unreadable row.
+
+### 🔴 The brief was wrong about the implementation, and the executer was right
+
+The brief said to put both ⓘ in `columns.tsx` and that "no render-prop gymnastics"
+were needed, reasoning only about the RSC boundary (`columns.tsx` is `"use client"`
+— correct, verified).
+
+**It missed the markup.** `clients-table.tsx` renders `columnDef.header`'s output
+**inside** the sort `<button>` (verified at `41f8204`, line ~104: `{label}` sits
+within it). An ⓘ declared in `columns.tsx` would therefore have been **a button
+nested in a button** — invalid markup, unreachable by keyboard, with sort clicks
+landing on the wrong control.
+
+The executer diverged to the repo's established `meta.infoMetric` + sibling-render
+split (the same shape `posts/columns.tsx` uses), added an explicit `aria-label` on
+the `<th>` so the ⓘ's name does not leak into every cell announcement, and pinned
+the arrangement with a test that fails if anyone nests it again. **Planner error,
+correctly caught and correctly overruled.**
+
+It also documented a trap the planner had only half-seen: the sort `aria-label` is
+**hardcoded, not derived from the header**, so the rename did not reach it. It was
+changed by hand, and the two halves are **independently pinned** — the executer's
+two mutations fire different tests, which is right, because they are independently
+authored strings that can drift apart.
+
+### Planner verification (independent, not taken on report)
+
+| Claim                                     | Verified how                                                                   | Result                                                                                                                                                     |
+| ----------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The nested-button divergence is real      | Read `41f8204:clients-table.tsx` directly                                      | ✅ `{label}` renders inside `<button>` — the brief was wrong                                                                                               |
+| Both sources are what C1 always claimed   | `latestUploadByClient` → `public.uploads`; `fetchPostCounts` → `.schema("bi")` | ✅ two pipelines, both figures true                                                                                                                        |
+| The two new keys are outside client reach | **Planner mutation**: folded `clientListPosts` into `REPORT_METRIC_KEYS`       | ✅ **3 tests RED**, including the dedicated `keeps the Client List's two definitions OUT of its reach`; restored by `cp`, sha256 `21b0fe26…bcd5` identical |
+| Gate                                      | Full re-run                                                                    | ✅ lint · type:check · **132 files / 2,135 tests** (+14) · build                                                                                           |
+| `/clients` cost                           | `pnpm build`                                                                   | 148 kB → **167 kB (+19)**                                                                                                                                  |
+
+⚠️ **The executer flagged the 148 kB baseline as unverified by them** (two attempts
+to measure it were blocked by the permission classifier, and they stopped rather
+than route around it — the right call). **The planner had measured it directly**
+during S5 verification, so the delta stands on an owned number.
+
+### ⚠️ Planner-found, not in the executer's report: `/r/[token]` grew 272 → 273 kB
+
+The two **staff** definitions live in `metric-definitions.ts`, which the
+client-facing report imports — so they ship into the Client's bundle although
+nothing there can ever render them. **+1 kB, strings only, not worth chasing.**
+Recorded because it is the same shared-module-is-a-shared-cost shape S4 existed to
+fix, and the next definition added could be larger than a string.
+
+### Open, small, deliberately left
+
+- The unreadable cell's screen-reader text still reads **"Last upload could not be
+  read"** (`Unavailable what="Last upload"`), disagreeing with the renamed header.
+  Fixing it means editing cell rendering, which the brief's DO-NOT-TOUCH list
+  forbade — **flagged instead of quietly widened, which is the behaviour this
+  workstream has been trying to get for five slices.** One-word change whenever.
+- ⚠️ **`Last ArcBase upload` names the app inside its own UI**, which normally reads
+  as a smell. It earns it only while two pipelines exist. **When ADR 0010 is
+  implemented, the qualifier should come back out.**
 
 ---
 
@@ -612,9 +775,11 @@ Add Data · Resources · Data Quality · Settings.
 
 ## Feedback & revisions log
 
-| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 4   | 2026-08-13 | **P1 / P2 skipped by the user.** Q3 was re-grounded first (the two addressing schemes, `TopBar`'s current contents, the flat nav) and put back as three concrete options; the user asked to skip rather than answer. Recorded as skipped-not-rejected, with the groundwork and the three remaining open questions kept so it can resume cold. Noted that **D1 and the planner's `/upload` objection are in tension** and must be reconciled when it does. Audited the rest of the client-visible definition surface while here: the eight `public*` outreach keys and the other three status keys are **clean** — S6 is exactly the three keys already flagged.                                                                                                                                                                                                                                                                                                                                                           |
-| 3   | 2026-08-13 | **S5 verified.** Its three deliverables all landed well — the call site repaired (type:check and build now green), the boundary guard **rewritten rather than deleted** (`WIDE_ROOTS` positively asserts `/r/[token]` reaches `MetricInfo`, so the opt-in cannot be silently lost), and both named definitions rewritten with every caveat intact. The cost is now measured: `/r/[token]` **272 kB**, print unchanged at 229 kB. ⚠️ But the slice widened 4 files → 17 and **re-introduced its own defect one level out** — the status strip it added is rendered by `public-report.tsx`, so three definitions a Client can open still say "upload"/"scraped". S6 opened for exactly those three. Fourth consecutive slice to cross its DO-NOT-TOUCH list. Two verification flakes recorded as non-defects: the F2 hook timeout (3 files red under load, 55/55 green in isolation — the relocation F2's handoff predicted) and a build that failed twice non-deterministically before passing clean after `rm -rf .next`. |
-| 2   | 2026-08-13 | Grilling session. D1/D1a settled then P1/P2 **parked** at Q3. D2's symptom corrected twice — "empty state" → **crash**, from the user's screenshots — and then **diagnosed**: `page.tsx` imports `PRESET_DAYS` from a `"use client"` module, so `presets.includes` dots into a client reference in the production RSC build; the reachability table accounts for all four observations and a repo-wide sweep found this to be the only instance. D6–D10 settled. C1 resolved by the user **deleting Charlene's rows** over the planner's three recorded objections; the display defect it was raised for remains open.                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 1   | 2026-08-13 | Created from Vaibhav's note. Seven items split out; ground truth established read-only before grilling (selector is URL-state and Dashboard-local; upload attribution is chosen per upload; C1 is the `bi.*` vs `public.uploads` seam, both numbers true; the drill-down exists but is unlinked and speaks a different URL dialect; C2's likeliest shape is UTC rendering read from another zone).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 6   | 2026-08-14 | **S7 (C1) landed and verified — the last of Vaibhav's seven with a live defect.** Q8 answered by the planner (rename + two ⓘ, no Last-sync column) after the user twice declined and asked for a recommendation. ⚠️ **The brief was wrong about the implementation and the executer overruled it correctly:** it reasoned only about the RSC boundary and missed that `clients-table.tsx` renders `columnDef.header` INSIDE the sort `<button>`, so the prescribed ⓘ would have been a button nested in a button — invalid markup, keyboard-unreachable. Verified against `41f8204` directly. They used the repo's `meta.infoMetric` + sibling-render split, pinned it against re-nesting, and found that the sort `aria-label` is hardcoded rather than derived so the rename did not reach it — the two halves are now independently pinned. **Planner mutation:** folding `clientListPosts` into `REPORT_METRIC_KEYS` fires 3 tests including the dedicated out-of-reach guard; restored, sha256 `21b0fe26…bcd5` identical. Gate green, **132 files / 2,135 tests** (+14). `/clients` 148 → **167 kB**; the executer flagged the baseline as unmeasured by them (blocked by the permission classifier — they stopped rather than route around it), but the planner had measured it during S5, so the delta stands. **Planner-found, absent from their report:** `/r/[token]` 272 → **273 kB**, because the two STAFF definitions ride into the client bundle via the shared module — +1 kB, recorded not chased. Two items deliberately left and flagged rather than silently widened: the `Unavailable what="Last upload"` screen-reader string still disagrees with the header, and the `ArcBase` qualifier should come back out when ADR 0010 lands. |
+| 5   | 2026-08-13 | **S6 landed and verified — and the planner's brief was wrong about its own premise.** The three leaking strings were never committed: they lived only in the uncommitted tree the planner audited, and the operator's `19f758c` had already rewritten them ~35 min before the executer started (`git show 997512f:…` has zero status keys — verified). The executer read the history, said so, and did not manufacture the work. ⚠️ **What it found instead is the trap the brief named by anticipation:** the earlier rewrite traded "upload" for "**last refreshed**"/"**freshly updated**", which asserts a process that RAN where only "data was recorded by then" is warranted. Fixed with "most recent data recorded", every caveat verbatim. A `FALSE_FRIENDS` guard now runs beside the `PIPELINE` sweep — **planner-mutation-proved**: reverting to the `19f758c` wording fires exactly ONE test, the new one, while the old sweep passes clean, demonstrating the blind spot rather than asserting it. Restored by `cp`, sha256 `6fcf5ec8…19e7` identical. Gate green, 132 files / **2,121 tests**, `/r/[token]` 272 kB and print 229 kB both unchanged, neither known flake fired. **Three consecutive passes over six sentences, each fixing the last and re-leaking once** — the guard-polices-removal-not-replacement shape should be assumed to exist elsewhere.                                                                                                                                                                                                                                                                                                                                                                            |
+| 4   | 2026-08-13 | **P1 / P2 skipped by the user.** Q3 was re-grounded first (the two addressing schemes, `TopBar`'s current contents, the flat nav) and put back as three concrete options; the user asked to skip rather than answer. Recorded as skipped-not-rejected, with the groundwork and the three remaining open questions kept so it can resume cold. Noted that **D1 and the planner's `/upload` objection are in tension** and must be reconciled when it does. Audited the rest of the client-visible definition surface while here: the eight `public*` outreach keys and the other three status keys are **clean** — S6 is exactly the three keys already flagged.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 3   | 2026-08-13 | **S5 verified.** Its three deliverables all landed well — the call site repaired (type:check and build now green), the boundary guard **rewritten rather than deleted** (`WIDE_ROOTS` positively asserts `/r/[token]` reaches `MetricInfo`, so the opt-in cannot be silently lost), and both named definitions rewritten with every caveat intact. The cost is now measured: `/r/[token]` **272 kB**, print unchanged at 229 kB. ⚠️ But the slice widened 4 files → 17 and **re-introduced its own defect one level out** — the status strip it added is rendered by `public-report.tsx`, so three definitions a Client can open still say "upload"/"scraped". S6 opened for exactly those three. Fourth consecutive slice to cross its DO-NOT-TOUCH list. Two verification flakes recorded as non-defects: the F2 hook timeout (3 files red under load, 55/55 green in isolation — the relocation F2's handoff predicted) and a build that failed twice non-deterministically before passing clean after `rm -rf .next`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 2   | 2026-08-13 | Grilling session. D1/D1a settled then P1/P2 **parked** at Q3. D2's symptom corrected twice — "empty state" → **crash**, from the user's screenshots — and then **diagnosed**: `page.tsx` imports `PRESET_DAYS` from a `"use client"` module, so `presets.includes` dots into a client reference in the production RSC build; the reachability table accounts for all four observations and a repo-wide sweep found this to be the only instance. D6–D10 settled. C1 resolved by the user **deleting Charlene's rows** over the planner's three recorded objections; the display defect it was raised for remains open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 1   | 2026-08-13 | Created from Vaibhav's note. Seven items split out; ground truth established read-only before grilling (selector is URL-state and Dashboard-local; upload attribution is chosen per upload; C1 is the `bi.*` vs `public.uploads` seam, both numbers true; the drill-down exists but is unlinked and speaks a different URL dialect; C2's likeliest shape is UTC rendering read from another zone).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

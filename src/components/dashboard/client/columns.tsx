@@ -5,10 +5,25 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { ChevronRight } from "lucide-react";
 
 import { displayLinkedInUrl } from "@/lib/linkedin-url";
+import { CLIENT_LIST_METRIC_KEYS } from "@/lib/metric-definitions";
 import { paths } from "@/paths";
 import type { ClientListRow } from "@/services/types";
 
 const HEAD = "font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase";
+
+/**
+ * Per-column extras this table's header and cells read.
+ *
+ * ⚠️ `infoMetric` DECLARES AN ⓘ; IT DOES NOT RENDER ONE. A sortable header's
+ * content is rendered INSIDE a `<button>` by `clients-table.tsx`, so an ⓘ placed
+ * in `columnDef.header` below would nest one button in another — invalid markup
+ * that no keyboard can reach. The table renders it as a SIBLING of the sort
+ * control instead. Same split as `posts/columns.tsx`, for the same reason.
+ */
+export interface ClientColumnMeta {
+  className?: string;
+  infoMetric?: string;
+}
 
 /**
  * The em dash for a value that could NOT BE READ.
@@ -77,8 +92,18 @@ export const columns: ColumnDef<ClientListRow>[] = [
     // the bottom in BOTH directions. A null would sort as a value.
     accessorFn: (client) => (client.lastUpload === "unavailable" ? undefined : client.lastUpload),
     sortUndefined: "last",
-    header: () => <span className={HEAD}>Last upload</span>,
-    meta: { className: "w-[18%]" },
+    // ⚠️ "Last ArcBase upload", NOT "Last upload". The unqualified label made
+    // "Never" a claim about everything known of this client, which put it in
+    // apparent conflict with the Posts column beside it — a real reader filed
+    // "never uploaded but 45 posts" as a bug, and read the screen correctly.
+    // Naming the source turns one contradiction back into two facts about two
+    // pipelines. ⚠️ `clients-table.tsx` hardcodes the sort `aria-label`; it must
+    // keep agreeing with this string.
+    header: () => <span className={HEAD}>Last ArcBase upload</span>,
+    meta: {
+      className: "w-[18%]",
+      infoMetric: CLIENT_LIST_METRIC_KEYS["Last ArcBase upload"],
+    } satisfies ClientColumnMeta,
     cell: ({ row }) => {
       const { lastUpload } = row.original;
       return (
@@ -100,7 +125,14 @@ export const columns: ColumnDef<ClientListRow>[] = [
     accessorFn: (client) => client.postsCount ?? undefined,
     sortUndefined: "last",
     header: () => <span className={`${HEAD} block text-right`}>Posts</span>,
-    meta: { className: "w-[12%] text-right" },
+    // The other half of the pair: this count comes from the external pipeline,
+    // and its ⓘ is the only place on this screen that says attribution is by
+    // name-match — a limitation an under-counted client cannot be told from a
+    // quiet one without.
+    meta: {
+      className: "w-[12%] text-right",
+      infoMetric: CLIENT_LIST_METRIC_KEYS.Posts,
+    } satisfies ClientColumnMeta,
     cell: ({ row }) => (
       <span className="font-mono text-sm text-muted-foreground tabular-nums">
         {row.original.postsCount === null ? (

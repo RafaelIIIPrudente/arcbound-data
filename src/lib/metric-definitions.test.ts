@@ -6,6 +6,7 @@ import type { BiPostRow } from "@/services/analytics";
 import { buildDashboardAnalytics } from "@/services/analytics";
 
 import {
+  CLIENT_LIST_METRIC_KEYS,
   METRIC_DEFINITIONS,
   OUTREACH_SUMMARY_METRIC_KEYS,
   REPORT_METRIC_KEYS,
@@ -256,6 +257,30 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
   const PIPELINE =
     /\b(uploads?|uploaded|scrapes?|scraped|scraper|exports?|exported|schemas?|ingest\w*|pipelines?|RPC|Supabase)\b/i;
 
+  /**
+   * The false friends — and the reason this guard is two patterns, not one.
+   *
+   * ⚠️ THESE ARE NOT PIPELINE NOUNS. They are ordinary English, they name no
+   * internal step, and a sweep for ArcBase's vocabulary passes straight over
+   * them. That is exactly how "the date these figures were last refreshed"
+   * survived the sweep that took "upload" out of the very same sentence: the
+   * rewrite reached for the nearest friendly synonym, and the guard of the day
+   * had no opinion about it.
+   *
+   * They are forbidden because they change the CLAIM. "Refreshed", "synced" and
+   * "updated" each name a process that RAN — and a process that ran is a
+   * process that may have run and found nothing. What is true of these figures
+   * is that data was RECORDED as of that date. A Client reading "last refreshed
+   * 12 Aug" concludes someone looked on 12 August; all that is warranted is
+   * that data exists up to 12 August. The stronger reading is not a clumsier
+   * sentence, it is a false one.
+   *
+   * ⚠️ SCOPED TO THE CLIENT MAPS ONLY, like the sweep above — not because these
+   * words would be harmless on the staff side, but because this describe block
+   * makes claims about one audience and should not quietly police another.
+   */
+  const FALSE_FRIENDS = /\b(refresh(es|ed|ing)?|syncs?|synced|syncing|updat(e|es|ed|ing))\b/i;
+
   /** Every label map a Client's own report renders an ⓘ from. */
   const CLIENT_MAPS = {
     "Key performance": REPORT_METRIC_KEYS,
@@ -293,6 +318,25 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
           label,
           panel,
           hit: PIPELINE.exec(METRIC_DEFINITIONS[key].definition),
+        }))
+        .filter(({ hit }) => hit !== null)
+        .map(({ panel: p, label, hit }) => `${p} → ${label}: “${hit![0]}”`),
+    );
+
+    expect(leaks).toEqual([]);
+  });
+
+  it("never explains a date as a process that ran, only as data that exists", () => {
+    // ⚠️ THE COMPANION TO THE SWEEP ABOVE, AND THE ONE THAT CATCHES THE RETRY.
+    // Removing "upload" is half the job; the half that gets missed is what
+    // replaces it. Driven off the same maps, so a definition added to a
+    // client-visible panel later is covered without anyone remembering to.
+    const leaks = Object.entries(CLIENT_MAPS).flatMap(([panel, map]) =>
+      Object.entries(map)
+        .map(([label, key]) => ({
+          label,
+          panel,
+          hit: FALSE_FRIENDS.exec(METRIC_DEFINITIONS[key].definition),
         }))
         .filter(({ hit }) => hit !== null)
         .map(({ panel: p, label, hit }) => `${p} → ${label}: “${hit![0]}”`),
@@ -343,6 +387,13 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
     // 2026-08-13, AND NOTHING ELSE. Each carries a distinction a friendlier
     // rewrite would quietly flatten, so each is pinned to the claim rather than
     // to the wording that happens to carry it today.
+    //
+    // ⚠️ "Current as of" LOST TWO MORE WORDS LATER THE SAME DAY. The first
+    // rewrite traded "upload" for "refreshed"/"updated", which reads as a
+    // process that ran — and so could have run and found nothing — where the
+    // truth is only that data was recorded by then. Every assertion below
+    // survived that second pass unchanged, which is the point of pinning
+    // claims: the sentence was rewritten twice and the claims never moved.
     const currentAsOf = METRIC_DEFINITIONS.statusCurrentAsOf.definition;
     const trackedSince = METRIC_DEFINITIONS.statusTrackedSince.definition;
     const mostRecent = METRIC_DEFINITIONS.statusMostRecentPost.definition;
@@ -371,5 +422,74 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
     // the ingestion, and "scrape" is precisely what they need to see.
     expect(METRIC_DEFINITIONS.rateReconciliation.definition).toMatch(PIPELINE);
     expect(METRIC_DEFINITIONS.followers.definition).toMatch(PIPELINE);
+  });
+
+  it("keeps the Client List's two definitions OUT of its reach, deliberately", () => {
+    // ⚠️ THE ONE PLACE THIS SWEEP MUST NOT REACH, AND THE REASON IT IS KEYED OFF
+    // MAPS RATHER THAN OFF THE WHOLE RECORD. `/clients` is a STAFF screen about
+    // ArcBase's own ingest: its two sentences have to say "upload" and
+    // "pipeline" to be true at all, because naming the pipeline IS the fix they
+    // exist to deliver. Asserting they MATCH the forbidden pattern pins that as
+    // a decision — if someone later folds these keys into a client-visible map,
+    // the sweep above goes red rather than these words reaching a Client.
+    expect(METRIC_DEFINITIONS.clientListLastArcbaseUpload.definition).toMatch(PIPELINE);
+    expect(METRIC_DEFINITIONS.clientListPosts.definition).toMatch(PIPELINE);
+
+    const clientVisible = new Set(Object.values(CLIENT_MAPS).flatMap((map) => Object.values(map)));
+    for (const key of Object.values(CLIENT_LIST_METRIC_KEYS)) {
+      expect(clientVisible.has(key), `${key} must stay off every client-visible panel`).toBe(false);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE CLIENT LIST'S TWO COLUMNS MEASURE TWO DIFFERENT PIPELINES.
+//
+// "Never uploaded, 45 posts" is not a contradiction and never was: `Last
+// ArcBase upload` reads `public.uploads` (ArcBase's own `/upload`) and `Posts`
+// reads `bi.linkedin_post_latest` (the external pipeline, attributed by
+// name-match). Both figures are correct. Adjacency under two bare labels is
+// what made a reviewer file it as a bug — so these two sentences carry the
+// whole reconciliation, and each is pinned to the claim that does that work.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("the Client List's two columns say they are two different pipelines", () => {
+  const lastUpload = METRIC_DEFINITIONS.clientListLastArcbaseUpload.definition;
+  const posts = METRIC_DEFINITIONS.clientListPosts.definition;
+
+  it("maps both column headers to a definition that resolves", () => {
+    expect(Object.keys(CLIENT_LIST_METRIC_KEYS).sort()).toEqual(["Last ArcBase upload", "Posts"]);
+    for (const [label, key] of Object.entries(CLIENT_LIST_METRIC_KEYS)) {
+      expect(metricDefinition(key)?.definition, label).toBeTruthy();
+    }
+  });
+
+  it("says outright that a client can have posts with NO ArcBase upload", () => {
+    // ⚠️ THE ENTIRE POINT OF THE SLICE. Without this sentence the rename alone
+    // narrows the claim but never reconciles the two columns, and a reader is
+    // still left to guess whether the two numbers are allowed to disagree.
+    expect(lastUpload).toMatch(/posts/i);
+    expect(lastUpload).toMatch(/external pipeline/i);
+    expect(lastUpload).toMatch(/never/i);
+  });
+
+  it("keeps “Never” a known fact and the dash a separate, unread third case", () => {
+    // The cell already renders three states. The definition must not flatten
+    // them back into two by explaining only the one the reader asked about.
+    expect(lastUpload).toMatch(/known fact/i);
+    expect(lastUpload).toMatch(/not missing data/i);
+    expect(lastUpload).toMatch(/could not be read/i);
+  });
+
+  it("discloses that Posts is attributed by NAME MATCH, and what that costs", () => {
+    // ⚠️ A REAL LIMITATION VISIBLE NOWHERE ELSE ON THIS SCREEN. An under-counted
+    // client looks exactly like a quiet one, so the failure mode is named rather
+    // than left for staff to infer from a number that looks plausible.
+    expect(posts).toMatch(/name match/i);
+    expect(posts).toMatch(/under-?counted/i);
+  });
+
+  it("says Posts moves independently of the upload column", () => {
+    expect(posts).toMatch(/independent/i);
   });
 });
