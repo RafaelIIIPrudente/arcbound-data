@@ -1335,6 +1335,24 @@ export type LatestSnapshot =
   | { status: "unavailable" };
 
 /**
+ * What `void_outreach_upload` / `unvoid_outreach_upload` report back.
+ *
+ * ⚠️ THE STATE AFTER THE CALL, NOT A RECORD OF WHAT THE CALL DID. Both RPCs are
+ * idempotent: voiding an already-voided snapshot leaves the ORIGINAL
+ * `voidedAt`/`voidedBy` untouched, because the first void is the fact. So a
+ * `voidedAt` that predates the call is a correct answer, not a stale one, and
+ * nothing here should be read as "this call is what voided it".
+ *
+ * After `unvoid`, both fields are `null` — the live state, with no boolean twin.
+ */
+export interface OutreachVoidResult {
+  uploadId: string;
+  clientId: string;
+  voidedAt: string | null;
+  voidedBy: string | null;
+}
+
+/**
  * The result of reading a snapshot the caller NAMES, by upload id.
  *
  * ⚠️ TWO STATES, NOT THREE, AND THE MISSING ONE IS "not applicable" RATHER THAN

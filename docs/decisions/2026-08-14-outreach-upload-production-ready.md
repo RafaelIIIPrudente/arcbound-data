@@ -353,11 +353,110 @@ they were correctly left. **Queued for S3.**
 
 ---
 
+## S3 — the UI (LANDED, planner-verified) — the void feature is COMPLETE
+
+Uncommitted on top of `35704cc` (the operator's commit of S1+S2; `16de176`
+verified an ancestor). Gate re-run by the planner: **135 files / 2,209 tests**
+(+2 files, +38). ⚠️ S1's SQL is **APPLIED** to the live database.
+
+New: `void-actions.ts`, `snapshot-history.tsx`, `outreach-attribution.ts`, and
+their tests. Modified: the service (RPC wrappers), types, the outreach page, and
+the two stale comments — comment text only.
+
+### The permission line, and why it holds structurally
+
+`canVoidSnapshot(u.uploadedBy, session?.id ?? null, isAdmin(role))` is computed
+**server-side, per row, in `page.tsx`**.
+
+⚠️ It cannot be mistaken for authorisation for a **structural** reason rather than
+a documented one: **the value never leaves the server render.** Both actions are
+`(uploadId: string)` — verified by the planner — so there is no parameter through
+which a forged `canVoid` could arrive. A source assertion checks the action seam
+contains no `isAdmin|getRole|getSession|auth.uid`, i.e. it does not re-implement
+the rule the RPC already enforces correctly.
+
+Additional hardening the executer added unprompted: the action revalidates the
+path built from the RPC's **returned** `client_id`, not a caller-supplied one, so
+a forged id cannot bust an unrelated Client's cache.
+
+### Q6 gained a third outcome, and it was necessary
+
+| `uploadedBy`        | Renders          |
+| ------------------- | ---------------- |
+| `=== currentUserId` | **You**          |
+| a different uuid    | **Another user** |
+| `null`              | **Not recorded** |
+
+⚠️ **The null check runs FIRST**, because with both sides null
+`userId === currentUserId` is `true` in JavaScript — which would attribute an
+unattributed row to whoever happens to be looking. Planner-verified at
+`outreach-attribution.ts:44-46`.
+
+**Planner mutation:** reordered the guard so `===` is checked before the null case.
+**1 RED** — `still says UNRECORDED when there is no signed-in user either` — the
+one test that exists precisely for this. Restored, sha256 `8d8631cf…abe5`
+identical.
+
+### A null-uploader row offers a non-admin NO control — not a disabled one
+
+Under the RPC's `coalesce(…, false)` a null uploader matches nobody, so a button
+there would raise 42501 on every press. An admin still gets it (the `is_admin()`
+arm), without which nobody could ever correct a snapshot written from the SQL
+editor. Both directions tested.
+
+### ✅ FLAG 1 — an out-of-scope file, correctly created and correctly disclosed
+
+`src/lib/outreach-attribution.ts` was not on the CREATE list. It had to exist:
+`attribute`/`canVoidSnapshot` are called from `page.tsx` (a Server Component) and
+the history component needs `"use client"` for the dialog. ⚠️ **`"use client"`
+converts EVERY EXPORT of a module into a client reference**, so hosting the
+helpers there would make `canVoidSnapshot(...)` a proxy that throws at request
+time — invisible to both `next build` and Vitest. `page.tsx` cannot host them
+either (Next forbids named exports from `page.tsx`).
+
+Planner-verified: `outreach-attribution.ts` carries **no** `"use client"`;
+`snapshot-history.tsx` does. This is the same RSC trap that opened this
+workstream, avoided rather than re-hit, and named rather than buried.
+
+### ⚠️ OPEN — a stale claim is now COMMITTED
+
+`supabase/outreach-void.test.ts:27-28` still reads _"That has NOT been done — this
+SQL is not yet applied to any database."_ **It has been applied.** The file was
+`DO-NOT-TOUCH` for S3 and was correctly left, but it went into `35704cc`, so the
+repo now carries a committed statement that is false. **One-line fix, unscheduled.**
+
+### ⚠️ The limit that no slice can close
+
+Nothing in this suite executes either RPC. **No test shows a non-admin is actually
+refused**, that voiding is idempotent, or that a void reaches the Client's report.
+The security boundary remains `void_outreach_upload`'s own predicate, verified
+only by reading it and by the three-valued-logic argument in S1.
+
+⚠️ **And this may not be closable soon: ArcBase has effectively one account**, so
+the deny path has never executed and cannot be exercised without a second staff
+login. Recorded so the guard is not mistaken for tested.
+
+### Accepted as good judgement
+
+- **Rejecting their own first mutation.** Deleting the null guard turned only one
+  test red because `null === "<uuid>"` is false anyway — so they mutated again the
+  way a real wrong implementation looks, `(uploadedBy ?? currentUserId) === currentUserId`:
+  **the same "coalesce the column, not the comparison" shape that was the trap in
+  S1's SQL.** That produced 3 RED including the page-level wiring test.
+- **Rendering the history OUTSIDE the state branch**, gated on `assigned` only —
+  in the `all-voided` state the history is the only route to an un-void, so nesting
+  it inside `ok` would strand exactly the Clients the feature exists for.
+- **No confirmation on un-void**, and no undo-of-the-undo prompt; pressing twice is
+  a database no-op.
+
+---
+
 ## Feedback & revisions log
 
 | #   | Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 4   | 2026-08-14 | **S1 landed and planner-verified** at 133 files / 2,160 tests; the one-predicate `report_link_read` diff confirmed by independent extraction-and-diff, not by reading the executer's test. ⚠️ **One defect found by the planner and NOT by the suite: the Q4 guard is not NULL-safe and fails OPEN** — `uploaded_by` is nullable, `null = auth.uid()` is NULL, and `if NULL then` does not fire, so any authenticated user can void a snapshot with no recorded uploader. Fix is `coalesce(…, false)` in both functions, and it must land before the script is pasted. Mutation showed the fix moves 3 tests RED (both predicate assertions + the pair check), confirming the tests pin the predicate's TEXT and not its SEMANTICS.                                                                                                                                                                                                                                              |
+| 7   | 2026-08-14 | **S3 landed and planner-verified** at **135 / 2,209** (+38) on top of `35704cc` — **the void feature is complete: SQL applied, service reading, UI wired.** Permission holds STRUCTURALLY (both actions are `(uploadId: string)`, planner-verified — no parameter exists through which a forged `canVoid` could arrive). Q6 gained a necessary third outcome, "Not recorded", with the null check FIRST because `null === null` is `true`; planner mutation reordering it → 1 RED, restored, sha256 `8d8631cf…abe5`. ✅ The out-of-scope `outreach-attribution.ts` was correctly created and disclosed — the RSC client-reference trap that opened this workstream, avoided rather than re-hit. ⚠️ **OPEN: `supabase/outreach-void.test.ts:27-28` now carries a COMMITTED false claim** that the SQL is unapplied. ⚠️ **The RPC's refusal has never executed and may not be closable — ArcBase has effectively one account.**                                                    |
 | 6   | 2026-08-14 | **S2 landed and planner-verified** at 133 / **2,171** (+10). Required-no-default `includeVoided` opt-in; query-side `.is("voided_at", null)` because post-read filtering would wrongly report `all-voided` when a live snapshot sits below the truncation cap; `LatestSnapshot` gains a fourth member. Planner mutation (flipping `latestSnapshot` to `includeVoided: true`) → **3 RED**, restored, sha256 `33b6ec17…b7a5` identical. ⚠️ **The executer corrected the planner's brief and was right: S1's SQL is NOT applied** — the planner inferred it from a "go" that approved proceeding, not a paste. Hard deploy-order dependency recorded, with severity measured rather than assumed (PostgREST's undefined-column error → `paged.ts:129` → `unavailable`, so an un-migrated DB degrades honestly and self-heals). Two stale "mirrors LatestSnapshot exactly" comments confirmed in `report-links.ts:196` and `outreach-summary.tsx:32`, correctly left, queued for S3. |
 | 5   | 2026-08-14 | **Defect fixed before any database saw the script.** All four sites now `coalesce(…, false)`; planner confirmed zero bare comparisons remain in executable SQL, and ran the MIRROR mutation (reverting `void` where the executer had reverted `un-void`) → 2 RED, restored, sha256 `bf64e473…f006` identical. Gate 133 / **2,161** (+1 exactly). FLAG 1 independently audited across every `auth.uid()` in `supabase/*.sql`: all others are insert stamps, an RLS `using`, or an `exists(…)` — all fail CLOSED, so no second instance exists. ⚠️ Recorded a consequence for S3 (a null-uploader snapshot is admin-only in practice, so the UI must not offer a control that always raises 42501) and the one check only a live database can make (call `void_outreach_upload` as a non-admin against a null-uploader row, expect 42501).                                                                                                                                         |
 | 2   | 2026-08-14 | Q1–Q6 settled, all matching the planner's recommendation. Records D1 (flag not delete — an un-undoable fix for a mis-click is a second mis-click) and **D2, a retraction: the planner's Q5 mockup showed uploader names that are not buildable** — `staff_roles` carries no name/email, its RLS is own-row by design, and `uploaded_by` is written but never read. Blast radius verified: two independent read paths, the client one being SQL; the client-facing edit is ONE line and Q3's all-voided case falls out of the existing jsonb-null branch for free. ✅ Corrected an earlier planner claim that both report-link SQL files change — only the newest does.                                                                                                                                                                                                                                                                                                           |

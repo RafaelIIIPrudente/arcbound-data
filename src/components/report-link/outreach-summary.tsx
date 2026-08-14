@@ -29,8 +29,11 @@ import type { ReportLinkEmailOutreach, ReportLinkOutreach } from "@/services/rep
 // staff tab's `EmailFunnelPanel`. It degrades independently of the five
 // LinkedIn figures above, which keep rendering regardless.
 //
-// ⚠️ F1 (2026-08-10) — THE WHOLE READ IS THREE STATES, NOT TWO, MIRRORING
-// `ReportLinkOutreach` (which mirrors `LatestSnapshot`, staff side): `ok` /
+// ⚠️ F1 (2026-08-10) — THE WHOLE READ IS THREE STATES, NOT TWO, FOLLOWING
+// `ReportLinkOutreach` (which shares its vocabulary with `LatestSnapshot`, staff
+// side, but is NOT a mirror of it — the staff type gained a fourth member,
+// `all-voided`, on 2026-08-14 and this path deliberately did not: a Client whose
+// snapshots are all voided reads as `empty`, per Q3): `ok` /
 // `empty` / `unavailable`. Before F1 a malformed aggregate arrived here as
 // `null` — identical to "this Client has never had an outreach snapshot" —
 // so a Client whose read had genuinely broken was told nothing had been done

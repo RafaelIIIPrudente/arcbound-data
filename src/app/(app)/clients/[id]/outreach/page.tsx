@@ -22,6 +22,13 @@ import {
   OutreachUnavailable,
 } from "@/components/dashboard/outreach/outreach-states";
 import { ProspectTable } from "@/components/dashboard/outreach/prospect-table";
+import {
+  SnapshotHistory,
+  type SnapshotHistoryRow,
+} from "@/components/dashboard/outreach/snapshot-history";
+import { getRole, isAdmin } from "@/lib/auth/roles";
+import { getSession } from "@/lib/auth/session";
+import { attribute, canVoidSnapshot } from "@/lib/outreach-attribution";
 import { canSee } from "@/lib/service-access";
 import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
@@ -74,13 +81,40 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
   // The upload history rides along even though only the movement panel wants it:
   // it depends on nothing above, so issuing it here costs no wall clock, and
   // waiting for the snapshot first would put a second round-trip in series.
-  const [client, snapshot, uploads, access] = await Promise.all([
+  const [client, snapshot, uploads, access, session, role] = await Promise.all([
     getClient(id),
     latestSnapshot(id),
     listOutreachUploads(id),
     getClientServices(id),
+    getSession(),
+    getRole(),
   ]);
   if (!client) notFound();
+
+  // ⚠️ PER-ROW PERMISSION IS COMPUTED HERE, ON THE SERVER, AND IT IS AFFORDANCE
+  // ONLY. It mirrors the RPC's `coalesce(uploaded_by = auth.uid(), false) or
+  // public.is_admin()` so the screen does not offer an action the database will
+  // refuse — but it decides what to SHOW, never what is ALLOWED. The value never
+  // travels to the server action, and the SECURITY DEFINER function refuses on
+  // its own authority regardless of anything computed here or sent by a browser.
+  //
+  // ⚠️ `uploads === null` IS PASSED THROUGH AS `null`, NOT FLATTENED TO `[]`.
+  // `listOutreachUploads` nulls a TRUNCATED read as well as a failed one, and a
+  // partial history has no honest rendering — see the ⚠️ on `readMovement`.
+  const currentUserId = session?.id ?? null;
+  const admin = isAdmin(role);
+  const historyRows: SnapshotHistoryRow[] | null =
+    uploads === null
+      ? null
+      : uploads.map((u) => ({
+          id: u.id,
+          createdAt: u.createdAt,
+          rowCount: u.rowCount,
+          uploadedBy: attribute(u.uploadedBy, currentUserId),
+          voidedAt: u.voidedAt,
+          voidedBy: attribute(u.voidedBy, currentUserId),
+          canVoid: canVoidSnapshot(u.uploadedBy, currentUserId, admin),
+        }));
 
   // ⚠️ `access?.held ?? null` PRESERVES THE "COULD NOT BE READ" STATE — see the
   // identical comment on the Posts and Report pages. `canSee` fails OPEN on a
@@ -269,6 +303,17 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
           </section>
         </div>
       )}
+
+      {/* ⚠️ OUTSIDE THE STATE BRANCH ABOVE, AND THAT IS THE POINT. The history is
+          a SEPARATE read from the snapshot, and in the `all-voided` state it is
+          the ONLY route to an un-void — nesting it inside the `ok` branch would
+          strand every Client whose snapshots were all voided with a panel
+          explaining the problem and no way to fix it.
+
+          ⚠️ Gated on `assigned` only. A Client who does not hold the Outreach
+          service has no outreach surface at all (ADR 0015), and an upload
+          history is still outreach data. */}
+      {assigned ? <SnapshotHistory rows={historyRows} clientName={client.name} /> : null}
     </div>
   );
 }

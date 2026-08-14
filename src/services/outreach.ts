@@ -9,6 +9,7 @@ import type {
   OutreachProspect,
   OutreachRow,
   OutreachUpload,
+  OutreachVoidResult,
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -498,4 +499,72 @@ export async function snapshotById(clientId: string, uploadId: string): Promise<
   if (unavailable) return { status: "unavailable" };
 
   return { status: "ok", prospects: rows.map(toProspect), truncated, total };
+}
+
+/**
+ * The envelope both void RPCs return. Validated at the boundary, exactly as
+ * `ingestSummarySchema` validates the ingest RPC's.
+ *
+ * ⚠️ `.nullable()` ON BOTH VOID FIELDS, NEVER `.optional()`. A missing key and a
+ * key holding null are different answers: `unvoid` reports `voided_at: null`
+ * deliberately — that IS the live state — whereas an absent key means the
+ * function returned a shape this app does not understand, and should throw.
+ */
+const voidResultSchema = z.object({
+  upload_id: z.string().min(1),
+  client_id: z.string().min(1),
+  voided_at: z.string().nullable(),
+  voided_by: z.string().nullable(),
+});
+
+function toVoidResult(data: unknown): OutreachVoidResult {
+  const parsed = voidResultSchema.parse(data);
+  return {
+    uploadId: parsed.upload_id,
+    clientId: parsed.client_id,
+    voidedAt: parsed.voided_at,
+    voidedBy: parsed.voided_by,
+  };
+}
+
+/**
+ * Void one outreach snapshot, reversibly.
+ *
+ * ⚠️ THIS SEAM CARRIES NO PERMISSION LOGIC, AND MUST NEVER GROW ANY. The RPC is
+ * SECURITY DEFINER and enforces `coalesce(uploaded_by = auth.uid(), false) or
+ * public.is_admin()` inside its own body — that check IS the security boundary,
+ * because RLS does not apply within a definer function. A copy of the rule here
+ * would add no safety (the database refuses either way) while inviting the next
+ * reader to believe the application is what protects the row. What the UI
+ * computes decides what to SHOW; this decides nothing.
+ *
+ * ⚠️ A REFUSAL ARRIVES AS AN ERROR AND IS RETHROWN. 42501 must reach the caller
+ * as a failure — swallowing it into a success would leave the list unchanged
+ * beside a message saying it changed.
+ *
+ * Idempotent at the database: voiding an already-voided snapshot is a no-op that
+ * returns the ORIGINAL void, not a fresh one.
+ */
+export async function voidOutreachUpload(uploadId: string): Promise<OutreachVoidResult> {
+  const supabase = createServerClient(cookies());
+  const { data, error } = await supabase.rpc("void_outreach_upload", { p_upload_id: uploadId });
+  if (error) {
+    throw new Error(`Void failed: ${error.message}`);
+  }
+  return toVoidResult(data);
+}
+
+/**
+ * Restore a voided snapshot. The same rule, and the same non-role here: the
+ * database decides, this reports.
+ *
+ * Idempotent: un-voiding a live snapshot is a no-op rather than an error.
+ */
+export async function unvoidOutreachUpload(uploadId: string): Promise<OutreachVoidResult> {
+  const supabase = createServerClient(cookies());
+  const { data, error } = await supabase.rpc("unvoid_outreach_upload", { p_upload_id: uploadId });
+  if (error) {
+    throw new Error(`Un-void failed: ${error.message}`);
+  }
+  return toVoidResult(data);
 }

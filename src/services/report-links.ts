@@ -193,10 +193,18 @@ export type ReportLinkEmailOutreach =
     };
 
 /**
- * The Client-facing outreach aggregate. THREE STATES, mirroring
- * `LatestSnapshot` (staff side) exactly — `ok` / `empty` / `unavailable` — so
- * this codebase keeps ONE vocabulary for "we have it" / "there is none" / "we
- * could not read it", not a second one invented here.
+ * The Client-facing outreach aggregate. THREE STATES — `ok` / `empty` /
+ * `unavailable` — named after `LatestSnapshot`'s (staff side) so this codebase
+ * keeps ONE vocabulary for "we have it" / "there is none" / "we could not read
+ * it", not a second one invented here.
+ *
+ * ⚠️ A SHARED VOCABULARY, NOT A MIRROR — AND DELIBERATELY SO SINCE 2026-08-14.
+ * The staff type gained a FOURTH member, `all-voided`, when voided snapshots
+ * started being skipped. This one did NOT and must not: `report_link_read` skips
+ * voided snapshots in SQL and returns jsonb null when none remain, which arrives
+ * here as `empty` and renders as "no outreach". That is correct and settled (Q3
+ * — a Client is not owed a record of ArcBase's internal corrections), so the
+ * three states here are the whole client-facing vocabulary.
  *
  * ⚠️ F1 (2026-08-10) REPLACED `ReportLinkOutreach | null`. Before this, a
  * malformed non-null aggregate (a count of the wrong type, a missing key)

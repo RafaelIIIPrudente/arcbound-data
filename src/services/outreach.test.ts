@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OutreachRow } from "@/services/types";
@@ -97,7 +99,9 @@ import {
   listOutreachUploads,
   PROSPECT_COLUMNS,
   snapshotById,
+  unvoidOutreachUpload,
   UPLOAD_COLUMNS,
+  voidOutreachUpload,
 } from "./outreach";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
@@ -968,5 +972,85 @@ describe("snapshotById — a NAMED snapshot, for comparison", () => {
     await snapshotById(CLIENT, "up1");
 
     expect(state.orderCalls).toContainEqual(["id", { ascending: true }]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE VOID SEAM. Two thin wrappers over SECURITY DEFINER RPCs.
+//
+// ⚠️ THE SEAM CARRIES NO PERMISSION LOGIC AT ALL, AND MUST NOT GROW ANY. The
+// RPC's `coalesce(uploaded_by = auth.uid(), false) or public.is_admin()` is the
+// security boundary; anything re-checked here would be a second, drifting copy
+// of it that adds no safety — the database refuses regardless — while inviting
+// a reader to believe the UI is what protects the row.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("voidOutreachUpload / unvoidOutreachUpload — the RPC seam", () => {
+  const UPLOAD = "22222222-2222-2222-2222-222222222222";
+  const VOIDED = {
+    upload_id: UPLOAD,
+    client_id: CLIENT,
+    voided_at: "2026-08-14T10:00:00.000Z",
+    voided_by: "user-1",
+  };
+  const LIVE = { upload_id: UPLOAD, client_id: CLIENT, voided_at: null, voided_by: null };
+
+  it("calls void_outreach_upload with the upload id and maps the result", async () => {
+    rpcMock.mockResolvedValue({ data: VOIDED, error: null });
+
+    const result = await voidOutreachUpload(UPLOAD);
+
+    expect(rpcMock.mock.calls[0]![0]).toBe("void_outreach_upload");
+    expect(rpcMock.mock.calls[0]![1]).toEqual({ p_upload_id: UPLOAD });
+    expect(result).toEqual({
+      uploadId: UPLOAD,
+      clientId: CLIENT,
+      voidedAt: "2026-08-14T10:00:00.000Z",
+      voidedBy: "user-1",
+    });
+  });
+
+  it("calls unvoid_outreach_upload and maps a CLEARED void back to nulls", async () => {
+    // ⚠️ `voidedAt: null` IS THE LIVE STATE, and the seam must carry the null
+    // through rather than dropping the key or coercing it. A `?? ""` here would
+    // make an un-voided row read as voided-at-the-empty-string.
+    rpcMock.mockResolvedValue({ data: LIVE, error: null });
+
+    const result = await unvoidOutreachUpload(UPLOAD);
+
+    expect(rpcMock.mock.calls[0]![0]).toBe("unvoid_outreach_upload");
+    expect(result).toEqual({
+      uploadId: UPLOAD,
+      clientId: CLIENT,
+      voidedAt: null,
+      voidedBy: null,
+    });
+  });
+
+  it.each(["void", "unvoid"] as const)("throws when the %s RPC returns an error", async (which) => {
+    // ⚠️ THE REFUSAL PATH. A caller who is neither the uploader nor an admin
+    // gets 42501 from the database, and it must reach the UI as a failure —
+    // never be swallowed into a success the list would then fail to reflect.
+    rpcMock.mockResolvedValue({ data: null, error: { message: "permission denied" } });
+
+    const call = which === "void" ? voidOutreachUpload(UPLOAD) : unvoidOutreachUpload(UPLOAD);
+    await expect(call).rejects.toThrow(/permission denied/);
+  });
+
+  it("VALIDATES THE RPC ENVELOPE rather than trusting it", async () => {
+    // A response missing client_id would otherwise surface as `undefined` and be
+    // handed to `revalidatePath`, quietly refreshing nothing.
+    rpcMock.mockResolvedValue({ data: { upload_id: UPLOAD }, error: null });
+
+    await expect(voidOutreachUpload(UPLOAD)).rejects.toThrow();
+  });
+
+  it("carries NO permission check of its own — the database is the boundary", async () => {
+    // ⚠️ A SOURCE ASSERTION, AND SAID SO. It shows the seam does not re-implement
+    // the owner-or-admin rule; it proves nothing about what the database does.
+    const source = readFileSync(join(process.cwd(), "src/services/outreach.ts"), "utf8");
+    const seam = source.slice(source.indexOf("export async function voidOutreachUpload"));
+
+    expect(seam).not.toMatch(/isAdmin|getRole|getSession|auth\.uid/);
   });
 });
