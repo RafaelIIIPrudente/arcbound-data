@@ -27,6 +27,9 @@ vi.mock("@/components/dashboard/client/client-tabs", () => ({ ClientTabs: () => 
 vi.mock("@/components/dashboard/outreach/outreach-states", () => ({
   OutreachNoSnapshot: () => <div data-testid="outreach-no-snapshot" />,
   OutreachUnavailable: () => <div data-testid="outreach-unavailable" />,
+  OutreachAllVoided: ({ voidedCount }: { voidedCount: number | null }) => (
+    <div data-testid="outreach-all-voided" data-count={String(voidedCount)} />
+  ),
   OutreachTruncated: () => null,
 }));
 vi.mock("@/components/dashboard/outreach/outreach-kpis", () => ({
@@ -212,5 +215,46 @@ describe("ClientOutreachPage — the Email funnel panel (S3, 2026-08-10)", () =>
 
     expect(screen.queryByTestId("email-funnel-panel")).toBeNull();
     expect(buildEmailAnalyticsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("all-voided is its own rendering, never the 'never uploaded' one", () => {
+  it("renders the voided panel — NOT the no-snapshot one — and passes the count", async () => {
+    // ⚠️ THE COLLAPSE THIS STATE EXISTS TO PREVENT. `OutreachNoSnapshot` says
+    // "Nothing has been uploaded for this client" and offers Add Data. Shown to
+    // a Client whose colleague voided their upload an hour ago that is false,
+    // and it invites re-uploading data ArcBase already holds.
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+    latestSnapshotMock.mockResolvedValue({ status: "all-voided", voidedCount: 3 });
+
+    render(await ClientOutreachPage(params()));
+
+    expect(screen.getByTestId("outreach-all-voided")).toHaveAttribute("data-count", "3");
+    expect(screen.queryByTestId("outreach-no-snapshot")).toBeNull();
+    expect(screen.queryByTestId("outreach-kpis")).toBeNull();
+  });
+
+  it("keeps EMPTY rendering the no-snapshot panel — the two states did not merge", async () => {
+    // The discriminator: without this, the test above could pass by pointing
+    // `empty` at the voided panel too.
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+    latestSnapshotMock.mockResolvedValue({ status: "empty" });
+
+    render(await ClientOutreachPage(params()));
+
+    expect(screen.getByTestId("outreach-no-snapshot")).toBeInTheDocument();
+    expect(screen.queryByTestId("outreach-all-voided")).toBeNull();
+  });
+
+  it("passes a NULL count through rather than defaulting it to zero", async () => {
+    // `voidedCount: null` means the database declined an exact count. A 0 would
+    // contradict the state itself — this branch exists because at least one
+    // voided snapshot is there.
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+    latestSnapshotMock.mockResolvedValue({ status: "all-voided", voidedCount: null });
+
+    render(await ClientOutreachPage(params()));
+
+    expect(screen.getByTestId("outreach-all-voided")).toHaveAttribute("data-count", "null");
   });
 });

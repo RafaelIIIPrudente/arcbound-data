@@ -16,6 +16,7 @@ import { OutreachKpis } from "@/components/dashboard/outreach/outreach-kpis";
 import { OutreachMovementPanel } from "@/components/dashboard/outreach/outreach-movement";
 import { OutreachSentChart } from "@/components/dashboard/outreach/outreach-sent-chart";
 import {
+  OutreachAllVoided,
   OutreachNoSnapshot,
   OutreachTruncated,
   OutreachUnavailable,
@@ -56,10 +57,12 @@ export const metadata: Metadata = { title: "Client outreach" };
  * control anywhere in this subtree, and adding one is a decision for ADR 0012,
  * not for a component.
  *
- * ⚠️ THREE READ STATES, THREE RENDERINGS. `latestSnapshot` distinguishes a read
- * that BROKE from a Client who has never had an upload, and only the second may
- * show an empty dashboard. Collapsing them would let a failed read render as a
- * Client with no outreach — a confident lie that looks exactly like the truth.
+ * ⚠️ FOUR READ STATES, FOUR RENDERINGS. `latestSnapshot` distinguishes a read
+ * that BROKE, a Client who has never had an upload, and a Client whose every
+ * snapshot was VOIDED. Collapsing the first into the second would let a failed
+ * read render as a Client with no outreach; collapsing the third into the second
+ * would tell staff "nothing has been uploaded for this client" about data that
+ * is sitting in the database, voided — and send them to re-upload it.
  */
 export default async function ClientOutreachPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -139,6 +142,13 @@ export default async function ClientOutreachPage({ params }: { params: Promise<{
         <OutreachUnavailable />
       ) : snapshot.status === "empty" ? (
         <OutreachNoSnapshot />
+      ) : /* ⚠️ BEFORE the dashboard branch, and NOT folded into `empty`. Adding
+             `all-voided` to `LatestSnapshot` broke type-check in exactly five
+             places in this file — which is the point: the compiler forced this
+             decision rather than letting a voided-away Client quietly inherit
+             "nothing has been uploaded for this client". */
+      snapshot.status === "all-voided" ? (
+        <OutreachAllVoided voidedCount={snapshot.voidedCount} />
       ) : analytics === null ? null : (
         <div className="space-y-8">
           {/* Real but incomplete figures still render — beneath a banner saying
