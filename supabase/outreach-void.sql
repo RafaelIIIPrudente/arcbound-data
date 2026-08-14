@@ -1,7 +1,8 @@
 -- ArcBase OUTREACH SNAPSHOT VOID (S1, 2026-08-14) —
 -- paste-into-the-SQL-editor twin of
 -- supabase/migrations/20260814120000_outreach_void.sql (the two are kept
--- byte-identical by supabase/sql-sync.test.ts).
+-- in step by supabase/sql-sync.test.ts, which compares their
+-- executable SQL with comments stripped).
 --
 -- WHY: outreach snapshots are immutable (ADR 0012) and until now there was NO
 -- undo path anywhere — not in SQL, not in the app. A snapshot attributed to the

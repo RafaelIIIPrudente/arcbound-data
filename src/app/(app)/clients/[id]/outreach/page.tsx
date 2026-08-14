@@ -349,7 +349,17 @@ async function readMovement(
   const index = uploads.findIndex((u) => u.id === snapshot.upload.id);
   if (index === -1) return { status: "history-unavailable" };
 
-  const previous = uploads[index + 1];
+  // ⚠️ THE NEXT **LIVE** SNAPSHOT DOWN, NOT SIMPLY `uploads[index + 1]`.
+  // `listOutreachUploads` deliberately INCLUDES voided rows so staff can see and
+  // reverse them (S2), so a positional step lands on a snapshot someone has
+  // voided — and movement would then report a delta against figures ArcBase has
+  // been told not to count. That is the stale reading the void feature exists to
+  // remove, reappearing in the one panel whose whole job is comparison.
+  //
+  // When every older snapshot is voided this yields `undefined` and the branch
+  // below reports `single`, which is correct: there is genuinely nothing left to
+  // compare against, exactly as if this were the Client's first upload.
+  const previous = uploads.slice(index + 1).find((u) => u.voidedAt === null);
   if (previous === undefined) return { status: "single" };
 
   // Checked before the read is issued: there is nothing to learn from fetching

@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { metricDefinition } from "@/lib/metric-definitions";
+import { metricDefinition, type MetricKey } from "@/lib/metric-definitions";
 import { cn } from "@/lib/utils";
 import { paths } from "@/paths";
 import type { ClientComparison, ClientComparisonRow, ComparisonMedian } from "@/services/types";
@@ -56,7 +56,15 @@ interface ComparisonColumnMeta {
    * the sort `<button>`, so an ⓘ returned from `header` would be a button nested
    * in a button — invalid markup, unreachable by keyboard.
    */
-  infoMetric?: string;
+  /**
+   * ⚠️ `MetricKey`, NOT `string` — these are AUTHORED LITERALS, so a typo must be
+   * a compile error. `MetricInfo`'s own prop stays `string` on purpose: it also
+   * receives RUNTIME labels, and its unmapped branch (render nothing rather than
+   * guess) is load-bearing and separately tested. Tightening it there would
+   * delete that branch; tightening it here only catches the mistake nobody
+   * would otherwise see, because an unknown key renders silently.
+   */
+  infoMetric?: MetricKey;
 }
 
 /**
@@ -83,14 +91,24 @@ function Unknown({ what }: { what: string }) {
  * we could not measure as the worst on the book — the per-post table's
  * convention, matched here deliberately.
  */
-function metric(
-  id: "avgImpressions" | "engagementRate" | "followers" | "interactionsPer1K" | "connections",
-  header: string,
-  sortLabel: string,
-  format: (v: number) => string,
-  unknownLabel: string,
-  infoMetric: string,
-): ColumnDef<ClientComparisonRow> {
+function metric({
+  id,
+  header,
+  sortLabel,
+  format,
+  unknownLabel,
+  infoMetric,
+}: {
+  id: "avgImpressions" | "engagementRate" | "followers" | "interactionsPer1K" | "connections";
+  /** The visible column heading. */
+  header: string;
+  /** Goes into the sort control's accessible name: "Sort by {sortLabel}". */
+  sortLabel: string;
+  format: (v: number) => string;
+  /** What the cell says when the value is null — never a zero. */
+  unknownLabel: string;
+  infoMetric: MetricKey;
+}): ColumnDef<ClientComparisonRow> {
   return {
     id,
     accessorFn: (r) => r[id] ?? undefined,
@@ -141,62 +159,62 @@ const columns: ColumnDef<ClientComparisonRow>[] = [
     } satisfies ComparisonColumnMeta,
     cell: ({ row }) => <span className={NUM}>{row.original.posts.toLocaleString("en-US")}</span>,
   },
-  metric(
-    "avgImpressions",
-    "Avg impressions",
-    "average impressions",
-    (v) => Math.round(v).toLocaleString("en-US"),
-    "Average impressions",
-    "avgImpressions",
-  ),
+  metric({
+    id: "avgImpressions",
+    header: "Avg impressions",
+    sortLabel: "average impressions",
+    format: (v) => Math.round(v).toLocaleString("en-US"),
+    unknownLabel: "Average impressions",
+    infoMetric: "avgImpressions",
+  }),
   // ⚠️ `engagementRatePerClient`, AND THE KEY IS DOING REAL WORK. This column,
   // the dashboard's engagement chart, the posts table's column and the median
   // cell below all print a form of "engagement rate" over FOUR DIFFERENT
   // statistics. This one is a single client's interactions over their own
   // impressions in the window. The definitions are what keep them apart.
-  metric(
-    "engagementRate",
+  metric({
+    id: "engagementRate",
     // ⚠️ "Engagement rate", NOT "Engagement". This column holds a percentage,
     // and the shorter word was the one place in the app that named this
     // measurement differently from every other screen — a sixth spelling of a
     // label that already denotes four distinct statistics. The header now
     // matches its own sort label, its "not reported" text and the accessible
     // name on the cell; the ⓘ beside it is what says WHICH rate this is.
-    "Engagement rate",
-    "engagement rate",
-    (v) => `${v.toFixed(1)}%`,
-    "Engagement rate",
-    "engagementRatePerClient",
-  ),
-  metric(
-    "followers",
-    "Followers",
-    "followers",
-    (v) => v.toLocaleString("en-US"),
-    "Followers",
-    "followers",
-  ),
-  metric(
-    "interactionsPer1K",
-    "Per 1K followers",
-    "interactions per 1,000 followers",
-    (v) => v.toLocaleString("en-US", { maximumFractionDigits: 1 }),
-    "Interactions per 1,000 followers",
-    "interactionsPer1K",
-  ),
+    header: "Engagement rate",
+    sortLabel: "engagement rate",
+    format: (v) => `${v.toFixed(1)}%`,
+    unknownLabel: "Engagement rate",
+    infoMetric: "engagementRatePerClient",
+  }),
+  metric({
+    id: "followers",
+    header: "Followers",
+    sortLabel: "followers",
+    format: (v) => v.toLocaleString("en-US"),
+    unknownLabel: "Followers",
+    infoMetric: "followers",
+  }),
+  metric({
+    id: "interactionsPer1K",
+    header: "Per 1K followers",
+    sortLabel: "interactions per 1,000 followers",
+    format: (v) => v.toLocaleString("en-US", { maximumFractionDigits: 1 }),
+    unknownLabel: "Interactions per 1,000 followers",
+    infoMetric: "interactionsPer1K",
+  }),
   // ⚠️ A RAW COUNT, AND DELIBERATELY THE LAST COLUMN. Connections carries NO
   // per-1,000 rate — that derived column was removed, and the asymmetry with
   // Followers beside it is intended rather than an oversight. Keeping the bare
   // count at the end means the normalised figures stay grouped together and a
   // reader is never invited to read this one as a rate.
-  metric(
-    "connections",
-    "Connections",
-    "connections",
-    (v) => v.toLocaleString("en-US"),
-    "Connections",
-    "connections",
-  ),
+  metric({
+    id: "connections",
+    header: "Connections",
+    sortLabel: "connections",
+    format: (v) => v.toLocaleString("en-US"),
+    unknownLabel: "Connections",
+    infoMetric: "connections",
+  }),
 ];
 
 /** Sample size first: the most defensible default, and not a ranking on a rate. */
@@ -226,7 +244,7 @@ function MedianCell({
    * The other medians are the same measurement as their column, whose header
    * ⓘ already defines them.
    */
-  infoMetric?: string;
+  infoMetric?: MetricKey;
 }) {
   // ⚠️ THE ⓘ RENDERS IN BOTH BRANCHES, INCLUDING THE DASH. The definition is
   // what explains the dash — a median is taken only over clients that HAVE the

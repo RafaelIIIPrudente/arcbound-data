@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { paths } from "@/paths";
 import { unvoidOutreachUpload, voidOutreachUpload } from "@/services/outreach";
@@ -38,11 +39,32 @@ import { unvoidOutreachUpload, voidOutreachUpload } from "@/services/outreach";
  */
 export type VoidActionResult = { status: "ok" } | { status: "error"; message: string };
 
+/**
+ * ⚠️ THE ONE THING VALIDATED HERE, AND IT IS NOT A PERMISSION CHECK. AGENTS.md
+ * requires every `"use server"` mutation to validate its input with zod before
+ * reaching the seam, and an upload id arriving from a browser is unvalidated
+ * input like any other.
+ *
+ * ⚠️ IT GUARDS THE ERROR MESSAGE, NOT THE ROW. Without it a non-uuid string
+ * reaches Postgres and comes back as a raw cast error ("invalid input syntax for
+ * type uuid: ..."), which `run` then surfaces verbatim to staff — internal
+ * database text in place of a sentence anyone can act on. The ROW is protected
+ * by the RPC's own `coalesce(uploaded_by = auth.uid(), false) or
+ * public.is_admin()`, exactly as before; nothing here is load-bearing for that,
+ * and a valid uuid the caller has no business voiding is still refused by the
+ * database.
+ */
+const uploadIdSchema = z.string().uuid();
+
 /** The two RPCs differ only in direction; everything around them is identical. */
 async function run(
   uploadId: string,
   call: (id: string) => Promise<{ clientId: string }>,
 ): Promise<VoidActionResult> {
+  if (!uploadIdSchema.safeParse(uploadId).success) {
+    return { status: "error", message: "That snapshot reference is not valid." };
+  }
+
   try {
     const { clientId } = await call(uploadId);
     revalidatePath(paths.clients.outreach(clientId));

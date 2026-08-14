@@ -10,6 +10,8 @@ const {
   getSessionMock,
   getRoleMock,
   snapshotHistoryMock,
+  snapshotByIdMock,
+  movementPanelMock,
 } = vi.hoisted(() => ({
   getClientMock: vi.fn(),
   latestSnapshotMock: vi.fn(),
@@ -19,6 +21,8 @@ const {
   getSessionMock: vi.fn(),
   getRoleMock: vi.fn(),
   snapshotHistoryMock: vi.fn(),
+  snapshotByIdMock: vi.fn(),
+  movementPanelMock: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ getSession: getSessionMock }));
 // ⚠️ `isAdmin` is NOT mocked — it is a pure one-liner and mocking it would let a
@@ -37,7 +41,7 @@ vi.mock("@/services/clients", () => ({ getClient: getClientMock }));
 vi.mock("@/services/outreach", () => ({
   latestSnapshot: latestSnapshotMock,
   listOutreachUploads: listOutreachUploadsMock,
-  snapshotById: vi.fn(),
+  snapshotById: snapshotByIdMock,
 }));
 vi.mock("@/services/arcbound-services", () => ({ getClientServices: getClientServicesMock }));
 vi.mock("@/components/dashboard/client/client-tabs", () => ({ ClientTabs: () => null }));
@@ -62,7 +66,10 @@ vi.mock("@/components/dashboard/outreach/outreach-sent-chart", () => ({
   OutreachSentChart: () => null,
 }));
 vi.mock("@/components/dashboard/outreach/outreach-movement", () => ({
-  OutreachMovementPanel: () => null,
+  OutreachMovementPanel: (props: unknown) => {
+    movementPanelMock(props);
+    return null;
+  },
 }));
 vi.mock("@/components/dashboard/outreach/outreach-disclosure", () => ({
   OutreachDisclosure: () => null,
@@ -152,6 +159,9 @@ beforeEach(() => {
   getRoleMock.mockReset();
   getRoleMock.mockResolvedValue("analyst");
   snapshotHistoryMock.mockReset();
+  snapshotByIdMock.mockReset();
+  snapshotByIdMock.mockResolvedValue({ status: "ok", prospects: [], truncated: false, total: 0 });
+  movementPanelMock.mockReset();
   getClientMock.mockReset();
   getClientMock.mockResolvedValue({
     id: CLIENT_ID,
@@ -389,5 +399,75 @@ describe("the snapshot history and its per-row permission", () => {
     render(await ClientOutreachPage(params()));
 
     expect(historyProps().rows!.every((r) => r.canVoid)).toBe(true);
+  });
+});
+
+describe("movement compares against the previous LIVE snapshot", () => {
+  // ⚠️ `listOutreachUploads` DELIBERATELY INCLUDES VOIDED ROWS (S2) so staff can
+  // see and reverse them. Movement reads the same list, so it must step PAST
+  // them — comparing against a snapshot someone voided is exactly the stale
+  // reading the void feature exists to remove.
+
+  const live = (id: string, createdAt: string) => ({
+    id,
+    clientId: CLIENT_ID,
+    rowCount: 100,
+    createdAt,
+    hasEmailChannel: true,
+    uploadedBy: null,
+    voidedAt: null,
+    voidedBy: null,
+  });
+  const voided = (id: string, createdAt: string) => ({
+    ...live(id, createdAt),
+    voidedAt: "2026-08-14T10:00:00.000Z",
+  });
+
+  beforeEach(() => {
+    getClientServicesMock.mockResolvedValue({ services: [OUTREACH], held: [OUTREACH] });
+  });
+
+  it("⚠️ SKIPS a voided predecessor and compares against the live one beneath it", async () => {
+    // u1 is on screen; u2 was voided; u3 is the newest snapshot still counting.
+    listOutreachUploadsMock.mockResolvedValue([
+      live("u1", "2026-08-10T09:00:00.000Z"),
+      voided("u2", "2026-08-05T09:00:00.000Z"),
+      live("u3", "2026-08-01T09:00:00.000Z"),
+    ]);
+
+    await ClientOutreachPage(params());
+
+    expect(snapshotByIdMock).toHaveBeenCalledWith(CLIENT_ID, "u3");
+    expect(snapshotByIdMock).not.toHaveBeenCalledWith(CLIENT_ID, "u2");
+  });
+
+  it("reports SINGLE when every older snapshot is voided", async () => {
+    // ⚠️ NOT a comparison against a voided row, and not a crash: with no live
+    // predecessor there is genuinely nothing to compare against, which is the
+    // same state as having uploaded only once.
+    listOutreachUploadsMock.mockResolvedValue([
+      live("u1", "2026-08-10T09:00:00.000Z"),
+      voided("u2", "2026-08-05T09:00:00.000Z"),
+    ]);
+
+    // Rendered, not merely awaited: the panel is a CHILD, so awaiting the page
+    // function alone runs `readMovement` but never invokes the component.
+    render(await ClientOutreachPage(params()));
+
+    expect(snapshotByIdMock).not.toHaveBeenCalled();
+    expect(movementPanelMock.mock.calls.at(-1)![0]).toEqual({ state: { status: "single" } });
+  });
+
+  it("still compares against an ordinary live predecessor", async () => {
+    // The discriminator: a fix that skipped everything would satisfy the tests
+    // above while breaking movement entirely.
+    listOutreachUploadsMock.mockResolvedValue([
+      live("u1", "2026-08-10T09:00:00.000Z"),
+      live("u2", "2026-08-05T09:00:00.000Z"),
+    ]);
+
+    await ClientOutreachPage(params());
+
+    expect(snapshotByIdMock).toHaveBeenCalledWith(CLIENT_ID, "u2");
   });
 });

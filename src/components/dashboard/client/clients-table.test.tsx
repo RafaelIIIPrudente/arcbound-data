@@ -99,7 +99,14 @@ describe("a count that could not be read is NOT a zero", () => {
     // "Never" is a FACT; the em dash is the absence of one.
     expect(within(never!).getByText("Never")).toBeInTheDocument();
     expect(within(unreadable!).getByText("—")).toBeInTheDocument();
-    expect(within(unreadable!).getByText(/Last upload could not be read/)).toBeInTheDocument();
+    // ⚠️ "Last ArcBase upload", MATCHING THE HEADER. The cell's screen-reader
+    // text used to say "Last upload" while the column heading said "Last ArcBase
+    // upload" — so the one reader who cannot see the header was told the
+    // narrower claim under its unqualified name, which is the exact ambiguity
+    // the rename removed.
+    expect(
+      within(unreadable!).getByText(/Last ArcBase upload could not be read/),
+    ).toBeInTheDocument();
   });
 });
 

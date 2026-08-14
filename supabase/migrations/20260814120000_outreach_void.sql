@@ -1,6 +1,7 @@
 -- ArcBase OUTREACH SNAPSHOT VOID (S1, 2026-08-14) — CLI migration twin of
--- supabase/outreach-void.sql (the two are kept byte-identical by
--- supabase/sql-sync.test.ts).
+-- supabase/outreach-void.sql (the two are kept in step by
+-- supabase/sql-sync.test.ts, which compares their executable SQL with comments
+-- stripped — the headers differ on purpose, the statements may not).
 --
 -- ⚠️ A FRESH TIMESTAMP, AND NEVER AN EDIT TO AN APPLIED MIGRATION.
 -- report_link_read was last defined in
