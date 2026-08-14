@@ -53,9 +53,41 @@ function sourceFiles(dir: string): string[] {
 
 const FILES = sourceFiles(SRC);
 
-/** The `"use client"` directive, which must be the module's first statement. */
+/**
+ * The `"use client"` directive, which must be the module's first statement.
+ *
+ * ⚠️ A HAND-WRITTEN SCANNER, NOT ONE REGEX, AND DELIBERATELY SO. This was
+ * `/^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*|\s)*["']use client["']/` until
+ * CodeQL flagged it twice as exponential backtracking (`js/redos`, CWE-1333):
+ * the starred alternation nested `[\s\S]*?` and `\s*` inside it, so a file
+ * opening with `/*` and many `*//*` repetitions could take exponential time. This
+ * guard reads EVERY module under `src/` on every run, so that is a real cost even
+ * though the input is our own source rather than anything attacker-supplied.
+ *
+ * The loop is linear and does the same job in the same order: skip whitespace,
+ * skip `//` lines, skip `/* … *\/` blocks, then look at what is left. An
+ * unterminated comment is `false` — a module whose first statement never arrives
+ * has no directive.
+ */
 function isClientModule(source: string): boolean {
-  return /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*|\s)*["']use client["']/.test(source);
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
+      i += 1;
+    } else if (source.startsWith("//", i)) {
+      const nl = source.indexOf("\n", i);
+      if (nl === -1) return false;
+      i = nl + 1;
+    } else if (source.startsWith("/*", i)) {
+      const end = source.indexOf("*/", i + 2);
+      if (end === -1) return false;
+      i = end + 2;
+    } else {
+      break;
+    }
+  }
+  return source.startsWith('"use client"', i) || source.startsWith("'use client'", i);
 }
 
 const CACHE = new Map<string, string | null>();
@@ -156,7 +188,12 @@ type Classification = "type" | "component" | "function" | "data" | "unknown";
  *   data      — a plain value; an RSC reading it gets a proxy, then throws.
  */
 function classifyExport(source: string, name: string): Classification {
-  const n = name.replace(/[$]/g, "\\$&");
+  // ⚠️ EVERY REGEX METACHARACTER, NOT JUST `$`. A JS identifier can only really
+  // carry `$` of these, so the old `/[$]/` was adequate in practice — but this
+  // string is interpolated straight into `new RegExp`, and CodeQL was right that
+  // an incomplete escape there is a latent injection (`js/incomplete-sanitization`).
+  // Escaping the full set costs nothing and removes the question.
+  const n = name.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
   if (new RegExp(`export\\s+(?:type|interface)\\s+${n}\\b`).test(source)) return "type";
 
   const isComponentName = /^[A-Z]/.test(name);
@@ -352,6 +389,54 @@ describe("the guard's own reach — proved, not asserted", () => {
     expect(classifyExport('export { A } from "./b";', "A")).toBe("unknown");
     // A local, unexported declaration is not an export either.
     expect(classifyExport("const PRIVATE = [1];", "PRIVATE")).toBe("unknown");
+  });
+
+  it("⚠️ does not backtrack exponentially on a file made of comment openers", () => {
+    // ⚠️ THE ReDoS THIS SCANNER REPLACED A REGEX TO AVOID (CodeQL js/redos, twice,
+    // CWE-1333). The old pattern nested `[\s\S]*?` and `\s*` inside a starred
+    // alternation, so a source opening with `/*` followed by many `*//*` runs cost
+    // time that DOUBLED WITH EVERY REPETITION — measured on the old regex at
+    // 114ms / 229ms / 458ms / 1038ms for 27 / 28 / 29 / 30. The scanner is linear
+    // and returns in under a millisecond at any size.
+    //
+    // ⚠️ 32 IS CHOSEN SO A REGRESSION FAILS RATHER THAN HANGS, and that distinction
+    // is the reason this number is not larger. A synchronous ReDoS blocks the event
+    // loop, so Vitest's own `testTimeout` can never fire — at 44 repetitions
+    // reinstating the old regex ran for TEN MINUTES without the runner noticing.
+    // At 32 the old regex takes roughly four seconds: comfortably over the budget
+    // below, comfortably under the runner's timeout, so the failure is a readable
+    // assertion instead of a wedged suite.
+    const evil = "/*" + "*//*".repeat(32) + "X";
+
+    const started = Date.now();
+    // Unterminated: the comment never closes, so no first statement ever arrives.
+    expect(isClientModule(evil)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("skips block comments and whitespace ahead of the directive", () => {
+    // The behaviour the regex used to carry, kept explicit across the rewrite.
+    expect(isClientModule('/* a banner */\n"use client";')).toBe(true);
+    expect(isClientModule('/* one */ /* two */\n\n  "use client";')).toBe(true);
+    expect(isClientModule("/* unterminated \n'use client';")).toBe(false);
+    expect(isClientModule("// only a comment\n")).toBe(false);
+    expect(isClientModule("'use client';")).toBe(true);
+    // A directive that is not the FIRST statement is not a directive.
+    expect(isClientModule('import x from "y";\n"use client";')).toBe(false);
+  });
+
+  it("⚠️ escapes every regex metacharacter before building a matcher from a name", () => {
+    // ⚠️ CodeQL js/incomplete-sanitization. The name is interpolated straight into
+    // `new RegExp`, and the old escape covered only `$`. A JS identifier realistically
+    // carries nothing else, so this was not exploitable — but an unescaped `.` would
+    // match any character and quietly classify the WRONG export, which is a
+    // correctness hole as much as a security one.
+    const source = "export const a_b = 1;\nexport const axb = 2;";
+
+    // `a.b` must not match `axb` through a wildcard dot.
+    expect(classifyExport(source, "a.b")).toBe("unknown");
+    // And a legitimate `$` name still resolves.
+    expect(classifyExport("export const $value = [1];", "$value")).toBe("data");
   });
 
   it("reads a directive that sits under a leading comment", () => {
