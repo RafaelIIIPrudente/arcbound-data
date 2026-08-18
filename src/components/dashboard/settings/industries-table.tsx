@@ -33,6 +33,20 @@ import type { Industry } from "@/services/types";
 // ⚠️ NO DATABASE INVARIANT IS RE-DERIVED IN THIS FILE. Nothing here decides in
 // advance whether a delete will be refused: `delete_industry` owns that rule and
 // answers with a count, and this component's job is to repeat that answer.
+//
+// ⚠️ THIS FILE HAS A TWIN: `writers-table.tsx`. The two registries have the same
+// shape — id, name, status, four admin RPCs — and the same rules, so a change to
+// one of them is almost always a change to both. THEY ARE DELIBERATELY NOT
+// SHARED: the executable half is ~46 lines and a factory over TWO instances
+// would add more indirection than it removes, while the half that differs is the
+// prose, which is exactly the half worth keeping per-registry.
+//
+// (`arcbound-services.ts` is NOT a third instance of this shape — it carries a
+// slug, a handler, a sort order, per-client assignments and a `can_delete` flag,
+// and shares no function name with this file.)
+//
+// So: if you change what a registry read, refusal or archive MEANS here, open
+// the twin. Nothing but this comment will remind you.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const IDLE: IndustryActionState = { status: "idle" };

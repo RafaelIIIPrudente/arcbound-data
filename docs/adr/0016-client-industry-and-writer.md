@@ -8,6 +8,14 @@ Accepted. Adds `public.industries`, two nullable columns on `public.clients`
 (`industry_id`, `writer_id`), `public.set_client_industry_writer()` and
 `public.list_staff_directory()`.
 
+⚠️ **Amended by [ADR 0017](0017-writer-is-a-registry-not-an-account.md)
+(2026-08-18): the WRITER half of this ADR no longer holds.** `clients.writer_id`
+references `public.writers`, not `auth.users`; `list_staff_directory()` is
+dropped; and `ClientWriter` has two states rather than four. Decision §4 below is
+superseded, and §5's reasoning about "a writer's email" now reads on their NAME.
+Everything else here stands — the industry half, the single narrow write path,
+and why `clients.name` is unreachable.
+
 **Narrows [ADR 0007](0007-arcbase-single-tenant.md).** ADR 0007 records that a
 Client record is immutable — no edit path, no delete path. That was true of
 every column when it was written and is no longer true of every column now. It
@@ -68,14 +76,20 @@ p_industry_id, p_writer_id)`** — `SECURITY DEFINER`, admin-gated by
    four `SECURITY DEFINER` functions. Free text would make "how many clients in
    SaaS" unanswerable, which is the only reason the field exists.
 
-4. **Writer is a foreign key to a staff account**, resolved to an email through
+4. ~~**Writer is a foreign key to a staff account**, resolved to an email through
    `list_staff_directory()`. It is deliberately narrower than `list_staff()`:
-   `user_id` and `email` only, never role or invitation state.
+   `user_id` and `email` only, never role or invitation state.~~
+   ⚠️ **SUPERSEDED by [ADR 0017](0017-writer-is-a-registry-not-an-account.md).**
+   Binding a Writer to `auth.users` meant recording who writes for a Client
+   required issuing that person a login — and under ADR 0013 every logged-in
+   analyst reads every Client. A Writer is now a row in `public.writers`,
+   mirroring Industry above.
 
 5. **Both fields are staff-only.** Neither reaches `/r/[token]`. A Client is
-   never told which industry Arcbound files them under, nor who writes for them,
-   and a writer's email is a colleague's address rather than the Client's
-   business. `src/app/r/[token]/client-report-boundary.test.ts` asserts it
+   never told which industry Arcbound files them under, nor who writes for them.
+   (Under ADR 0017 a writer is named rather than emailed; a staff member's name
+   is no less theirs, and who Arcbound has working on an account is not that
+   account's business.) `src/app/r/[token]/client-report-boundary.test.ts` asserts it
    against the route's real import graph.
 
 ### Consequences for the "immutable" reading
@@ -139,6 +153,8 @@ industry, and the one question the field exists to answer would have as many
 answers as spellings.
 
 **Writer as free text.** Rejected: a name typed by hand goes stale when someone
-leaves, and cannot be resolved to an account. The foreign key makes "this writer
-no longer exists" a state the product can detect and say out loud — which it
-does, distinctly from "the staff directory could not be read".
+leaves, and cannot be counted. ⚠️ This entry originally argued that a foreign key
+onto `auth.users` was what made "this writer no longer exists" detectable — see
+ADR 0017 for why that state was an artefact of the lookup rather than a fact
+worth keeping. The argument against free text survives the change; the argument
+for `auth.users` does not.

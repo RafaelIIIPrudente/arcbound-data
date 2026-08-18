@@ -52,13 +52,25 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
   being offered to new Clients while every Client already recorded in it keeps
   it. Not recorded is a legitimate and common state, distinct from unreadable.
 
-- **Writer** — the Arcbound staff member who writes for a Client. ⚠️ An
-  assignment, not a permission: it grants no access and withholds none, and every
-  staff member still reads every Client (see **Staff Role**). Four states are
-  distinguished and never collapsed — assigned, nobody assigned, assigned to an
-  account that no longer exists, and the directory could not be read — because
-  the last two demand opposite actions: one needs a person to reassign, the other
-  needs a retry.
+- **Writer** — the Arcbound staff member who writes for a Client, recorded as a
+  row in the admin-managed **writers registry** (`public.writers`), exactly as an
+  **Industry** is. ⚠️ An assignment, not a permission: it grants no access and
+  withholds none, and every staff member still reads every Client (see **Staff
+  Role**).
+
+  ⚠️ **A writer is not an account, and the difference is why the model changed.**
+  `clients.writer_id` once referenced `auth.users`, so recording who wrote for a
+  Client required issuing that person a login — making a Writer exactly the thing
+  this entry denies it is. It is now a foreign key onto a registry of people
+  ([ADR 0017](docs/adr/0017-writer-is-a-registry-not-an-account.md)).
+
+  ⚠️ **Two states, and it used to be four.** A Writer is either recorded or not.
+  The other two — "assigned to an account that no longer exists" and "the staff
+  directory could not be read" — were artefacts of resolving a login through a
+  second read that could fail; the writer now rides the client select as an embed
+  over the foreign key, so a recorded writer always resolves. **"Not recorded" is
+  still a fact and is never an em dash**, which on the Client List means "could
+  not be read" and nothing else.
 
 - **Scrape** — one capture of a Client's LinkedIn post metrics at a point in
   time, produced by the external scraper. A Scrape is the input to an Upload and

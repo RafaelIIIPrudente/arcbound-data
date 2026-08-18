@@ -441,13 +441,18 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
     }
   });
 
-  it("⚠️ keeps the WRITER off every client-visible panel — that is staff PII", () => {
+  it("⚠️ keeps the WRITER off every client-visible panel — that is a staff member", () => {
     // ⚠️ A DIFFERENT BOUNDARY FROM THE ONE ABOVE, THROUGH THE SAME DOOR. The two
     // sentences above are kept off a Client's report because they use ArcBase's
-    // ingestion vocabulary; this one is kept off because of WHAT IT IS. A writer
-    // is an Arcbound staff member and the cell it defines renders their email
-    // address, so a Client's `/r/[token]` report must never reach this key —
-    // not as a leaked word, as a leaked person (D3).
+    // ingestion vocabulary; this one is kept off because of WHAT IT IS.
+    //
+    // ⚠️ THE REASON NARROWED WITH D15 AND THE RULE DID NOT. The cell used to
+    // render a colleague's EMAIL ADDRESS; a writer is a registry row now, so it
+    // renders their NAME — which is no less theirs. Who Arcbound has working on
+    // an account is an internal staffing fact, and putting it on that account's
+    // own report turns an attribution into a disclosure. A Client's
+    // `/r/[token]` report must never reach this key — not as a leaked word, as
+    // a leaked person (D3).
     //
     // The loop above already covers every key in the map; this states the reason
     // for THIS key by name, so folding it into a client map later fails against
@@ -456,8 +461,11 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
     const writer = CLIENT_LIST_METRIC_KEYS.Writer!;
 
     expect(writer).toBe("clientListWriter");
-    expect(clientVisible.has(writer), "a writer's email must never reach a Client").toBe(false);
-    // …and the definition genuinely is about a named staff account, which is
+    expect(
+      clientVisible.has(writer),
+      "a staff member's name must never reach a Client's own report",
+    ).toBe(false);
+    // …and the definition genuinely is about a named member of staff, which is
     // what makes the exclusion necessary rather than tidy.
     expect(METRIC_DEFINITIONS[writer].definition).toMatch(/staff/i);
   });

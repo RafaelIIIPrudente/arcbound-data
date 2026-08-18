@@ -24,6 +24,20 @@ import type { Industry, IndustryStatus } from "@/services/types";
 // here would be a second copy of `delete_industry`'s rule computed from an
 // already-stale read: it would begin offering deletes the database refuses, or
 // hiding ones it would have allowed. The refusal, with its count, is the answer.
+//
+// ⚠️ THIS FILE HAS A TWIN: `src/services/writers.ts`. The two registries have the same
+// shape — id, name, status, four admin RPCs — and the same rules, so a change to
+// one of them is almost always a change to both. THEY ARE DELIBERATELY NOT
+// SHARED: the executable half is ~46 lines and a factory over TWO instances
+// would add more indirection than it removes, while the half that differs is the
+// prose, which is exactly the half worth keeping per-registry.
+//
+// (`arcbound-services.ts` is NOT a third instance of this shape — it carries a
+// slug, a handler, a sort order, per-client assignments and a `can_delete` flag,
+// and shares no function name with this file.)
+//
+// So: if you change what a registry read, refusal or archive MEANS here, open
+// the twin. Nothing but this comment will remind you.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface IndustryRow {

@@ -68,11 +68,29 @@ export interface Client {
   writer: ClientWriter | null;
 }
 
-/** An Arcbound industry, as a Client carries it. */
-export interface ClientIndustry {
+/**
+ * A registry row as a Client CARRIES it: the two fields a reader needs to be told
+ * which one they are in, and nothing an administrator acts on.
+ *
+ * ⚠️ ONE SHAPE FOR BOTH BECAUSE THEY ARE ONE MECHANISM. `industry` and `writer`
+ * are each a foreign key onto a small admin-managed vocabulary, read through the
+ * same PostgREST embed on the same client SELECT. The alias exists so that
+ * mechanism is named once — and so a future third attribute is written the same
+ * way rather than reinventing the pair.
+ *
+ * ⚠️ NOT `Industry` / `Writer`, WHICH CARRY `status`. That field belongs to the
+ * ADMIN SCREEN. A Client recorded against an archived row stays recorded —
+ * archiving stops one being OFFERED, it evicts nobody — so surfacing "archived"
+ * on a Client would be a statement about the registry dressed up as a statement
+ * about them.
+ */
+export interface RegistryRef {
   id: string;
   name: string;
 }
+
+/** An Arcbound industry, as a Client carries it. */
+export type ClientIndustry = RegistryRef;
 
 /** Whether an industry is still offered for new assignments. */
 export type IndustryStatus = "active" | "archived";
@@ -163,10 +181,7 @@ export interface Writer {
  * ⚠️ AND A WRITER GRANTS NOTHING. This is an attribution, not a permission: a
  * row here is a person Arcbound writes for clients with, not a login (D15).
  */
-export interface ClientWriter {
-  id: string;
-  name: string;
-}
+export type ClientWriter = RegistryRef;
 
 /**
  * When a Client was last ingested:

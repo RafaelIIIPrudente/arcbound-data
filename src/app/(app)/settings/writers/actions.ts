@@ -125,7 +125,7 @@ export async function setWriterStatusAction(
  * Permanently remove a writer.
  *
  * ⚠️ THIS DOES NOT CHECK WHETHER THE DELETE IS ALLOWED, AND MUST NOT LEARN TO.
- * `delete_writer` refuses while any Client is recorded in the writer and
+ * `delete_writer` refuses while any Client is recorded against the writer and
  * names the count in its message; the foreign key refuses independently. Testing
  * it here first would be a second copy of that rule computed from an
  * already-stale read — and the copy the admin sees is the one that drifts first.
@@ -145,7 +145,7 @@ export async function deleteWriterAction(
     return { status: "saved", message: "Deleted." };
   } catch (err) {
     // ⚠️ VERBATIM, COUNT AND ALL. `failure` does not rewrite, shorten or
-    // generalise: "cannot delete: 3 client(s) are still recorded in this
+    // generalise: "cannot delete: 3 client(s) are still recorded against this
     // writer" tells an admin what to do next, and "Cannot delete" does not.
     return failure(err);
   }

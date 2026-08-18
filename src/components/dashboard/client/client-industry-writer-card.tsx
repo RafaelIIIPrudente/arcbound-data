@@ -253,13 +253,23 @@ export function ClientIndustryWriterCardView({
               </>
             ) : industryChoices.length === 0 ? (
               <>
+                {/* ⚠️ THREE STATES REACH THIS BRANCH AND TWO OF THEM ARE FALSE IF
+                    WORDED AS ONE. `industryChoices` is empty when the registry is
+                    genuinely empty, and also when every row in it is archived and
+                    this client is in none of them — the read succeeded and the
+                    registry is FULL. "An admin adds them" is false in the
+                    expensive direction there: names are unique
+                    case-insensitively, so re-adding one hands them a constraint
+                    error for following the instruction. The way out is to
+                    restore one. Same distinction the Add-Client dialog draws. */}
                 <p
                   role="status"
                   aria-label="Industries registry"
                   className="text-xs text-muted-foreground"
                 >
-                  None yet — an admin adds them under Settings, Industries. This client can be
-                  recorded in one as soon as there is one.
+                  {(industries?.length ?? 0) === 0
+                    ? "None yet — an admin adds them under Settings, Industries. This client can be recorded in one as soon as there is one."
+                    : "Every industry is archived, so none can be selected. An admin can restore one under Settings, Industries."}
                 </p>
                 <input type="hidden" name="industry_id" value={currentIndustryId} />
               </>
@@ -288,20 +298,31 @@ export function ClientIndustryWriterCardView({
             <Label htmlFor={`${fieldId}-writer`}>Writer</Label>
             {writerChoices === null ? (
               <>
-                <p role="alert" aria-label="Writer directory" className="text-xs text-destructive">
-                  The staff directory could not be read, so the writer cannot be changed here. This
+                {/* ⚠️ THE WRITERS REGISTRY, NOT A STAFF DIRECTORY. This branch used
+                    to say "the staff directory could not be read" — describing a
+                    read that no longer exists. A writer is a registry row, not an
+                    account (D15), and naming the wrong source sends an admin to
+                    look at Staff roles for a problem that is in Settings,
+                    Writers. */}
+                <p role="alert" aria-label="Writers registry" className="text-xs text-destructive">
+                  The writers registry could not be read, so the writer cannot be changed here. This
                   client&apos;s current writer is kept as it is.
                 </p>
                 <input type="hidden" name="writer_id" value={currentWriterId} />
               </>
             ) : writerChoices.length === 0 ? (
               <>
+                {/* The same three-into-two collapse as the industry field above,
+                    and the same fix — plus the pointer D10 asks for, which the
+                    old "No staff accounts to choose from." never gave. */}
                 <p
                   role="status"
-                  aria-label="Writer directory"
+                  aria-label="Writers registry"
                   className="text-xs text-muted-foreground"
                 >
-                  No staff accounts to choose from.
+                  {(writers?.length ?? 0) === 0
+                    ? "None yet — an admin adds them under Settings, Writers. This client can be recorded against one as soon as there is one."
+                    : "Every writer is archived, so none can be selected. An admin can restore one under Settings, Writers."}
                 </p>
                 <input type="hidden" name="writer_id" value={currentWriterId} />
               </>

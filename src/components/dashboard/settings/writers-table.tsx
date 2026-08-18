@@ -33,6 +33,20 @@ import type { Writer } from "@/services/types";
 // ⚠️ NO DATABASE INVARIANT IS RE-DERIVED IN THIS FILE. Nothing here decides in
 // advance whether a delete will be refused: `delete_writer` owns that rule and
 // answers with a count, and this component's job is to repeat that answer.
+//
+// ⚠️ THIS FILE HAS A TWIN: `industries-table.tsx`. The two registries have the same
+// shape — id, name, status, four admin RPCs — and the same rules, so a change to
+// one of them is almost always a change to both. THEY ARE DELIBERATELY NOT
+// SHARED: the executable half is ~46 lines and a factory over TWO instances
+// would add more indirection than it removes, while the half that differs is the
+// prose, which is exactly the half worth keeping per-registry.
+//
+// (`arcbound-services.ts` is NOT a third instance of this shape — it carries a
+// slug, a handler, a sort order, per-client assignments and a `can_delete` flag,
+// and shares no function name with this file.)
+//
+// So: if you change what a registry read, refusal or archive MEANS here, open
+// the twin. Nothing but this comment will remind you.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const IDLE: WriterActionState = { status: "idle" };
@@ -86,7 +100,7 @@ export function WriterRowView({
 
           {state.status === "error" ? (
             // ⚠️ THE DATABASE'S OWN WORDS, INCLUDING ITS COUNT. `delete_writer`
-            // says "cannot delete: 3 client(s) are still recorded in this
+            // says "cannot delete: 3 client(s) are still recorded against this
             // writer". Three clients is a morning's work and thirty is a
             // decision; a generic "Cannot delete" tells an admin neither.
             <p role="alert" className="mt-1.5 text-xs text-destructive">
@@ -231,7 +245,7 @@ export function CreateWriterFormView({ state, formAction, pending }: CreateViewP
           <label htmlFor={nameId} className="sr-only">
             Writer name
           </label>
-          <Input id={nameId} name="name" placeholder="Ryan Prior" autoComplete="off" />
+          <Input id={nameId} name="name" placeholder="e.g. Alex Moreau" autoComplete="off" />
         </div>
         <Button type="submit" disabled={pending}>
           {pending ? "Adding…" : "Add writer"}
@@ -294,11 +308,13 @@ export function WritersTableView({ registry }: { registry: WritersRegistry }) {
   }
 
   if (registry.writers.length === 0) {
-    // ⚠️ AN INVITATION, NOT A FAULT — and this is what production looks like
-    // right now. The registry ships empty by decision: which writers Arcbound
-    // recognises is still open, and a guessed list would be indistinguishable
-    // from a decision once it was in the table. So the very first thing anyone
-    // sees on this screen is this sentence, and it must not read like a bug.
+    // ⚠️ AN INVITATION, NOT A FAULT — and, unlike the industries screen this was
+    // mirrored from, NOT what production looks like. `writers-registry.sql`
+    // SEEDS four names (Courtney Taylor, Izzy Bailey, Ryan Prior, Siddharth
+    // Kumar), so this branch is reached only after every one of them has been
+    // deleted. It still has to read as an instruction rather than a fault: the
+    // empty state and an unreadable one are different facts, and the one above
+    // is the one that means something went wrong.
     return (
       <p role="status" className="text-sm text-muted-foreground">
         None yet — add the first writer above. Clients can be recorded against one as soon as it is

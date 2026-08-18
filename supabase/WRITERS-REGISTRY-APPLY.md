@@ -46,8 +46,12 @@ select count(*) as clients_with_a_writer
  where writer_id is not null;
 ```
 
-**If it is `0`** — the expected answer today, because there has never been a UI
-that could set one — continue to Apply.
+**If it is `0`** — continue to Apply.
+
+⚠️ **Do not assume it will be `0`.** Two shipped screens can set a writer under
+the old model: the Add-Client dialog's picker and the Industry & writer card on
+`/clients/[id]`. Any Client an admin has already assigned holds an `auth.users`
+id, and that is precisely the case this step exists to find. Read the number.
 
 **If it is anything else, STOP.** Those values are `auth.users` ids under the old
 model. Decide, per Client, who the writer should be in the new registry; write

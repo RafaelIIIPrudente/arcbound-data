@@ -133,6 +133,63 @@ describe("ClientIndustryWriterCardView — empty vs unreadable", () => {
     expect(posted.get("industry_id")).toBe(FAX);
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // ⚠️ THE WORDS, NOT JUST THE ROLE.
+  //
+  // The tests above ask for `getByRole("alert", { name: /writer/i })`, and an
+  // `aria-label` of "Writer directory" satisfies that exactly as well as a
+  // correct one does — which is how this card kept describing a staff directory
+  // through the whole slice that deleted it. A screen can be structurally right
+  // and say something false.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("⚠️ names the WRITERS REGISTRY, never a staff directory or an account", () => {
+    view({ writers: null });
+
+    const alert = screen.getByRole("alert", { name: /writers registry/i });
+    expect(alert).toHaveTextContent(/writers registry could not be read/i);
+    // The model this card used to describe is gone; naming it sends an admin to
+    // Staff roles for a problem that lives in Settings, Writers.
+    expect(document.body.textContent ?? "").not.toMatch(/staff directory/i);
+    expect(document.body.textContent ?? "").not.toMatch(/staff accounts/i);
+  });
+
+  it("⚠️ an EMPTY writers registry invites, and points at the screen that fixes it", () => {
+    view({ writers: [] });
+
+    const notice = screen.getByRole("status", { name: /writers registry/i });
+    expect(notice).toHaveTextContent(/none yet/i);
+    expect(notice).toHaveTextContent(/settings, writers/i);
+    expect(notice.textContent ?? "").not.toMatch(/could not|failed|error/i);
+  });
+
+  it("⚠️ an ALL-ARCHIVED registry says so, and does NOT say “none yet”", () => {
+    // ⚠️ THE READ SUCCEEDED AND THE REGISTRY IS FULL. "An admin adds them" is
+    // false here in the expensive direction — names are unique
+    // case-insensitively, so re-adding one returns a constraint error for
+    // following the instruction. The same three-state distinction the
+    // Add-Client dialog already draws.
+    view({ writer: null, writers: [RETIRED] });
+
+    const notice = screen.getByRole("status", { name: /writers registry/i });
+    expect(notice).toHaveTextContent(/every writer is archived/i);
+    expect(notice).toHaveTextContent(/restore/i);
+    expect(notice.textContent ?? "").not.toMatch(/none yet/i);
+  });
+
+  it("⚠️ draws the same three states on the INDUSTRY field", () => {
+    const { unmount } = view({ industry: null, industries: [] });
+    expect(screen.getByRole("status", { name: /industries registry/i })).toHaveTextContent(
+      /none yet/i,
+    );
+    unmount();
+
+    view({ industry: null, industries: [{ id: FAX, name: "Fax Machines", status: "archived" }] });
+    const notice = screen.getByRole("status", { name: /industries registry/i });
+    expect(notice).toHaveTextContent(/every industry is archived/i);
+    expect(notice.textContent ?? "").not.toMatch(/none yet/i);
+  });
+
   it("⚠️ an unreadable writers REGISTRY preserves the current writer", () => {
     // ⚠️ THE READ THAT CAN STILL FAIL. What went away is the writer STATE that a
     // failed read used to produce on a Client; the registry read behind the

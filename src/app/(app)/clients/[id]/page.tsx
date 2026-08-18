@@ -22,8 +22,8 @@ import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
 import { listIndustriesAdmin } from "@/services/industries";
 import { getReportLink } from "@/services/report-links";
-import { listWritersAdmin } from "@/services/writers";
 import { listUploads } from "@/services/uploads";
+import { listWritersAdmin } from "@/services/writers";
 
 export const metadata: Metadata = { title: "Client detail" };
 

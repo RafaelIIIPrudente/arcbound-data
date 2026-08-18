@@ -22,6 +22,11 @@ import type { ArcboundService, Industry, RegistryPickers, Writer } from "@/servi
 
 const INITIAL: ClientFormState = { status: "idle" };
 
+/** The rows a registry still offers — `null` (a failed read) yields none. */
+function active<T extends { status: "active" | "archived" }>(rows: T[] | null): T[] {
+  return rows?.filter((row) => row.status === "active") ?? [];
+}
+
 /**
  * Whether registering is finished enough to close the dialog.
  *
@@ -135,12 +140,14 @@ export function AddClientFormView({
   // archived Service is rendered so an unrelated save cannot silently drop it —
   // but a Client being registered right now holds nothing, so there is no history
   // to protect, and offering one would assign a retired offering afresh.
-  const selectable = services?.filter((service) => service.status === "active") ?? [];
-  const activeIndustries = industries?.filter((industry) => industry.status === "active") ?? [];
-  // ⚠️ ACTIVE ONLY, AND UNLIKE THE OVERVIEW CARD THERE IS NO CURRENT VALUE TO
-  // PRESERVE. A Client being registered has no writer yet, so offering an
-  // archived one would resurrect a retired row through a side door.
-  const activeWriters = writers?.filter((writer) => writer.status === "active") ?? [];
+  // ⚠️ ACTIVE ONLY ON ALL THREE, AND UNLIKE THE OVERVIEW CARD THERE IS NO CURRENT
+  // VALUE TO PRESERVE. A Client being registered holds nothing yet, so offering
+  // an archived row would resurrect a retired one through a side door. The card
+  // must do the opposite — see `industryOptions` there — which is why this is a
+  // local helper rather than something both screens share.
+  const selectable = active(services);
+  const activeIndustries = active(industries);
+  const activeWriters = active(writers);
 
   return (
     <form action={formAction} className="space-y-4">
