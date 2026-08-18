@@ -550,3 +550,44 @@ Also still false and out of every slice's scope: two captions in
 **S1–S5 are code-complete and green.** Nothing further is handed to an executer.
 Remaining: the glossary correction (planner), adding industry rows through
 `/settings/industries`, `notify pgrst, 'reload schema';`, and commit/push/PR.
+
+## Glossary corrected — `CONTEXT.md`, 2026-08-18 (planner)
+
+Done by the planner, not an executer: `CONTEXT.md` is the domain glossary, and a
+false definition there propagates into every future brief.
+
+**Immutability** was rewritten. The old entry claimed _"Clients and Uploads are
+never edited"_ and rescued the Services exception by placing the line at
+**record vs relation** — Services being _"a row in a separate relation, changing
+nothing about the Client record"_. ⚠️ **S4 broke that line**, because Industry and
+Writer are recorded on the Client record itself.
+
+The replacement moves the line to **identity vs attribute**, which is where it
+actually holds and always did: a Client's **name** and **LinkedIn URL** are
+unreachable by every write path at any privilege — load-bearing, since the name
+is what the reporting pipeline joins scraped Posts on — while attributes recorded
+_about_ a Client (Services, Industry, Writer) are admin-assignable.
+
+Two terms the workstream introduced were **missing from the glossary entirely**
+and have been added beside **Client**, whose attributes they are:
+
+- **Industry** — a controlled registry value, archivable, "not recorded" a
+  legitimate state distinct from unreadable.
+- **Writer** — ⚠️ **an assignment, not a permission**; it grants and withholds no
+  access (every staff member still reads every Client). Its four states are named
+  and the reason they never collapse is recorded: `unknown` and `unavailable`
+  **demand opposite actions** — reassign vs retry.
+
+`npx prettier --check CONTEXT.md` passes; no test reads the file. ⚠️ **ADR 0007
+was NOT edited** — this repo records a narrowing in the narrowing document, the
+way ADR 0007 itself narrows 0005 in its own Status section, rather than by
+rewriting the older ADR.
+
+### ⚠️ RECOMMENDED, NOT DONE: this workstream should have an ADR
+
+All three of the repo's ADR tests are met — hard to reverse (a schema change plus
+a permanent narrowing of a stated invariant), surprising without context (a future
+reader WILL ask why Clients became mutable after 0007 said they never would), and
+a real trade-off (a SECURITY DEFINER function vs an RLS update policy; columns on
+the row vs a join table as Services used). The decision doc is not a substitute:
+it is a working record, and ADRs are where this repo puts narrowings.
