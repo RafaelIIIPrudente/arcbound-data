@@ -9,9 +9,10 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { checkUploadSize } from "@/lib/upload-size";
 import { cn } from "@/lib/utils";
-import type { SourceType } from "@/services/types";
+import type { IngestResult, SourceType } from "@/services/types";
 
 import { FormatReview } from "./format-review";
+import { NameMismatchConfirm } from "./name-mismatch-confirm";
 import { ResultSummary } from "./result-summary";
 
 const EXPECTED_COLUMNS =
@@ -53,9 +54,46 @@ function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => vo
   // in this case the action never runs — see `checkUploadSize`.
   const [tooLarge, setTooLarge] = React.useState<string | null>(null);
 
-  const errors = state?.status === "error" ? state.errors : undefined;
+  // ⚠️ KEYED ON THE ANSWER, NOT A BOOLEAN, SO IT CANNOT LATCH. "Go back" dismisses
+  // THIS `name-mismatch` result and no other. `useActionState` hands back a NEW
+  // object for every completed action, so a second submit of the same bad payload
+  // is a different object and the confirmation appears again. A plain
+  // `dismissed = true` would swallow it, and the upload would write in silence —
+  // which is precisely the defect this screen exists to prevent.
+  const [dismissed, setDismissed] = React.useState<typeof state>(null);
 
-  function submit(extra?: { skipReview?: boolean; resolvedFormatTypes?: Record<string, string> }) {
+  // ⚠️ THE CONFIRMATION IS SCOPED TO THE UPLOAD ATTEMPT, NOT TO ONE DISPATCH — AND
+  // NOT TO THE FLOW EITHER. Both extremes are wrong, in opposite directions.
+  //
+  // Too narrow (what this replaces): `confirmNameMismatch` rode in `FormData` and
+  // `submit` rebuilds that from scratch every call, so a scrape that ALSO needs
+  // Format Review could never land. Upload anyway → review → skip dropped the
+  // confirmation → the name gate fired again → forever. `actions.ts` re-runs the
+  // gate on every dispatch, which is correct: the server cannot know what an
+  // earlier dispatch was told. So the FORM has to keep re-sending it.
+  //
+  // Too sticky (a bare boolean): a confirmation granted for one payload would
+  // authorise writing a DIFFERENT one. `IngestFlow` is NOT remounted when the
+  // client changes — `clientId` is a prop owned by `IngestPanel`, whose picker
+  // stays on screen while this form shows Format Review — so a plain flag would
+  // let staff confirm for one person, switch to another, and write unconfirmed.
+  // That is the silent write this entire gate exists to prevent, returning
+  // through its own fix.
+  //
+  // So it records WHAT was confirmed. Change the client, the source, or a byte of
+  // the payload and this no longer matches: the gate fires again, by construction
+  // rather than by anyone remembering to clear a flag.
+  const [confirmedFor, setConfirmedFor] = React.useState<{
+    clientId: string;
+    sourceType: SourceType;
+    rawText: string;
+  } | null>(null);
+
+  function submit(extra?: {
+    skipReview?: boolean;
+    resolvedFormatTypes?: Record<string, string>;
+    confirmNameMismatch?: boolean;
+  }) {
     // ⚠️ GUARDED INSIDE `submit`, WHICH IS WHY IT FIRES ON THE **FIRST** SUBMIT.
     // This function is the single choke point for all three dispatches — the
     // initial upload, the format-review confirm, and the review skip. A guard
@@ -66,7 +104,9 @@ function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => vo
     //
     // ⚠️ BEFORE `formAction`, SO NOTHING IS DISPATCHED. Past the body limit the
     // request dies in transport with no message this form could render.
-    const size = checkUploadSize(sourceType === "csv" ? csvText : jsonText, "metrics");
+    const rawText = sourceType === "csv" ? csvText : jsonText;
+
+    const size = checkUploadSize(rawText, "metrics");
     if (size.status === "too-large") {
       setTooLarge(size.message);
       return;
@@ -76,10 +116,30 @@ function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => vo
     const formData = new FormData();
     formData.set("clientId", clientId);
     formData.set("sourceType", sourceType);
-    formData.set("rawText", sourceType === "csv" ? csvText : jsonText);
+    formData.set("rawText", rawText);
     formData.set("followerCount", follower);
     formData.set("connectionsCount", connections);
     if (extra?.skipReview) formData.set("skipReview", "true");
+
+    // ⚠️ RE-SENT ON EVERY LATER DISPATCH OF THE SAME ATTEMPT, WHICH IS THE FIX.
+    // Granting it here (rather than at the button) keeps `submit` the single
+    // choke point, and comparing against what was confirmed — not a boolean —
+    // means a changed client, source or payload silently stops qualifying.
+    //
+    // ⚠️ PLAIN `===` ON THE PAYLOAD, DELIBERATELY. Within one attempt this is the
+    // same string reference, so the comparison is a pointer check; a genuinely
+    // different payload differs in length or in an early byte. Hashing it would
+    // cost more than it saves and could collide — and a collision here is an
+    // unconfirmed write.
+    const granted =
+      extra?.confirmNameMismatch === true ||
+      (confirmedFor !== null &&
+        confirmedFor.clientId === clientId &&
+        confirmedFor.sourceType === sourceType &&
+        confirmedFor.rawText === rawText);
+
+    if (granted) formData.set("confirmNameMismatch", "true");
+    if (extra?.confirmNameMismatch) setConfirmedFor({ clientId, sourceType, rawText });
     if (extra?.resolvedFormatTypes) {
       formData.set("resolvedFormatTypes", JSON.stringify(extra.resolvedFormatTypes));
     }
@@ -93,20 +153,60 @@ function IngestFlow({ clientId, onReset }: { clientId: string; onReset: () => vo
     reader.readAsText(file);
   }
 
-  if (state?.status === "ok") {
-    return <ResultSummary summary={state.summary} warning={state.warning} onReset={onReset} />;
+  // ⚠️ ONE SWITCH WITH A `never` DEFAULT, NOT A CHAIN OF `if`s, AND THAT IS THE
+  // POINT. `null` and `error` render the form; every other status owns a screen
+  // of its own. Naming that set up front lets the compiler prove each one is
+  // handled — add a fifth `IngestResult` member and the `never` assignment below
+  // stops compiling until it is given a case.
+  //
+  // An `if` chain could not do this: a new member would simply fall through to a
+  // blank upload form with no error and no explanation — a state that exists in
+  // the type, renders nowhere, and stays invisible until someone reports lost
+  // data. That is this slice's own defect wearing a different hat.
+  const screen = state === null || state.status === "error" ? null : state;
+
+  if (screen) {
+    switch (screen.status) {
+      case "ok":
+        return (
+          <ResultSummary summary={screen.summary} warning={screen.warning} onReset={onReset} />
+        );
+
+      // ⚠️ AHEAD OF `review`, matching the action's ordering: the gate runs before
+      // Format Review, so a mismatch is answered before any format is resolved.
+      // NOTHING HAS BEEN WRITTEN when this renders.
+      case "name-mismatch":
+        if (screen !== dismissed) {
+          return (
+            <NameMismatchConfirm
+              report={screen.report}
+              pending={pending}
+              onConfirm={() => submit({ confirmNameMismatch: true })}
+              onBack={() => setDismissed(screen)}
+            />
+          );
+        }
+        // Gone back from: fall through to the form, payload and all.
+        break;
+
+      case "review":
+        return (
+          <FormatReview
+            posts={screen.posts}
+            pending={pending}
+            onConfirm={(resolvedFormatTypes) => submit({ resolvedFormatTypes })}
+            onSkip={() => submit({ skipReview: true })}
+          />
+        );
+
+      default: {
+        const unhandled: never = screen;
+        throw new Error(`Unhandled ingest state: ${JSON.stringify(unhandled)}`);
+      }
+    }
   }
 
-  if (state?.status === "review") {
-    return (
-      <FormatReview
-        posts={state.posts}
-        pending={pending}
-        onConfirm={(resolvedFormatTypes) => submit({ resolvedFormatTypes })}
-        onSkip={() => submit({ skipReview: true })}
-      />
-    );
-  }
+  const errors = state?.status === "error" ? state.errors : undefined;
 
   return (
     <div className="max-w-3xl space-y-5">

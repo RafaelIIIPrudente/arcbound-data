@@ -1,3 +1,10 @@
+// ⚠️ TYPE-ONLY, AND THE ONLY IMPORT IN THIS FILE. `IngestResult`'s name-mismatch
+// member carries the author-match evidence, and that shape is documented beside
+// the pure logic that builds it rather than copied here. `lib/author-match` is
+// dependency-free and the import erases at compile time, so nothing is added to
+// any bundle by this line.
+import type { AuthorMatchReport } from "@/lib/author-match";
+
 export type CustomerStatus = "active" | "blocked" | "pending";
 
 export interface Customer {
@@ -411,6 +418,22 @@ export interface ReviewPost {
 export type IngestResult =
   | { status: "error"; errors: Record<string, string[]> }
   | { status: "review"; posts: ReviewPost[] }
+  /**
+   * The scraped authors will not match the selected Client, so the posts would
+   * be written and then never appear. NOTHING HAS BEEN WRITTEN when this is
+   * returned — it is a question, asked before the irreversible act.
+   *
+   * ⚠️ A FOURTH STATUS, NOT A FLAG ON `ok`. Bolted onto the success case it
+   * would be optional, every existing consumer would still compile, and the
+   * screen that must interrupt would silently not exist — which is exactly the
+   * defect this replaces: a warning computed AFTER the write and shown beneath a
+   * success summary (see `docs/decisions/2026-08-18-name-match-attribution-failure.md`).
+   *
+   * ⚠️ IT CARRIES STRUCTURE, NOT A SENTENCE. `warning` below is a verdict ("14 of
+   * 14 posts don't match"); this carries the scraped strings themselves, because
+   * the reader has to be able to DIAGNOSE — see `AuthorMatchReport`.
+   */
+  | { status: "name-mismatch"; report: AuthorMatchReport }
   | {
       status: "ok";
       summary: IngestSummary;
