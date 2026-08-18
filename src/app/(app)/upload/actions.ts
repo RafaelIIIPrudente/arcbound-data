@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 
-import { nameMatchWarning } from "@/lib/author-match";
+import type { AuthorMatchReport } from "@/lib/author-match";
+import { authorMatchReport, nameMatchWarning } from "@/lib/author-match";
 import { parseCsv, parseJson } from "@/lib/parse-metrics";
 import { getClient } from "@/services/clients";
 import { ingestMetrics } from "@/services/ingest";
@@ -62,6 +63,42 @@ function parseResolved(value: FormDataEntryValue | null): Record<string, string>
   return undefined;
 }
 
+/**
+ * The outcome of comparing this upload's scraped authors to the selected Client.
+ *
+ * ⚠️ THREE OUTCOMES, NOT TWO, AND `unchecked` IS THE ONE THAT MATTERS. `getClient`
+ * can throw (a failed read) or return null (no such row). Either way the client's
+ * name is unknown, and **"could not check" is not "matches"** — collapsing it into
+ * `match` would silently claim a verification that never happened.
+ */
+type NameCheck =
+  { status: "match" } | { status: "mismatch"; report: AuthorMatchReport } | { status: "unchecked" };
+
+/**
+ * ⚠️ SHOWN AFTER A WRITE THAT WENT AHEAD WITHOUT THE CHECK. It must not block —
+ * an infrastructure failure is no reason to strand staff holding data they
+ * cannot get in — and it must not imply the names were fine.
+ */
+const NAME_CHECK_UNAVAILABLE =
+  "Couldn't check the author names against this client — the client record didn't load, so this upload went ahead unchecked. If these posts don't appear in analytics, a name mismatch is the likely reason.";
+
+/** Never throws: a failed read is an outcome (`unchecked`), not an exception. */
+async function checkAuthorNames(clientId: string, rows: { post_name?: string }[]) {
+  let clientName: string;
+  try {
+    const client = await getClient(clientId);
+    if (!client) return { status: "unchecked" } as const;
+    clientName = client.name;
+  } catch {
+    return { status: "unchecked" } as const;
+  }
+
+  const report = authorMatchReport(rows, clientName);
+  return report.mismatched > 0
+    ? ({ status: "mismatch", report } as const)
+    : ({ status: "match" } as const);
+}
+
 export async function ingestMetricsAction(
   _prev: IngestResult | null,
   formData: FormData,
@@ -84,6 +121,27 @@ export async function ingestMetricsAction(
     return { status: "error", errors: { payload: [parsedPayload.error] } };
   }
 
+  // ── THE NAME-MATCH GATE ────────────────────────────────────────────────────
+  // ⚠️ BEFORE THE WRITE, AND THAT IS THE ENTIRE POINT. Attribution is a
+  // downstream name match (ADR 0009), so posts whose scraped author won't match
+  // the Client are written and then never appear. This used to be computed AFTER
+  // `ingestMetrics` and attached to the success screen — a warning arriving after
+  // the irreversible act, competing with a success summary, which is
+  // indistinguishable from no warning at all. Fourteen posts were lost that way
+  // (docs/decisions/2026-08-18-name-match-attribution-failure.md).
+  //
+  // ⚠️ AND BEFORE FORMAT REVIEW, which lives inside the seam. There is no point
+  // resolving formats for posts that will be invisible, and this check touches no
+  // database of its own beyond the client read it already needed.
+  //
+  // ⚠️ A CONFIRMATION, NOT A BLOCK. A mismatch is sometimes legitimate — a genuine
+  // rename, a co-authored post — so staff can proceed deliberately. Blocking would
+  // leave them holding data they cannot get in, with no override.
+  const nameCheck = await checkAuthorNames(clientId, parsedPayload.rows);
+  if (nameCheck.status === "mismatch" && formData.get("confirmNameMismatch") !== "true") {
+    return { status: "name-mismatch", report: nameCheck.report };
+  }
+
   // Seam returns 'review' (no write) or 'ok' (all-or-nothing write).
   const result = await ingestMetrics({
     clientId,
@@ -96,18 +154,23 @@ export async function ingestMetricsAction(
     resolvedFormatTypes: parseResolved(formData.get("resolvedFormatTypes")),
   });
 
-  // On a successful write, attach a NON-BLOCKING warning when scraped authors
-  // won't match the selected client's name (analytics attribution is a downstream
-  // name-match, ADR 0009). Best-effort — it must never fail a successful ingest.
+  // ⚠️ THE POST-WRITE WARNING STAYS, AND IT IS NOT REDUNDANT. The gate above is
+  // the interruption; this is the reminder on the screen staff actually keep. A
+  // staffer who confirmed a mismatch minutes ago still needs the result summary
+  // to say these posts will not appear.
+  //
+  // It now reads the check computed BEFORE the write rather than re-reading the
+  // client: same answer, one fewer round trip, and no way for the sentence shown
+  // here to disagree with the evidence shown on the confirmation screen. The
+  // try/catch that used to wrap it moved into `checkAuthorNames`, which cannot
+  // throw — so a failed read can no longer be swallowed into silence.
   if (result.status === "ok") {
-    try {
-      const client = await getClient(clientId);
-      const warning = client
-        ? (nameMatchWarning(parsedPayload.rows, client.name) ?? undefined)
-        : undefined;
+    if (nameCheck.status === "mismatch") {
+      const warning = nameMatchWarning(parsedPayload.rows, nameCheck.report.clientName);
       if (warning) return { ...result, warning };
-    } catch {
-      // Ignore — the write already succeeded; the warning is only a nicety.
+    }
+    if (nameCheck.status === "unchecked") {
+      return { ...result, warning: NAME_CHECK_UNAVAILABLE };
     }
   }
 

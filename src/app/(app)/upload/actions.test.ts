@@ -115,3 +115,146 @@ describe("ingestMetricsAction — the follower count stays REQUIRED", () => {
     expect(ingestMock.mock.calls[0]![0].followerCount).toBe(18420);
   });
 });
+
+// ── The PRE-WRITE name-match gate ────────────────────────────────────────────
+// Attribution is a downstream name match (ADR 0009). When the scraped authors
+// won't match the selected client, the posts are written and then never appear.
+// The check is free (no database) and runs BEFORE the write.
+
+/** The production string, verbatim (2026-08-18): duplicated name + Premium badge. */
+const EITAN = "Eitan Hoenig Eitan Hoenig • You Premium • You";
+
+/** A client the action can actually read. */
+function client(name: string) {
+  return { id: CLIENT, name, linkedinUrl: "https://x", postsCount: 0, createdAt: "" };
+}
+
+describe("ingestMetricsAction — the name-match gate runs BEFORE the write", () => {
+  it("writes straight through when every scraped author matches", async () => {
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: "Bryan Wish • You" }] });
+    getClientMock.mockResolvedValue(client("Bryan Wish"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("ok");
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("⚠️ NOTHING IS WRITTEN when an author won't match — the seam is never called", async () => {
+    // THE WHOLE SLICE. Fourteen posts were written and stranded before anyone was
+    // told why. A warning that arrives after an irreversible write, on a screen
+    // headed by a success summary, is indistinguishable from no warning at all.
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: EITAN }] });
+    getClientMock.mockResolvedValue(client("Eitan Hoenig"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("name-mismatch");
+    expect(ingestMock).not.toHaveBeenCalled();
+  });
+
+  it("carries the DISTINCT scraped names with counts, not a sentence", async () => {
+    // "14 of 14 won't match" is a verdict. The scraped string beside the client's
+    // name is a diagnosis someone can act on.
+    parseJsonMock.mockReturnValue({
+      rows: Array.from({ length: 14 }, () => ({ post_name: EITAN })),
+    });
+    getClientMock.mockResolvedValue(client("Eitan Hoenig"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("name-mismatch");
+    if (result.status !== "name-mismatch") return;
+    expect(result.report.clientName).toBe("Eitan Hoenig");
+    expect(result.report.authors).toEqual([
+      {
+        postName: EITAN,
+        cleaned: "Eitan Hoenig Eitan Hoenig • You Premium",
+        count: 14,
+        matches: false,
+      },
+    ]);
+    expect(result.report.total).toBe(14);
+    expect(result.report.mismatched).toBe(14);
+  });
+
+  it("⚠️ runs BEFORE format review — no formats are resolved for invisible posts", async () => {
+    // Format Review lives inside the seam. If the gate sat after it, staff would
+    // work through a review screen for posts that were never going to appear.
+    ingestMock.mockResolvedValue({
+      status: "review",
+      posts: [{ linkedin_post_id: "a", snippet: "s" }],
+    });
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: EITAN }] });
+    getClientMock.mockResolvedValue(client("Eitan Hoenig"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("name-mismatch");
+    expect(ingestMock).not.toHaveBeenCalled();
+  });
+
+  it("proceeds once confirmed, and the summary STILL carries the warning", async () => {
+    // The confirmation is a decision, not a dismissal: the reminder belongs on
+    // the screen staff actually keep.
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: EITAN }] });
+    getClientMock.mockResolvedValue(client("Eitan Hoenig"));
+
+    const result = await ingestMetricsAction(null, form({ confirmNameMismatch: "true" }));
+
+    expect(result.status).toBe("ok");
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    expect(result.status === "ok" && result.warning).toContain("1 of 1");
+    expect(result.status === "ok" && result.warning).toContain("Eitan Hoenig");
+  });
+
+  it("⚠️ a plain 'Name • You' upload is unchanged — no extra click, ever", async () => {
+    // Bryan's scrape is clean and covers nearly every upload. A gate that fired
+    // on the ordinary case would be clicked through without reading.
+    parseJsonMock.mockReturnValue({
+      rows: [{ post_name: "Bryan Wish • You" }, { post_name: "Bryan Wish • you" }],
+    });
+    getClientMock.mockResolvedValue(client("Bryan Wish"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" && result.warning).toBeUndefined();
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ingestMetricsAction — when the client CANNOT be read", () => {
+  // ⚠️ "COULD NOT CHECK" IS NOT "MATCHES". Blocking on an infrastructure failure
+  // would strand staff holding data they cannot get in; silently passing would
+  // claim a match nobody verified. It proceeds AND says it could not check.
+  it("does NOT block when getClient throws", async () => {
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: EITAN }] });
+    getClientMock.mockRejectedValue(new Error("Failed to load client: boom"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("ok");
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT claim a match when getClient throws — it says the check did not run", async () => {
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: EITAN }] });
+    getClientMock.mockRejectedValue(new Error("boom"));
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status === "ok" && result.warning).toMatch(/couldn't check|could not check/i);
+  });
+
+  it("does the same when the client row is simply absent", async () => {
+    parseJsonMock.mockReturnValue({ rows: [{ post_name: EITAN }] });
+    getClientMock.mockResolvedValue(null);
+
+    const result = await ingestMetricsAction(null, form());
+
+    expect(result.status).toBe("ok");
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    expect(result.status === "ok" && result.warning).toMatch(/couldn't check|could not check/i);
+  });
+});
