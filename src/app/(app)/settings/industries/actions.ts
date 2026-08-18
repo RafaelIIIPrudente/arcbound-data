@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireAdmin } from "@/lib/auth/roles";
+import { failure, firstIssue, idSchema, type ActionState } from "@/lib/server-actions";
 import { paths } from "@/paths";
 import {
   createIndustry,
@@ -32,8 +33,13 @@ import {
 // reason that message is worth showing at all.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type IndustryActionState =
-  { status: "idle" } | { status: "saved"; message: string } | { status: "error"; message: string };
+/**
+ * ⚠️ AN ALIAS, NOT A SECOND SHAPE. Every action module in this app answers with
+ * the same three states, and they were four private copies of one union until
+ * `lib/server-actions.ts` took ownership. The name stays because the call sites
+ * read better for it.
+ */
+export type IndustryActionState = ActionState;
 
 const nameField = z.string().trim().min(1, "Name is required.");
 const idField = z.string().uuid("Select a valid industry.");
@@ -47,15 +53,7 @@ const statusSchema = z.object({
   // constraint is the half that cannot be bypassed.
   status: z.enum(["active", "archived"], { message: "Status must be active or archived." }),
 });
-const idSchema = z.object({ id: idField });
-
-function firstIssue(error: z.ZodError): string {
-  return error.issues[0]?.message ?? "Invalid request.";
-}
-
-function failure(err: unknown): IndustryActionState {
-  return { status: "error", message: err instanceof Error ? err.message : String(err) };
-}
+const deleteSchema = idSchema("Select a valid industry.");
 
 export async function createIndustryAction(
   _prev: IndustryActionState,
@@ -143,7 +141,7 @@ export async function deleteIndustryAction(
 ): Promise<IndustryActionState> {
   await requireAdmin();
 
-  const parsed = idSchema.safeParse(Object.fromEntries(formData));
+  const parsed = deleteSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { status: "error", message: firstIssue(parsed.error) };
 
   try {

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireAdmin } from "@/lib/auth/roles";
+import { optionalUuid, type ActionState } from "@/lib/server-actions";
 import { paths } from "@/paths";
 import { setClientIndustryWriter } from "@/services/clients";
 
@@ -38,22 +39,20 @@ import { setClientIndustryWriter } from "@/services/clients";
 // 2026-08-18.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type IndustryWriterState =
-  { status: "idle" } | { status: "saved"; message: string } | { status: "error"; message: string };
+/** ⚠️ AN ALIAS — see `lib/server-actions.ts`, which now owns this union. */
+export type IndustryWriterState = ActionState;
 
 /**
- * An unset picker posts `""`. That is a real answer — "not recorded" — and the
- * column is nullable to hold it, so it becomes `null` for the RPC.
+ * ⚠️ `optionalUuid`, NOT `optionalUuidOrAbsent`. An unset picker posts `""` —
+ * a real answer, "not recorded", which the nullable column holds. An ABSENT key
+ * is a different thing entirely on this path: the RPC applies both arguments
+ * including NULL, so a form that dropped a field would erase it. That case is
+ * refused before parsing, below.
  */
-const optionalId = (label: string) =>
-  z
-    .union([z.literal(""), z.string().uuid(label)])
-    .transform((value) => (value === "" ? null : value));
-
 const schema = z.object({
   clientId: z.string().uuid("Select a valid client."),
-  industryId: optionalId("Select a valid industry."),
-  writerId: optionalId("Select a valid writer."),
+  industryId: optionalUuid("Select a valid industry."),
+  writerId: optionalUuid("Select a valid writer."),
 });
 
 export async function setClientIndustryWriterAction(

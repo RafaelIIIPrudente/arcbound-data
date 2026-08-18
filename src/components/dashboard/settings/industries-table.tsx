@@ -215,6 +215,10 @@ interface CreateViewProps {
 
 /** Add an industry. */
 export function CreateIndustryFormView({ state, formAction, pending }: CreateViewProps) {
+  // `useId()` like `IndustryRowView`, rather than a hardcoded string: this form
+  // is a component, and two of it on one page would otherwise share one label.
+  const nameId = useId();
+
   return (
     <form action={formAction} className="space-y-3 rounded-lg border bg-card p-4">
       <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
@@ -224,10 +228,10 @@ export function CreateIndustryFormView({ state, formAction, pending }: CreateVie
 
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[200px] flex-1">
-          <label htmlFor="industry-name" className="sr-only">
+          <label htmlFor={nameId} className="sr-only">
             Industry name
           </label>
-          <Input id="industry-name" name="name" placeholder="SaaS" autoComplete="off" />
+          <Input id={nameId} name="name" placeholder="SaaS" autoComplete="off" />
         </div>
         <Button type="submit" disabled={pending}>
           {pending ? "Adding…" : "Add industry"}
@@ -307,11 +311,20 @@ export function IndustriesTableView({ registry }: { registry: IndustriesRegistry
   );
 }
 
-/** The whole screen body: the add form, then the registry. */
+/**
+ * The whole screen body: the add form, then the registry.
+ *
+ * ⚠️ NO ADD FORM WHILE THE REGISTRY IS UNREADABLE. The alert below says "do not
+ * add industries until it loads, or you may create duplicates" — and a live form
+ * sitting above that sentence turns the warning into a caption on a trap. The
+ * advice is right; withdrawing the control is what makes it more than advice.
+ * Names are unique case-insensitively, so the duplicate it warns about does not
+ * even succeed: it comes back as a constraint error for following the screen.
+ */
 export function IndustriesTable({ registry }: { registry: IndustriesRegistry }) {
   return (
     <div className="space-y-4">
-      <CreateIndustryForm />
+      {registry.status === "ok" ? <CreateIndustryForm /> : null}
       <IndustriesTableView registry={registry} />
     </div>
   );

@@ -137,7 +137,8 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 
   **Attributes recorded _about_ a Client are assignable by an Admin** — its
   **Arcbound Services** ([ADR 0015](docs/adr/0015-arcbound-services-registry.md)),
-  and its **Industry** and **Writer**. ⚠️ **The line that holds is identity vs
+  and its **Industry** and **Writer**
+  ([ADR 0016](docs/adr/0016-client-industry-and-writer.md)). ⚠️ **The line that holds is identity vs
   attribute, not record vs relation.** An earlier wording drew it in the second
   place — Services were "a row in a separate relation, changing nothing about the
   Client record" — and that stopped being true when Industry and Writer landed on

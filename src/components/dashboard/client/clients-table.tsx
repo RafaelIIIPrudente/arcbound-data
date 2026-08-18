@@ -43,6 +43,7 @@ const FILTER_DEBOUNCE_MS = 300;
  */
 const SORT_LABELS: Record<string, string> = {
   name: "client",
+  industry: "industry",
   writer: "writer",
   lastUpload: "last ArcBase upload",
   postsCount: "posts",
@@ -98,7 +99,11 @@ export function ClientsTable({ data, q = "" }: { data: ClientListRow[]; q?: stri
         key={q}
         defaultValue={q}
         placeholder="Filter clients…"
-        aria-label="Filter clients by name or LinkedIn URL"
+        // ⚠️ NAMES WHAT IT ACTUALLY SEARCHES. The industry joined the haystack
+        // when the column landed (D6); a control that says "name or LinkedIn
+        // URL" while matching a third field is the same defect as a sort button
+        // announced as another column.
+        aria-label="Filter clients by name, LinkedIn URL or industry"
         onChange={(event) => onFilterChange(event.target.value)}
         className="max-w-sm"
       />

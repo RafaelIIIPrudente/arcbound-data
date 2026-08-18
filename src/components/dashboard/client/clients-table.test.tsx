@@ -579,3 +579,55 @@ describe("the Writer column's ⓘ", () => {
     expect(names()).toEqual(["Alpha", "Zulu"]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D6: "HOW MANY CLIENTS IN SaaS" MUST BE ANSWERABLE FROM THE LIST.
+//
+// Displaying the industry is not the same as being able to count by it. The two
+// questions these fields exist to answer are "which clients are mine" and "how
+// many clients in SaaS", and the decision record says neither is answerable from
+// a detail page alone — so the list has to carry them. Sorting groups the rows;
+// the filter (which the page's own count caption reads from) answers the count.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("the Industry column can be grouped", () => {
+  it("sorts by industry, with the sort control named for the header", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClientsTable
+        data={[
+          client({ id: "c1", name: "Zulu", industry: { id: "i2", name: "SaaS" } }),
+          client({ id: "c2", name: "Alpha", industry: { id: "i1", name: "Fintech" } }),
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sort by industry" }));
+    expect(names()).toEqual(["Alpha", "Zulu"]);
+
+    await user.click(screen.getByRole("button", { name: "Sort by industry" }));
+    expect(names()).toEqual(["Zulu", "Alpha"]);
+  });
+
+  it("sorts unrecorded industries as a value, because that is what they are", async () => {
+    // ⚠️ NOT MISSING DATA. Nobody has recorded one — a fact, like "Never" — so it
+    // takes its place in the order rather than parking with unreadable rows. The
+    // Industry column has no unreadable state at all: the foreign key guarantees
+    // a set industry resolves.
+    const user = userEvent.setup();
+    render(
+      <ClientsTable
+        data={[
+          client({ id: "c1", name: "Recorded", industry: { id: "i1", name: "SaaS" } }),
+          client({ id: "c2", name: "Unset", industry: null }),
+        ]}
+      />,
+    );
+
+    const sort = screen.getByRole("button", { name: "Sort by industry" });
+    await user.click(sort);
+    const asc = names();
+    await user.click(sort);
+    expect(names()).toEqual([...asc].reverse());
+  });
+});

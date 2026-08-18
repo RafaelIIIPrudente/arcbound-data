@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Industry } from "@/services/types";
 
-import { IndustryRowView, IndustriesTableView } from "./industries-table";
+import { IndustriesTable, IndustryRowView, IndustriesTableView } from "./industries-table";
 
 const SAAS: Industry = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -169,5 +169,35 @@ describe("IndustryRowView — archive is reversible, delete is not", () => {
     // appearing: a generic "Cannot delete" would satisfy a laxer assertion while
     // destroying the only useful part of the message.
     expect(alert.textContent).toMatch(/\b3\b/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A SCREEN MUST NOT OFFER THE ACTION IT IS WARNING AGAINST.
+//
+// When the registry read fails the screen says, correctly, "do not add
+// industries until it loads, or you may create duplicates" — and then rendered a
+// working add form directly above that sentence. The warning is the right
+// warning; leaving the control live turns it into a caption on a trap.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("IndustriesTable — an unreadable registry withdraws the add form", () => {
+  it("⚠️ does not render the add form while it is telling you not to add", () => {
+    render(<IndustriesTable registry={{ status: "unavailable" }} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/do not add industries/i);
+    expect(screen.queryByRole("button", { name: /add industry/i })).toBeNull();
+    expect(screen.queryByLabelText(/industry name/i)).toBeNull();
+  });
+
+  it("renders the add form when the registry read succeeded, empty or not", () => {
+    // ⚠️ AN EMPTY REGISTRY IS THE OPPOSITE CASE — it is exactly when adding is
+    // the thing to do, and it is what production looks like today.
+    const { unmount } = render(<IndustriesTable registry={{ status: "ok", industries: [] }} />);
+    expect(screen.getByRole("button", { name: /add industry/i })).toBeInTheDocument();
+    unmount();
+
+    render(<IndustriesTable registry={{ status: "ok", industries: [SAAS] }} />);
+    expect(screen.getByRole("button", { name: /add industry/i })).toBeInTheDocument();
   });
 });

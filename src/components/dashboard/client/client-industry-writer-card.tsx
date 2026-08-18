@@ -8,8 +8,10 @@ import {
 } from "@/app/(app)/clients/[id]/industry-writer-actions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { WRITER_PROSE_WORDING, writerLabel } from "@/lib/client-writer";
 import type { StaffDirectoryEntry } from "@/services/staff";
-import type { ClientIndustry, ClientWriter, Industry } from "@/services/types";
+import type { ClientIndustry, ClientWriter, Industry, RegistryPickers } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A Client's Industry and Writer. Admin-editable; read-only for a Data Analyst,
@@ -38,12 +40,10 @@ import type { ClientIndustry, ClientWriter, Industry } from "@/services/types";
 //     ⚠️ on `industryOptions` — the trap this whole slice is organised around.
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// ⚠️ NATIVE <select>, NOT THE RADIX ONE, AND THAT IS A DECISION. This form is
-// uncontrolled on purpose: the browser posts exactly what is on screen, which is
-// what carries an archived-but-current industry through an unrelated save — the
-// same reason the Services card uses raw checkboxes. A native select also spells
-// "not recorded" as a plain empty option; Radix rejects `value=""` and would need
-// a sentinel string mapped back to NULL, i.e. one more place the wipe could hide.
+// ⚠️ `NativeSelect`, NOT THE RADIX ONE — see `ui/native-select.tsx` for why.
+// This form is uncontrolled on purpose: the browser posts exactly what is on
+// screen, which is what carries an archived-but-current industry through an
+// unrelated save — the same reason the Services card uses raw checkboxes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const IDLE: IndustryWriterState = { status: "idle" };
@@ -71,7 +71,18 @@ function industryOptions(industries: Industry[], current: ClientIndustry | null)
 
   if (current && !active.some((row) => row.id === current.id)) {
     const known = industries.find((row) => row.id === current.id);
-    options.push({ value: current.id, label: `${known?.name ?? current.name} (archived)` });
+    options.push({
+      value: current.id,
+      // ⚠️ ONLY SAY "ARCHIVED" WHEN THE REGISTRY SAID SO. If the current industry
+      // is not in the list at all we did not read a status, and naming one would
+      // be a claim about the registry dressed up as a claim about this Client —
+      // the same mistake `ClientWriter` avoids by keeping "gone" and "unread"
+      // apart. The foreign key should make this branch unreachable; it is here
+      // because "should" is not "does", and a wrong label is worse than a plain one.
+      label: known
+        ? `${known.name} (archived)`
+        : `${current.name} — no longer in the industries registry`,
+    });
   }
   return options;
 }
@@ -85,20 +96,26 @@ function writerOptions(staff: StaffDirectoryEntry[], currentId: string | null): 
   const options: Option[] = staff.map((entry) => ({ value: entry.userId, label: entry.email }));
 
   if (currentId && !staff.some((entry) => entry.userId === currentId)) {
-    options.push({ value: currentId, label: `${currentId} — no longer a staff account` });
+    // ⚠️ NOT THE UUID. An identifier is not a name, and an admin cannot act on
+    // one; there is only ever a single such option — the current value — so it
+    // needs no disambiguation. Matches what the Client List cell says for the
+    // same state.
+    options.push({ value: currentId, label: "Assigned · unknown account" });
   }
   return options;
 }
 
 /** What an analyst is told about a writer, in the four states `ClientWriter` has. */
 function writerText(writer: ClientWriter): string {
-  if (writer === null) return "Not recorded";
-  if (writer.status === "resolved") return writer.email;
-  // ⚠️ THESE TWO ARE NOT THE SAME AND MUST NOT READ AS "NOBODY". One is a broken
-  // link, the other is a broken read; collapsing either into "Not recorded" would
-  // report a staffing gap that does not exist.
-  if (writer.status === "unknown") return "Assigned to an account that no longer exists";
-  return "Assigned, but the staff directory could not be looked up";
+  // ⚠️ THE BROKEN READ IS HANDLED HERE AND NOWHERE ELSE. It is the one state of
+  // the four that is missing data rather than a fact, and every surface renders
+  // it differently — this card as a sentence, the Client List as an em dash. The
+  // other three go through the shared dispatch, so a fifth state, or a corrected
+  // reading of an existing one, is found once instead of twice.
+  if (writer?.status === "unavailable") {
+    return "Assigned, but the staff directory could not be looked up";
+  }
+  return writerLabel(writer, WRITER_PROSE_WORDING);
 }
 
 /**
@@ -110,15 +127,11 @@ function stateKey(industryId: string, writerId: string): string {
   return `${industryId} ${writerId}`;
 }
 
-interface CardViewProps {
+interface CardViewProps extends RegistryPickers {
   clientId: string;
   /** What this Client is recorded in now, or `null` for "not recorded". */
   industry: ClientIndustry | null;
   writer: ClientWriter;
-  /** The registry, or `null` when it could not be read. ⚠️ `[]` IS NOT `null`. */
-  industries: Industry[] | null;
-  /** The staff directory, or `null` when it could not be read. */
-  staff: StaffDirectoryEntry[] | null;
   /**
    * ⚠️ REQUIRED, AND DELIBERATELY NOT DEFAULTED — same rule as `ClientServicesCard`
    * and `ReportLinkCard`. A default would let a new call site forget the question
@@ -129,9 +142,6 @@ interface CardViewProps {
   formAction: (formData: FormData) => void;
   pending: boolean;
 }
-
-const SELECT_CLASS =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none";
 
 export function ClientIndustryWriterCardView({
   clientId,
@@ -248,13 +258,12 @@ export function ClientIndustryWriterCardView({
                 <input type="hidden" name="industry_id" value={currentIndustryId} />
               </>
             ) : (
-              <select
+              <NativeSelect
                 id={`${fieldId}-industry`}
                 name="industry_id"
                 // ⚠️ `defaultValue`, NOT `value` — uncontrolled on purpose, so the
                 // browser posts exactly what is on screen.
                 defaultValue={currentIndustryId}
-                className={SELECT_CLASS}
               >
                 {/* "Not recorded" is a real answer, and the column is nullable to
                     hold it. It posts "", which the action turns into NULL. */}
@@ -264,7 +273,7 @@ export function ClientIndustryWriterCardView({
                     {option.label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             )}
           </div>
 
@@ -291,11 +300,10 @@ export function ClientIndustryWriterCardView({
                 <input type="hidden" name="writer_id" value={currentWriterId} />
               </>
             ) : (
-              <select
+              <NativeSelect
                 id={`${fieldId}-writer`}
                 name="writer_id"
                 defaultValue={currentWriterId}
-                className={SELECT_CLASS}
               >
                 <option value="">Not recorded</option>
                 {writerChoices.map((option) => (
@@ -303,7 +311,7 @@ export function ClientIndustryWriterCardView({
                     {option.label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             )}
           </div>
         </div>
@@ -342,12 +350,10 @@ export function ClientIndustryWriterCard({
   industries,
   staff,
   isAdmin,
-}: {
+}: RegistryPickers & {
   clientId: string;
   industry: ClientIndustry | null;
   writer: ClientWriter;
-  industries: Industry[] | null;
-  staff: StaffDirectoryEntry[] | null;
   isAdmin: boolean;
 }) {
   const [state, formAction, pending] = useActionState(setClientIndustryWriterAction, IDLE);

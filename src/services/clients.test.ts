@@ -533,6 +533,48 @@ describe("industry and writer resolve through the client reads", () => {
     expect(items.find((c) => c.id === "c2")!.writer).toBeNull();
   });
 
+  it("⚠️ filters by INDUSTRY NAME, so “how many clients in SaaS” has an answer", async () => {
+    // ⚠️ D6, WHICH DISPLAYING THE COLUMN DOES NOT SATISFY ON ITS OWN. The page's
+    // caption counts what this returns, so filtering to an industry IS the count
+    // — "how many clients in SaaS" is one of the two questions these fields
+    // exist to answer, and the decision record says it must be answerable from
+    // the list rather than a detail page.
+    mockSupabase(
+      {
+        data: [
+          ROW("c1", "Bryan Wish", { industry: SAAS }),
+          ROW("c2", "Priya Nadella", { industry: { id: "ind-9", name: "Fintech" } }),
+          ROW("c3", "Nobody Recorded"),
+        ],
+        error: null,
+      },
+      { data: [], error: null },
+      { data: [], error: null },
+      DIRECTORY(),
+    );
+
+    const { items, total } = await listClients({ q: "saas" });
+
+    expect(items.map((c) => c.name)).toEqual(["Bryan Wish"]);
+    // The total is what the caption prints — it must be the FILTERED count.
+    expect(total).toBe(1);
+  });
+
+  it("keeps the name and URL matches it already had", async () => {
+    mockSupabase(
+      {
+        data: [ROW("c1", "Bryan Wish", { industry: SAAS }), ROW("c2", "Priya Nadella")],
+        error: null,
+      },
+      { data: [], error: null },
+      { data: [], error: null },
+      DIRECTORY(),
+    );
+
+    const { items } = await listClients({ q: "priya" });
+    expect(items.map((c) => c.name)).toEqual(["Priya Nadella"]);
+  });
+
   // ───────────────────────────────────────────────────────────────────────────
   // ⚠️ THE ONE THAT PROTECTS THE UPLOAD GATE.
   // ───────────────────────────────────────────────────────────────────────────

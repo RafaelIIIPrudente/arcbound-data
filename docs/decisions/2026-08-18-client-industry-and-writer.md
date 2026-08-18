@@ -591,3 +591,70 @@ reader WILL ask why Clients became mutable after 0007 said they never would), an
 a real trade-off (a SECURITY DEFINER function vs an RLS update policy; columns on
 the row vs a join table as Services used). The decision doc is not a substitute:
 it is a working record, and ADRs are where this repo puts narrowings.
+
+## D15 — Industries SEEDED, and Writer becomes a REGISTRY, not a staff account
+
+**2026-08-18.** Arcbound supplied its real vocabulary, which settled the open seed
+question and exposed a modelling error at the same time.
+
+### Industries — seeded, decided, done
+
+The roster of 27 clients holds **7 distinct industries**:
+`Tech 9 · Coaching 6 · Services 4 · Health 4 · Food 2 · Business 1 · Finance 1`.
+Only the 7 names are stored; counting Clients per industry is the reporting
+layer's job and is not duplicated in the registry.
+
+Written as a twin pair — `supabase/industries-seed.sql` +
+`supabase/migrations/20260818130000_industries_seed.sql`, added to
+`sql-sync.test.ts`'s `PAIRS` and **mutation-proved live** (changing one value in
+one copy turns it red). ⚠️ The table's DDL objected that _"a guessed seed would be
+indistinguishable from a decision"_ — this is the decision, so the objection is
+spent.
+
+### ⚠️ D15 — THE WRITER MODEL WAS WRONG, AND THE FOUR NAMES PROVED IT
+
+Asked to add **Ryan Prior, Courtney Taylor, Izzy Bailey and Siddharth Kumar**, no
+migration can do it: S1 made `clients.writer_id` a
+`uuid references auth.users(id)`, and `list_staff_directory()` reads `auth.users`
+and labels people by **email**. A Writer was therefore a _login_, and these four
+are _people_.
+
+**Decision: Writer becomes a free-standing registry, exactly like Industries.**
+
+The argument that settles it is already written into `CONTEXT.md` by the glossary
+correction, one step earlier and without noticing the consequence: _"a Writer is
+**an assignment, not a permission** — it grants no access and withholds none."_
+⚠️ **Binding Writer to `auth.users` made it exactly the thing that entry denies:**
+to record who writes for a Client you had to issue that person a login, and under
+ADR 0013 a Data Analyst reads EVERY Client. The model forced a credential and a
+full read grant for a fact about authorship.
+
+⚠️ **THIS COLLAPSES `ClientWriter` FROM FOUR STATES TO TWO.** The four states
+existed only because a `writer_id` could point at an account the directory could
+not resolve. A registry row read through the same embed as `industry` cannot: a
+set writer always resolves, so `unknown` and `unavailable` cease to exist — they
+were artefacts of the wrong model, not facts about the world. ⚠️ Deleting a
+distinction is only honest when the thing it distinguished can no longer happen;
+that is the case here, and the brief must make an executer prove it.
+
+**Consequences, in dependency order:**
+
+| #      | Work                                                                                                                                                                                         |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **W1** | ⚠️ SQL ONLY: `public.writers` + 4 admin RPCs mirroring `industries`; swap `clients.writer_id`'s FK from `auth.users` to `public.writers`; seed the four names                                |
+| **W2** | Code collapse: `ClientWriter` → 2 states, `writer:writers(id, name)` embed, delete `staffEmailsById`; update the Writer ⓘ and ⚠️ its PII-sweep rationale, which currently cites an **email** |
+| **W3** | Settings ▸ Writers admin screen — a near-mechanical mirror of S3                                                                                                                             |
+
+⚠️ **`list_staff_directory()` is orphaned by W1 but MUST NOT be dropped there** —
+the shipped code still calls it. It goes in W2, after its last caller.
+
+⚠️ **`supabase/client-industry-writer.sql` IS APPLIED AND MUST NOT BE EDITED.**
+W1 is a NEW twin pair that alters what that one built.
+
+⚠️ **PERSON NAMES COLLIDE AND INDUSTRY NAMES DO NOT.** The case-insensitive unique
+index is still right — a registry whose entries cannot be told apart is useless —
+but a genuine second "Ryan Prior" is a real possibility, and the answer is a
+human making the name distinguishable at that moment, never a silent second row.
+
+This is now ADR material (it narrows ADR 0013's boundary between privilege and
+attribution); the ADR is owed and not yet written.

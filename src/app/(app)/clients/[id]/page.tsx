@@ -133,6 +133,19 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // 2026-08-14, so the read ordinarily succeeds and this degradation is the
   // rare path — but it is still reachable whenever the registry read fails,
   // which is the only reason it exists.
+  // ⚠️ THE ROLE IS READ FIRST, AND ONLY BECAUSE SOMETHING DEPENDS ON IT. The two
+  // picker reads below fill controls that ONLY an admin is shown, so an analyst
+  // must not trigger them: they would be work with no consumer, and one of them
+  // is the staff directory — every colleague's email address — serialized into a
+  // read-only viewer's page payload for a component that returns before touching
+  // it. `clients/page.tsx` has always gated the identical pair this way; this
+  // page did not, and that asymmetry was the bug.
+  //
+  // The extra await costs nothing measurable: `getRole()` is `cache()`-memoised
+  // per request and the shell has already called it by the time this renders.
+  const role = await getRole();
+  const admin = isAdmin(role);
+
   // ⚠️ THE TWO PICKER READS DEGRADE TO `null` AND NEVER `[]`, for the reason the
   // whole slice turns on: a save re-sends BOTH the industry and the writer, so a
   // picker that renders from an empty list where the read merely failed would
@@ -140,15 +153,18 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // the field. `null` tells the card to keep the current value in a hidden input
   // instead of offering a choice it cannot honour.
   //
+  // ⚠️ AN ANALYST'S `null` IS NOT THAT SIGNAL. The card returns its read-only
+  // view before either list is read, so `null` never reaches a picker there —
+  // asserted in `page.test.tsx` rather than left to hold by luck.
+  //
   // They also cannot fail the page, same rule as `getReportLink` and `getRole`.
-  const [client, uploads, reportLink, role, access, industries, staff] = await Promise.all([
+  const [client, uploads, reportLink, access, industries, staff] = await Promise.all([
     getClient(id),
     listUploads(id),
     getReportLink(id),
-    getRole(),
     getClientServices(id),
-    listIndustriesAdmin().catch(() => null),
-    listStaffDirectory().catch(() => null),
+    admin ? listIndustriesAdmin().catch(() => null) : null,
+    admin ? listStaffDirectory().catch(() => null) : null,
   ]);
   if (!client) notFound();
 
@@ -243,7 +259,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           clientId={client.id}
           services={access.services}
           assignedIds={access.held.map((service) => service.id)}
-          isAdmin={isAdmin(role)}
+          isAdmin={admin}
         />
       ) : (
         // ⚠️ NOT AN EMPTY CARD. Rendering the card with `[]` would tell an admin
@@ -271,7 +287,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         writer={client.writer}
         industries={industries}
         staff={staff}
-        isAdmin={isAdmin(role)}
+        isAdmin={admin}
       />
 
       {/* The private link + out-of-band Access Code staff hand this Client their
@@ -279,7 +295,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           Access Code is shown once at Create/Rotate and never re-rendered from
           here (it isn't on ReportLinkStatus). See components/report-link +
           supabase/report-links.sql. */}
-      <ReportLinkCard clientId={client.id} status={reportLink} isAdmin={isAdmin(role)} />
+      <ReportLinkCard clientId={client.id} status={reportLink} isAdmin={admin} />
 
       {/* Both derived from the SAME `uploads` array the cards above read, with no
           second query — so neither series can end on a different figure than its

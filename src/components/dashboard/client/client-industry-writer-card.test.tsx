@@ -175,3 +175,62 @@ describe("ClientIndustryWriterCardView — who may edit", () => {
     expect(screen.getByText(/could not be looked up/i)).toBeInTheDocument();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHAT AN OPTION IS ALLOWED TO CLAIM.
+//
+// Both pickers must offer the current value whatever its status, or an unrelated
+// save clears it. That rule says nothing about how the odd one out is LABELLED —
+// and a label is a claim. ⚠️ An option may not name a status nobody read, and may
+// not put an identifier in front of a person who cannot act on one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("the pickers do not claim more than they read", () => {
+  it("⚠️ never renders a raw uuid at an admin", () => {
+    // The writer's account has left the directory. The option must still exist —
+    // otherwise an industry-only save clears the writer — but a uuid is not a
+    // name and there is nothing an admin can do with one. There is only ever one
+    // such option, so it needs no disambiguating id.
+    // ⚠️ AN ID THE DIRECTORY DOES NOT HOLD — that is what "unknown" means. Using
+    // one of the STAFF ids would leave the ordinary email option matching and
+    // test nothing.
+    const GONE = "66666666-6666-6666-6666-666666666666";
+    view({ writer: { status: "unknown", userId: GONE } });
+
+    const option = screen.getByRole("option", { name: /unknown account/i });
+    expect(option).toBeInTheDocument();
+    expect(option.textContent ?? "").not.toContain(GONE);
+    // …and the whole card, not just that option.
+    expect(document.body.textContent ?? "").not.toContain(GONE);
+    // Still selected, so an industry-only save re-sends the writer.
+    expect(submitted().get("writer_id")).toBe(GONE);
+  });
+
+  it("⚠️ does NOT call an industry “archived” when the registry never listed it", () => {
+    // ⚠️ A STATUS THIS BRANCH DID NOT READ. The current industry is absent from
+    // the registry entirely, so nothing here knows whether it is archived — and
+    // saying so is a claim about the registry dressed up as a claim about this
+    // Client. The foreign key should make this unreachable; the label has to be
+    // honest anyway, because "should" is not "does".
+    view({
+      industry: { id: FAX, name: "Fax Machines" },
+      industries: [ACTIVE],
+    });
+
+    const option = screen.getByRole("option", { name: /fax machines/i });
+    expect(option.textContent ?? "").not.toMatch(/archived/i);
+    expect(option.textContent ?? "").toMatch(/no longer in the industries registry/i);
+    // Still selected, so an unrelated save re-sends it.
+    expect(submitted().get("industry_id")).toBe(FAX);
+  });
+
+  it("still says “(archived)” when the registry DID say so", () => {
+    view({
+      industry: { id: FAX, name: "Fax Machines" },
+      industries: [ACTIVE, ARCHIVED],
+    });
+
+    expect(screen.getByRole("option", { name: /fax machines.*archived/i })).toBeInTheDocument();
+    expect(submitted().get("industry_id")).toBe(FAX);
+  });
+});

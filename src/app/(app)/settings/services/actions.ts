@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { HANDLER_VALUES } from "@/app/(app)/settings/services/handler-labels";
 import { requireAdmin } from "@/lib/auth/roles";
+import { failure, firstIssue, idSchema, type ActionState } from "@/lib/server-actions";
 import { paths } from "@/paths";
 import {
   createService,
@@ -32,8 +33,8 @@ import {
 // worth showing.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ServiceActionState =
-  { status: "idle" } | { status: "saved"; message: string } | { status: "error"; message: string };
+/** ⚠️ AN ALIAS — see `lib/server-actions.ts`, which now owns this union. */
+export type ServiceActionState = ActionState;
 
 /**
  * ⚠️ AN UNSELECTED PIPELINE ARRIVES AS `""`, NOT `null`.
@@ -77,15 +78,7 @@ const statusSchema = z.object({
   status: z.enum(["active", "archived"], { message: "Status must be active or archived." }),
 });
 
-const idSchema = z.object({ id: z.string().uuid("Select a valid service.") });
-
-function firstIssue(error: z.ZodError): string {
-  return error.issues[0]?.message ?? "Invalid request.";
-}
-
-function failure(err: unknown): ServiceActionState {
-  return { status: "error", message: err instanceof Error ? err.message : String(err) };
-}
+const deleteSchema = idSchema("Select a valid service.");
 
 export async function createServiceAction(
   _prev: ServiceActionState,
@@ -175,7 +168,7 @@ export async function deleteServiceAction(
 ): Promise<ServiceActionState> {
   await requireAdmin();
 
-  const parsed = idSchema.safeParse(Object.fromEntries(formData));
+  const parsed = deleteSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { status: "error", message: firstIssue(parsed.error) };
 
   try {

@@ -316,8 +316,20 @@ export async function listClients(
 
   if (q && q.trim()) {
     const needle = q.trim().toLowerCase();
+    // ⚠️ THE INDUSTRY NAME IS PART OF THE HAYSTACK, AND THAT IS WHAT MAKES "HOW
+    // MANY CLIENTS IN SaaS" ANSWERABLE (D6). The Client List prints `total` as
+    // its count, so filtering to an industry IS the count — a column that only
+    // displayed the industry would leave the reader tallying rows by eye.
+    //
+    // The WRITER is deliberately NOT searched here: `q` is written into the URL,
+    // and a shareable link is not the place for a colleague's email address. The
+    // Writer column sorts, which answers "which clients are mine" without
+    // putting anyone's address in a query string.
     clients = clients.filter(
-      (c) => c.name.toLowerCase().includes(needle) || c.linkedin_url.toLowerCase().includes(needle),
+      (c) =>
+        c.name.toLowerCase().includes(needle) ||
+        c.linkedin_url.toLowerCase().includes(needle) ||
+        (c.industry?.name.toLowerCase().includes(needle) ?? false),
     );
   }
 

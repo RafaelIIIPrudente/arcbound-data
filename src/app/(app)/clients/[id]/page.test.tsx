@@ -182,6 +182,50 @@ describe("the Client Overview — Services", () => {
   });
 });
 
+describe("⚠️ the admin-only registries are not read for an analyst", () => {
+  it("triggers neither registry read, and ships neither list to the browser", async () => {
+    // ⚠️ THE SIBLING PAGE ALREADY DOES THIS. `clients/page.tsx` gates the
+    // identical pair on `admin`; this page read them for everyone. An analyst
+    // gets the read-only card, which uses neither list — so the reads were work
+    // with no consumer, and the staff directory (every colleague's email
+    // address) was serialized into a read-only viewer's page payload for a
+    // component that had already returned before touching it.
+    getRoleMock.mockResolvedValue("analyst");
+
+    render(await ClientDetailPage(params()));
+
+    expect(listIndustriesMock).not.toHaveBeenCalled();
+    expect(listStaffDirectoryMock).not.toHaveBeenCalled();
+
+    const card = screen.getByTestId("industry-writer-card");
+    expect(card).toHaveAttribute("data-is-admin", "false");
+    expect(card).toHaveAttribute("data-industries", "null");
+    expect(card).toHaveAttribute("data-staff", "null");
+  });
+
+  it("still reads both for an admin, who has pickers to fill", async () => {
+    render(await ClientDetailPage(params()));
+
+    expect(listIndustriesMock).toHaveBeenCalled();
+    expect(listStaffDirectoryMock).toHaveBeenCalled();
+    const card = screen.getByTestId("industry-writer-card");
+    expect(card).toHaveAttribute("data-industries", "1");
+    expect(card).toHaveAttribute("data-staff", "1");
+  });
+
+  it("⚠️ the analyst's `null` is not the card's read-failed signal reaching a screen", async () => {
+    // The card early-returns for a non-admin before either list is touched, so
+    // `null` here never renders the "could not be read" notice. Asserted rather
+    // than assumed, because moving that early return would make it a lie.
+    getRoleMock.mockResolvedValue("analyst");
+
+    render(await ClientDetailPage(params()));
+
+    expect(screen.queryByText(/industries registry could not be read/i)).toBeNull();
+    expect(screen.queryByText(/staff directory could not be read/i)).toBeNull();
+  });
+});
+
 describe("the Client Overview — the ⓘ on each headline card", () => {
   it("defines all four cards", async () => {
     render(await ClientDetailPage(params()));

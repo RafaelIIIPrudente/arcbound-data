@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { requireAdmin } from "@/lib/auth/roles";
 import { normalizeLinkedInUrl } from "@/lib/linkedin-url";
+import { optionalUuidOrAbsent } from "@/lib/server-actions";
 import { paths } from "@/paths";
 import { setClientServices } from "@/services/arcbound-services";
 import { createClient } from "@/services/clients";
@@ -54,15 +55,9 @@ const clientSchema = z.object({
  * deliberate clear, so it is refused. A Client being registered has no current
  * value to lose: absent and empty mean the same thing, and both are true.
  */
-const optionalId = (label: string) =>
-  z
-    .union([z.literal(""), z.string().uuid(label)])
-    .nullish()
-    .transform((value) => (value ? value : null));
-
 const captureSchema = z.object({
-  industry_id: optionalId("Select a valid industry."),
-  writer_id: optionalId("Select a valid writer."),
+  industry_id: optionalUuidOrAbsent("Select a valid industry."),
+  writer_id: optionalUuidOrAbsent("Select a valid writer."),
 });
 
 /**

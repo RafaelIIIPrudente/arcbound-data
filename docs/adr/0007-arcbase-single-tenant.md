@@ -9,6 +9,16 @@ product and narrows the general-B2B-SaaS-starter framing of that ADR: this clone
 is being specialized into the **ArcBase** product, not kept as a reusable
 template.
 
+⚠️ **Narrowed by [ADR 0015](0015-arcbound-services-registry.md) and
+[ADR 0016](0016-client-industry-and-writer.md).** This ADR's invariant that a
+Client record is immutable was true of every column when it was written. It is
+now true of the two that matter — `name` and `linkedin_profile_url`, which are
+unreachable by any write path — while a Client's **attributes** (their Services,
+and since 2026-08-18 their Industry and Writer) are admin-editable through narrow,
+admin-gated functions. ADR 0016 records exactly where that line sits and why
+`clients.name` in particular can never move: it is the key every scraped post is
+attributed on.
+
 ## Context
 
 The repository began as a general B2B SaaS starter whose defining feature was
@@ -35,7 +45,9 @@ ArcBase is **single-tenant**. All authenticated Arcbound staff share one dataset
   route except the login page. There are no in-app role tiers in v1.
 - **RLS remains the data boundary**, but the policy is simply "an authenticated
   user may read and insert": `clients` and `uploads` allow `select` + `insert`
-  and have **no** update/delete policies (enforcing immutability at the database);
+  and have **no** update/delete policies (enforcing immutability at the database —
+  ⚠️ still true: [ADR 0016](0016-client-industry-and-writer.md) added no UPDATE
+  policy to `clients`, only one `SECURITY DEFINER` function naming two columns);
   `posts` allow `insert` + `update` (for the ingestion upsert) and no delete.
 - Staff accounts are provisioned by an Engineer/Admin in Supabase; there is no
   self-serve signup.

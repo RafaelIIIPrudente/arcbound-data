@@ -1,9 +1,13 @@
-// ⚠️ TYPE-ONLY, AND THE ONLY IMPORT IN THIS FILE. `IngestResult`'s name-mismatch
-// member carries the author-match evidence, and that shape is documented beside
-// the pure logic that builds it rather than copied here. `lib/author-match` is
-// dependency-free and the import erases at compile time, so nothing is added to
-// any bundle by this line.
+// ⚠️ BOTH IMPORTS IN THIS FILE ARE TYPE-ONLY, AND MUST STAY THAT WAY. They erase
+// at compile time, so nothing is added to any bundle and no runtime cycle can
+// form — `services/staff.ts` pulls in `@/lib/supabase/server`, which a plain
+// import from this file would drag into everything that reads a type.
+//
+// `IngestResult`'s name-mismatch member carries the author-match evidence, whose
+// shape is documented beside the pure logic that builds it rather than copied
+// here. `StaffDirectoryEntry` is owned by the staff seam for the same reason.
 import type { AuthorMatchReport } from "@/lib/author-match";
+import type { StaffDirectoryEntry } from "@/services/staff";
 
 export type CustomerStatus = "active" | "blocked" | "pending";
 
@@ -66,6 +70,24 @@ export interface ClientIndustry {
 
 /** Whether an industry is still offered for new assignments. */
 export type IndustryStatus = "active" | "archived";
+
+/**
+ * The two registries an Industry/Writer picker is filled from.
+ *
+ * ⚠️ `null` MEANS THE READ FAILED. `[]` MEANS THE REGISTRY IS GENUINELY EMPTY,
+ * which for industries is the state production is in right now and will be until
+ * an admin adds rows. The two call for opposite sentences — "could not be read,
+ * try again" against "none yet, add one under Settings, Industries" — and
+ * collapsing a failure into `[]` sends someone to add rows that already exist,
+ * where case-insensitive uniqueness will hand them constraint errors for it.
+ *
+ * They travel together through four call sites under exactly this rule, which is
+ * why the rule is written once here rather than four times in prop comments.
+ */
+export interface RegistryPickers {
+  industries: Industry[] | null;
+  staff: StaffDirectoryEntry[] | null;
+}
 
 /**
  * A row of the industries registry, as the ADMIN SCREEN sees it.

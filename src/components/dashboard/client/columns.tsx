@@ -116,12 +116,18 @@ export const columns: ColumnDef<ClientListRow>[] = [
     ),
   },
   {
-    // ⚠️ NO ⓘ, AND NO SORT CONTROL. Two states, both self-evident — an industry
-    // or "Not recorded" — so there is no sentence to write that the cell does
-    // not already say. See `clientListWriter` beside it for the opposite case.
+    // ⚠️ NO ⓘ. Two states, both self-evident — an industry or "Not recorded" —
+    // so there is no sentence to write that the cell does not already say. See
+    // `clientListWriter` beside it for the opposite case.
     id: "industry",
+    // ⚠️ SORTABLE, AND `""` RATHER THAN `undefined` FOR AN UNRECORDED ONE.
+    // "How many clients in SaaS" is one of the two questions these columns exist
+    // to answer (D6), and grouping the rows is half of that answer — the filter
+    // beside the table is the other half. Nothing here parks: this column has no
+    // unreadable state at all, because the foreign key guarantees a set industry
+    // resolves, and "not recorded" is a known fact that sorts as a value.
+    accessorFn: (client) => client.industry?.name ?? "",
     header: () => <span className={HEAD}>Industry</span>,
-    enableSorting: false,
     // ⚠️ HIDDEN BELOW `md`, HEADER AND CELL TOGETHER. `clients-table.tsx` applies
     // this one string to both, which is what makes it safe: a class on only one
     // of them would shift every row by a column at the breakpoint. Hiding is

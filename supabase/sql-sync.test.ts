@@ -29,6 +29,15 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // The only DATA pair in this list. It fills the registry the pair below
+    // creates empty, so it must stay in step for the same reason: a value added
+    // to one copy and forgotten in the other means the SQL editor and
+    // `db push` build different vocabularies.
+    name: "industries-seed",
+    script: "industries-seed.sql",
+    migration: "migrations/20260818130000_industries_seed.sql",
+  },
+  {
     name: "client-industry-writer",
     script: "client-industry-writer.sql",
     migration: "migrations/20260818120000_client_industry_writer.sql",

@@ -17,19 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import type { StaffDirectoryEntry } from "@/services/staff";
-import type { ArcboundService, Industry } from "@/services/types";
+import type { ArcboundService, Industry, RegistryPickers } from "@/services/types";
 
 const INITIAL: ClientFormState = { status: "idle" };
-
-/**
- * ⚠️ NATIVE <select>, MATCHING THE CLIENT OVERVIEW CARD. Radix rejects
- * `value=""`, so "not recorded" would need a sentinel string mapped back to NULL
- * — one more place a cleared field could hide. A native empty option posts `""`,
- * which `createClientAction` turns into `null` with nothing in between.
- */
-const SELECT_CLASS =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none";
 
 /**
  * Whether registering is finished enough to close the dialog.
@@ -68,11 +60,8 @@ export function AddClientDialog({
   services,
   industries,
   staff,
-}: {
+}: RegistryPickers & {
   services: ArcboundService[] | null;
-  /** ⚠️ `null` = the read FAILED. `[]` = the registry is genuinely empty (D10). */
-  industries: Industry[] | null;
-  staff: StaffDirectoryEntry[] | null;
 }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -232,19 +221,31 @@ export function AddClientFormView({
             Industries could not be loaded, so none can be selected. The client will still be
             registered — record their industry from their overview afterwards.
           </p>
-        ) : activeIndustries.length === 0 ? (
+        ) : industries.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No industries are registered yet. An admin adds them under Settings, Industries.
           </p>
+        ) : activeIndustries.length === 0 ? (
+          /* ⚠️ A THIRD STATE, NOT THE EMPTY ONE. The read succeeded and the
+             registry is FULL — every row in it is archived, so nothing is
+             offered. Sending an admin to "add them" here is false in the
+             expensive direction: names are unique case-insensitively, so
+             re-adding one hands them a constraint error for following the
+             instruction. The way out is to restore one, which is a different
+             screen action and a different sentence. */
+          <p className="text-xs text-muted-foreground">
+            Every industry is archived, so none can be selected. An admin can restore one under
+            Settings, Industries — the client will still be registered without one.
+          </p>
         ) : (
-          <select id="industry_id" name="industry_id" defaultValue="" className={SELECT_CLASS}>
+          <NativeSelect id="industry_id" name="industry_id" defaultValue="">
             <option value="">Not recorded</option>
             {activeIndustries.map((industry) => (
               <option key={industry.id} value={industry.id}>
                 {industry.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         )}
       </div>
 
@@ -258,14 +259,14 @@ export function AddClientFormView({
         ) : staff.length === 0 ? (
           <p className="text-xs text-muted-foreground">No staff accounts to choose from.</p>
         ) : (
-          <select id="writer_id" name="writer_id" defaultValue="" className={SELECT_CLASS}>
+          <NativeSelect id="writer_id" name="writer_id" defaultValue="">
             <option value="">Not recorded</option>
             {staff.map((entry) => (
               <option key={entry.userId} value={entry.userId}>
                 {entry.email}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         )}
         {/* ⚠️ OPTIONAL, AND SAYING SO IS THE POINT. Neither field blocks
             registration; leaving both unset records "not recorded", which is true
@@ -310,11 +311,9 @@ function AddClientForm({
   services,
   industries,
   staff,
-}: {
+}: RegistryPickers & {
   onSuccess: () => void;
   services: ArcboundService[] | null;
-  industries: Industry[] | null;
-  staff: StaffDirectoryEntry[] | null;
 }) {
   const [state, formAction, pending] = useActionState(createClientAction, INITIAL);
 

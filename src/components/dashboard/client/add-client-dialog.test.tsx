@@ -288,6 +288,26 @@ describe("AddClientFormView — recording industry and writer at registration (S
     expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
   });
 
+  it("⚠️ does NOT say the registry is empty when every industry is ARCHIVED", () => {
+    // ⚠️ A THIRD STATE THAT WAS COLLAPSING INTO THE SECOND. The read succeeded and
+    // the registry is full — it is only that nothing in it is offered any more.
+    // "No industries are registered yet. An admin adds them…" is false here, and
+    // false in the costly direction: names are unique case-insensitively, so an
+    // admin who believes it and re-adds "SaaS" collects a constraint error for
+    // doing exactly what the screen told them to.
+    render(<AddClientFormView {...baseProps} industries={[FAX]} />);
+
+    expect(screen.queryByText(/no industries are registered yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Industry")).not.toBeInTheDocument();
+
+    const notice = screen.getByText(/every industry is archived/i);
+    // It points at the way out — restoring one, not adding one.
+    expect(notice.textContent ?? "").toMatch(/restore/i);
+    // …and must not read like the failure state next door.
+    expect(notice.textContent ?? "").not.toMatch(/could not|failed|error/i);
+    expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
+  });
+
   it("an unreadable staff directory still lets the client be registered", () => {
     render(<AddClientFormView {...baseProps} staff={null} />);
 
