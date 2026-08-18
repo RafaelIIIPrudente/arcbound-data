@@ -17,9 +17,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ArcboundService } from "@/services/types";
+import type { StaffDirectoryEntry } from "@/services/staff";
+import type { ArcboundService, Industry } from "@/services/types";
 
 const INITIAL: ClientFormState = { status: "idle" };
+
+/**
+ * ⚠️ NATIVE <select>, MATCHING THE CLIENT OVERVIEW CARD. Radix rejects
+ * `value=""`, so "not recorded" would need a sentinel string mapped back to NULL
+ * — one more place a cleared field could hide. A native empty option posts `""`,
+ * which `createClientAction` turns into `null` with nothing in between.
+ */
+const SELECT_CLASS =
+  "h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none";
 
 /**
  * Whether registering is finished enough to close the dialog.
@@ -54,7 +64,16 @@ function alreadyCreated(state: ClientFormState): boolean {
   return state.status === "created_without_services" || state.status === "created_services_failed";
 }
 
-export function AddClientDialog({ services }: { services: ArcboundService[] | null }) {
+export function AddClientDialog({
+  services,
+  industries,
+  staff,
+}: {
+  services: ArcboundService[] | null;
+  /** ⚠️ `null` = the read FAILED. `[]` = the registry is genuinely empty (D10). */
+  industries: Industry[] | null;
+  staff: StaffDirectoryEntry[] | null;
+}) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
 
@@ -75,7 +94,12 @@ export function AddClientDialog({ services }: { services: ArcboundService[] | nu
           </DialogDescription>
         </DialogHeader>
         {/* Remounted on each open, so the action state starts clean every time. */}
-        <AddClientForm onSuccess={close} services={services} />
+        <AddClientForm
+          onSuccess={close}
+          services={services}
+          industries={industries}
+          staff={staff}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -95,9 +119,28 @@ interface FormViewProps {
    * so and carries on.
    */
   services: ArcboundService[] | null;
+  /**
+   * The industries registry, or `null` when it could not be read (D10).
+   *
+   * ⚠️ THE SAME THREE STATES AS `services`, AND THE SAME REASON. `null` means we
+   * could not list them; `[]` means Arcbound has recorded none yet — which is the
+   * state TODAY, so `[]` is the branch that renders on the first run and it must
+   * point at the screen that fixes it. Collapsing the two would tell an admin the
+   * registry is empty at the moment it might be full and unreachable.
+   */
+  industries: Industry[] | null;
+  /** The staff directory, or `null` when it could not be read. */
+  staff: StaffDirectoryEntry[] | null;
 }
 
-export function AddClientFormView({ state, formAction, pending, services }: FormViewProps) {
+export function AddClientFormView({
+  state,
+  formAction,
+  pending,
+  services,
+  industries,
+  staff,
+}: FormViewProps) {
   const errors = state.status === "error" ? state.errors : undefined;
 
   // ⚠️ ARCHIVED SERVICES ARE NEVER OFFERED HERE. On the Client Overview a held
@@ -105,6 +148,7 @@ export function AddClientFormView({ state, formAction, pending, services }: Form
   // but a Client being registered right now holds nothing, so there is no history
   // to protect, and offering one would assign a retired offering afresh.
   const selectable = services?.filter((service) => service.status === "active") ?? [];
+  const activeIndustries = industries?.filter((industry) => industry.status === "active") ?? [];
 
   return (
     <form action={formAction} className="space-y-4">
@@ -175,6 +219,62 @@ export function AddClientFormView({ state, formAction, pending, services }: Form
         </p>
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="industry_id">Industry</Label>
+        {/* ⚠️ ACTIVE ROWS ONLY, AND UNLIKE THE CLIENT OVERVIEW THAT IS COMPLETE.
+            There, the picker must also offer an ARCHIVED industry the Client is
+            already recorded in, or the next save would silently move or clear it.
+            A Client being registered right now holds nothing, so there is no
+            current value to preserve and offering a retired industry would only
+            resurrect it. */}
+        {industries === null ? (
+          <p className="text-xs text-muted-foreground">
+            Industries could not be loaded, so none can be selected. The client will still be
+            registered — record their industry from their overview afterwards.
+          </p>
+        ) : activeIndustries.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No industries are registered yet. An admin adds them under Settings, Industries.
+          </p>
+        ) : (
+          <select id="industry_id" name="industry_id" defaultValue="" className={SELECT_CLASS}>
+            <option value="">Not recorded</option>
+            {activeIndustries.map((industry) => (
+              <option key={industry.id} value={industry.id}>
+                {industry.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="writer_id">Writer</Label>
+        {staff === null ? (
+          <p className="text-xs text-muted-foreground">
+            The staff directory could not be loaded, so no writer can be selected. The client will
+            still be registered — assign a writer from their overview afterwards.
+          </p>
+        ) : staff.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No staff accounts to choose from.</p>
+        ) : (
+          <select id="writer_id" name="writer_id" defaultValue="" className={SELECT_CLASS}>
+            <option value="">Not recorded</option>
+            {staff.map((entry) => (
+              <option key={entry.userId} value={entry.userId}>
+                {entry.email}
+              </option>
+            ))}
+          </select>
+        )}
+        {/* ⚠️ OPTIONAL, AND SAYING SO IS THE POINT. Neither field blocks
+            registration; leaving both unset records "not recorded", which is true
+            and is what every Client created before this slice already carries. */}
+        <p className="text-xs text-muted-foreground">
+          Both are optional and can be recorded later from the client&apos;s overview.
+        </p>
+      </div>
+
       {state.status === "created_services_failed" ? (
         <p role="alert" className="text-sm text-destructive">
           {state.message}
@@ -208,9 +308,13 @@ export function AddClientFormView({ state, formAction, pending, services }: Form
 function AddClientForm({
   onSuccess,
   services,
+  industries,
+  staff,
 }: {
   onSuccess: () => void;
   services: ArcboundService[] | null;
+  industries: Industry[] | null;
+  staff: StaffDirectoryEntry[] | null;
 }) {
   const [state, formAction, pending] = useActionState(createClientAction, INITIAL);
 
@@ -224,6 +328,8 @@ function AddClientForm({
       formAction={formAction}
       pending={pending}
       services={services}
+      industries={industries}
+      staff={staff}
     />
   );
 }

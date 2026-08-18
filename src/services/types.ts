@@ -64,6 +64,28 @@ export interface ClientIndustry {
   name: string;
 }
 
+/** Whether an industry is still offered for new assignments. */
+export type IndustryStatus = "active" | "archived";
+
+/**
+ * A row of the industries registry, as the ADMIN SCREEN sees it.
+ *
+ * ⚠️ NOT A REPLACEMENT FOR `ClientIndustry`, AND THE DIFFERENCE IS THE POINT.
+ * `ClientIndustry` is what a Client carries — the two fields a reader needs to
+ * be told which industry that Client is in. This is the registry entry itself,
+ * and it adds the one field only an administrator acts on: `status`.
+ *
+ * ⚠️ `status` MUST NOT LEAK INTO THE CLIENT-FACING READ. A Client recorded in an
+ * industry stays in it after the industry is archived — archiving stops one
+ * being OFFERED, it does not evict anybody — so showing a Client as "archived"
+ * would be a statement about the registry dressed up as a statement about them.
+ */
+export interface Industry {
+  id: string;
+  name: string;
+  status: IndustryStatus;
+}
+
 /**
  * Who writes for a Client:
  *   • `null`          — NOBODY IS ASSIGNED. Known from the client row alone

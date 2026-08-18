@@ -15,7 +15,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: () => supabase.current }
 
 import { MAX_PAGES, PAGE_SIZE } from "@/lib/supabase/paged";
 
-import { createClient, getClient, listClients } from "./clients";
+import { createClient, getClient, listClients, setClientIndustryWriter } from "./clients";
 
 /**
  * A chainable that MODELS POSTGREST'S 1000-ROW RESPONSE CAP.
@@ -37,6 +37,12 @@ import { createClient, getClient, listClients } from "./clients";
  * reason, which is worse than a red one.
  */
 let orderCalls: { table: string; args: unknown[] }[] = [];
+
+/** Every `.insert(...)` issued, tagged with its table. */
+let insertCalls: { table: string; payload: unknown }[] = [];
+
+/** Every `supabase.rpc(name, args)` issued, WITH its arguments. */
+let rpcArgs: { name: string; args: unknown }[] = [];
 
 /** The `.order(...)` calls issued against one table. */
 function ordersOn(table: string): unknown[][] {
@@ -75,7 +81,14 @@ function chainable(result: unknown, table = "?"): unknown {
     orderCalls.push({ table, args: a });
     return q;
   };
-  for (const method of ["eq", "or", "in", "maybeSingle", "single", "insert", "limit"]) {
+  // ⚠️ `insert` RECORDS ITS PAYLOAD. `createClient` now writes four columns in
+  // ONE statement (D7); asserting "insert was called" would pass for a version
+  // that dropped two of them, which is the whole thing worth checking.
+  q.insert = (payload: unknown) => {
+    insertCalls.push({ table, payload });
+    return q;
+  };
+  for (const method of ["eq", "or", "in", "maybeSingle", "single", "limit"]) {
     q[method] = () => q;
   }
   q.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
@@ -116,8 +129,9 @@ function mockSupabase(
     schema: () => ({ from: (t: string) => chainable(biResult, t) }),
     // Routed through the same `chainable`, so the directory joins the
     // concurrency probe below rather than being invisible to it.
-    rpc: (name: string) => {
+    rpc: (name: string, args?: unknown) => {
       rpcCalls.push(name);
+      rpcArgs.push({ name, args });
       return chainable(directoryResult, `rpc:${name}`);
     },
   };
@@ -170,6 +184,8 @@ beforeEach(() => {
   probe.peak = 0;
   orderCalls = [];
   rpcCalls = [];
+  insertCalls = [];
+  rpcArgs = [];
 });
 
 describe("clients service (real seam)", () => {
@@ -702,5 +718,147 @@ describe("getClient's memoisation is REQUEST-scoped", () => {
     // emptying the file and passing vacuously.
     expect(code).toContain("countForClient(supabase, id)");
     expect(code).not.toContain("move an RLS-enforced boundary");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAPTURE (S4) — writing the two fields S2 taught this seam to read.
+//
+// ⚠️ THE FUNCTION THESE GUARD APPLIES BOTH ARGUMENTS, INCLUDING NULL. There is
+// no partial update: whatever a caller omits is CLEARED, with no error and no
+// trace. Everything below exists to make an omission loud.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("createClient — industry and writer at registration (D7)", () => {
+  it("⚠️ carries BOTH ids in ONE insert, not a second write", async () => {
+    // ⚠️ ONE STATEMENT IS THE DECISION, NOT A DETAIL. Registering a Client is
+    // already two writes with a four-outcome result including
+    // `created_services_failed` — "the Client EXISTS but is broken on arrival, and
+    // retrying would duplicate it". A separate industry/writer write would add
+    // another such outcome; folding both into the insert adds none.
+    mockSupabase(
+      { data: ROW("new", "Nadia Vega", { industry: SAAS, writer_id: WRITER_A }), error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      DIRECTORY([WRITER_A, "ana@arcbound.com"]),
+    );
+
+    await createClient({
+      name: "Nadia Vega",
+      linkedin_url: "https://linkedin.com/in/nadiavega",
+      industry_id: "ind-1",
+      writer_id: WRITER_A,
+    });
+
+    const inserts = insertCalls.filter((call) => call.table === "clients");
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]?.payload).toMatchObject({
+      name: "Nadia Vega",
+      industry_id: "ind-1",
+      writer_id: WRITER_A,
+    });
+  });
+
+  it("registers a Client with neither recorded — both are optional", async () => {
+    // "Not recorded" is legitimate and must not be a validation failure: an
+    // engagement can be registered before either is known.
+    mockSupabase({ data: ROW("new", "Nadia Vega"), error: null }, { data: [], error: null });
+
+    const created = await createClient({
+      name: "Nadia Vega",
+      linkedin_url: "https://linkedin.com/in/nadiavega",
+    });
+
+    expect(created.industry).toBeNull();
+    expect(created.writer).toBeNull();
+    const inserts = insertCalls.filter((call) => call.table === "clients");
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]?.payload).toMatchObject({ industry_id: null, writer_id: null });
+  });
+
+  it("⚠️ does NOT report a just-assigned writer as `unknown`", async () => {
+    // ⚠️ TRAP 3. This function used to end `toClient(row, 0, new Map())`, and the
+    // empty map was honest ONLY because the insert set neither column. Now that it
+    // can set `writer_id`, an empty map resolves that writer to `unknown` — which
+    // in this codebase means "assigned to an id no staff account matches, a human
+    // must reassign". That would be a false alarm about a writer the admin just
+    // successfully assigned, manufactured by the create path itself.
+    mockSupabase(
+      { data: ROW("new", "Nadia Vega", { writer_id: WRITER_A }), error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      DIRECTORY([WRITER_A, "ana@arcbound.com"]),
+    );
+
+    const created = await createClient({
+      name: "Nadia Vega",
+      linkedin_url: "https://linkedin.com/in/nadiavega",
+      writer_id: WRITER_A,
+    });
+
+    expect(created.writer).toEqual({
+      status: "resolved",
+      userId: WRITER_A,
+      email: "ana@arcbound.com",
+    });
+  });
+
+  it("⚠️ says `unavailable`, never `unknown`, when the directory read fails", async () => {
+    // The two are different facts. "We could not look it up" is true; "that id
+    // matches no staff account" would be an accusation we cannot support.
+    mockSupabase(
+      { data: ROW("new", "Nadia Vega", { writer_id: WRITER_A }), error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: null, error: { message: "denied" } },
+    );
+
+    const created = await createClient({
+      name: "Nadia Vega",
+      linkedin_url: "https://linkedin.com/in/nadiavega",
+      writer_id: WRITER_A,
+    });
+
+    expect(created.writer).toEqual({ status: "unavailable", userId: WRITER_A });
+  });
+
+  it("does not read the directory when no writer was assigned", async () => {
+    // Nothing to look up, and `toWriter` answers `null` from the row alone — so
+    // the empty map stays honest for exactly the case it was written for.
+    mockSupabase({ data: ROW("new", "Nadia Vega"), error: null }, { data: [], error: null });
+
+    await createClient({ name: "Nadia Vega", linkedin_url: "https://linkedin.com/in/nadiavega" });
+
+    expect(rpcCalls).not.toContain("list_staff_directory");
+  });
+});
+
+describe("setClientIndustryWriter", () => {
+  it("⚠️ sends BOTH values on every call, including nulls", async () => {
+    mockSupabase({ data: null, error: null }, { data: [], error: null });
+
+    await setClientIndustryWriter("client-1", "ind-1", null);
+
+    expect(rpcArgs).toEqual([
+      {
+        name: "set_client_industry_writer",
+        args: { p_client_id: "client-1", p_industry_id: "ind-1", p_writer_id: null },
+      },
+    ]);
+  });
+
+  it("surfaces the function's own refusal verbatim", async () => {
+    // ⚠️ `set_client_industry_writer` writes its refusals itself ('admin role
+    // required', 'unknown client %'). Replacing them with a generic message would
+    // throw away the only explanation the admin gets.
+    mockSupabase({ data: null, error: null }, { data: [], error: null });
+    supabase.current = {
+      ...(supabase.current as object),
+      rpc: () => Promise.resolve({ data: null, error: { message: "admin role required" } }),
+    } as typeof supabase.current;
+
+    await expect(setClientIndustryWriter("client-1", null, null)).rejects.toThrow(
+      "admin role required",
+    );
   });
 });

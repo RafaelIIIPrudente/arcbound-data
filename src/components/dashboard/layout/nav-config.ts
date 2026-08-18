@@ -96,6 +96,9 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname.startsWith(paths.settings.services)) {
     return { lead: "Arcbound", accent: "services" };
   }
+  if (pathname.startsWith(paths.settings.industries)) {
+    return { lead: "Client", accent: "industries" };
+  }
   if (pathname.startsWith(paths.settings.profile)) return { lead: "", accent: "Settings" };
   return { lead: "", accent: "ArcBase" };
 }

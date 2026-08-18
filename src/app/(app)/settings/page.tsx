@@ -43,6 +43,12 @@ export default async function SettingsPage() {
             >
               Services
             </Link>
+            <Link
+              href={paths.settings.industries}
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Industries
+            </Link>
           </nav>
         ) : null}
       </div>

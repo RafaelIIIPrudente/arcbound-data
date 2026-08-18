@@ -57,6 +57,10 @@ export const paths = {
     // every staff member, so admin-only surfaces get their own routes rather
     // than becoming tabs that would force `requireAdmin()` onto the parent.
     services: "/settings/services",
+    // The industries registry that the Client Industry picker draws from.
+    // ADMIN-ONLY, and a sibling of `roles` and `services` for the same reason:
+    // `/settings` itself must stay reachable by every staff member.
+    industries: "/settings/industries",
   },
   auth: {
     resetPassword: "/auth/reset-password",

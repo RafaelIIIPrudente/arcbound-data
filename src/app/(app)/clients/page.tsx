@@ -5,6 +5,8 @@ import { ClientsTable } from "@/components/dashboard/client/clients-table";
 import { getRole, isAdmin } from "@/lib/auth/roles";
 import { listServices } from "@/services/arcbound-services";
 import { listClients } from "@/services/clients";
+import { listIndustriesAdmin } from "@/services/industries";
+import { listStaffDirectory } from "@/services/staff";
 
 export const metadata: Metadata = { title: "Client list" };
 
@@ -40,7 +42,24 @@ export default async function ClientsPage({
   // that propagate would take the whole Client List down over a registry read,
   // while `[]` would claim Arcbound sells nothing. The dialog says it could not
   // load them and still registers the client (ADR 0015).
-  const services = admin ? await listServices().catch(() => null) : null;
+  //
+  // The industries registry and the staff directory join it on the same terms
+  // (D10) — both feed the Add-Client pickers, both degrade to `null`, and neither
+  // may take the Client List down. ⚠️ `null` NEVER `[]`: the industries registry
+  // is EMPTY today, so `[]` is a true and common answer and the dialog says
+  // "an admin adds them under Settings, Industries". Collapsing a failed read
+  // into that would send someone to add rows that already exist — and names are
+  // unique case-insensitively, so they would collect constraint errors for it.
+  //
+  // Fetched together rather than in sequence: three independent reads, one
+  // round-trip's worth of latency.
+  const [services, industries, staff] = admin
+    ? await Promise.all([
+        listServices().catch(() => null),
+        listIndustriesAdmin().catch(() => null),
+        listStaffDirectory().catch(() => null),
+      ])
+    : [null, null, null];
 
   // The table shows every row it is given and has no pagination (neither does
   // the comp). If the fetch ever caps below the real total, the page SAYS SO —
@@ -56,11 +75,21 @@ export default async function ClientsPage({
             <span className="text-primary">—</span>
             Clients
           </div>
+          {/* ⚠️ "RECORDS ARE IMMUTABLE" WAS TRUE UNTIL S4 AND IS NOT ANY MORE.
+              An admin can record and re-record a Client's industry and writer
+              from the detail page, so the old caption promised something this
+              product stopped keeping. What is still true is the half with
+              teeth: `public.clients` has no update policy and the one function
+              that writes it names two columns, so a Client's NAME — the key
+              every scraped post is attributed on — and their LinkedIn URL
+              cannot be edited here or anywhere. */}
           <p className="mt-2 font-mono text-xs text-muted-foreground">
-            {total} {total === 1 ? "client" : "clients"} · records are immutable
+            {total} {total === 1 ? "client" : "clients"} · names and URLs locked
           </p>
         </div>
-        {admin ? <AddClientDialog services={services} /> : null}
+        {admin ? (
+          <AddClientDialog services={services} industries={industries} staff={staff} />
+        ) : null}
       </div>
       {truncated ? (
         <p

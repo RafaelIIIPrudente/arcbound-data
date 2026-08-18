@@ -22,7 +22,15 @@ import { latestUploadByClient } from "@/services/uploads";
 // `clients.name` is the ATTRIBUTION KEY the BI name-match join depends on, so the
 // Add-Client form guides staff to the exact display name. This external schema has
 // no dedup constraint on clients — ArcBase does not fabricate one (a duplicate is
-// a UI concern, not a DB error). Clients are immutable (ADR 0007): no update/delete.
+// a UI concern, not a DB error).
+//
+// ⚠️ TWO COLUMNS ARE NOW MUTABLE, AND ONLY TWO. `industry_id` and `writer_id` are
+// admin-editable through `setClientIndustryWriter` below (S4) — so the older
+// reading of ADR 0007, that a Client row never changes after registration, no
+// longer holds. What DOES still hold is the half that protects attribution:
+// `public.clients` has no UPDATE policy, so nothing can write the table directly,
+// and the one SECURITY DEFINER function that can names exactly those two columns.
+// `name` and `linkedin_url` remain unreachable BY CONSTRUCTION, not by convention.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** A row of public.clients (no generated types — the shape is known + stable). */
@@ -365,18 +373,90 @@ export const getClient = cache(async (id: string): Promise<Client | null> => {
   return toClient(data as ClientRow, postsCount, writerEmails);
 });
 
-export async function createClient(input: { name: string; linkedin_url: string }): Promise<Client> {
+export async function createClient(input: {
+  name: string;
+  linkedin_url: string;
+  /** Optional at registration — `null`/absent means "not recorded", not "none". */
+  industry_id?: string | null;
+  writer_id?: string | null;
+}): Promise<Client> {
   const supabase = createServerClient(cookies());
 
+  // ⚠️ ONE STATEMENT, FOUR COLUMNS — NOT A SECOND WRITE (D7). RLS gates ROWS, not
+  // columns, so the "arcbase add clients" policy (`with check public.is_admin()`)
+  // guards these two exactly as tightly as `set_client_industry_writer` would.
+  // The deciding reason is failure states: registering a Client is already two
+  // writes with a four-outcome result including `created_services_failed` — "the
+  // Client EXISTS but is broken on arrival, and retrying would duplicate it". A
+  // separate industry/writer write would add another such outcome. Folding both
+  // into the insert adds none.
   const { data, error } = await supabase
     .from("clients")
-    .insert({ name: input.name.trim(), linkedin_profile_url: input.linkedin_url.trim() })
+    .insert({
+      name: input.name.trim(),
+      linkedin_profile_url: input.linkedin_url.trim(),
+      industry_id: input.industry_id ?? null,
+      writer_id: input.writer_id ?? null,
+    })
     .select(CLIENT_COLUMNS)
     .single();
   if (error) throw new Error(`Failed to create client: ${error.message}`);
 
-  // No directory read: the insert sets neither column, so a brand-new Client has
-  // no industry and no writer by construction. An empty map is the honest input
-  // — there is no id to look up, and nothing to be uncertain about.
-  return toClient(data as ClientRow, 0, new Map());
+  const row = data as ClientRow;
+
+  // ⚠️ THE DIRECTORY IS READ ONLY WHEN A WRITER WAS ACTUALLY SET, and skipping it
+  // otherwise is not an optimisation — it is what keeps this return honest.
+  //
+  // This used to pass an empty map unconditionally, and said so: the insert set
+  // neither column, so there was no id to look up. That reasoning died with the
+  // line above. Against an empty map `toWriter` resolves an assigned writer to
+  // `unknown` — which in this codebase means "assigned to an id no staff account
+  // matches, a human must reassign". Reporting that about a writer the admin just
+  // successfully assigned would be a false alarm manufactured by this function.
+  //
+  // `staffEmailsById` never throws; it signals a failed read with `null`, which
+  // `toWriter` turns into `unavailable` — "we do not know", which is true. So the
+  // one state this can never now produce is the one that would have been a lie.
+  const emails = row.writer_id ? await staffEmailsById() : new Map<string, string>();
+
+  return toClient(row, 0, emails);
+}
+
+/**
+ * Set a Client's Industry and Writer — the ONLY write path onto an existing
+ * `public.clients` row, and admin-only twice over (`requireAdmin()` in the action,
+ * `is_admin()` inside the function, raising 42501).
+ *
+ * ⚠️ BOTH ARGUMENTS ARE APPLIED, INCLUDING NULL. THERE IS NO PARTIAL UPDATE.
+ * Passing `null` CLEARS the column — that is how "not recorded" is expressed — so
+ * every caller must send the CURRENT value of the field it is not changing.
+ * `supabase/client-industry-writer.sql` states this outright: *"a partial update
+ * is impossible through this signature, on purpose."* A form that posts only the
+ * field the admin touched erases the other one, with no error and no trace.
+ *
+ * ⚠️ IT LIVES HERE, IN THE `clients` SEAM, BECAUSE IT WRITES `public.clients`.
+ * `industries.ts` owns the registry; this owns the table whose read path
+ * (`CLIENT_COLUMNS`, `toIndustry`, `toWriter`) has to agree with what this wrote.
+ *
+ * ⚠️ AN ARCHIVED INDUSTRY IS ACCEPTED, DELIBERATELY — the SQL decided that, and
+ * refusing one here would mean a Client whose industry was archived after
+ * assignment could never have its writer changed again. See the picker in
+ * `client-industry-writer-card.tsx`, which must OFFER the current value for the
+ * same reason.
+ */
+export async function setClientIndustryWriter(
+  clientId: string,
+  industryId: string | null,
+  writerId: string | null,
+): Promise<void> {
+  const supabase = createServerClient(cookies());
+  const { error } = await supabase.rpc("set_client_industry_writer", {
+    p_client_id: clientId,
+    p_industry_id: industryId,
+    p_writer_id: writerId,
+  });
+
+  // Verbatim. `set_client_industry_writer` writes its refusals itself ('admin role
+  // required', 'unknown client %'), and the app deliberately does not predict them.
+  if (error) throw new Error(error.message);
 }

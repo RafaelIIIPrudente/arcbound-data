@@ -46,6 +46,20 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
   Arcbound tracks, identified by a normalized LinkedIn profile URL. This is the
   domain sense of "client" (a tracked subject), never the browser/server sense.
 
+- **Industry** — the line of business a Client is in, chosen from a controlled
+  registry an Admin curates rather than typed per Client, so the same industry is
+  spelled one way everywhere. An industry may be **archived** — retired from
+  being offered to new Clients while every Client already recorded in it keeps
+  it. Not recorded is a legitimate and common state, distinct from unreadable.
+
+- **Writer** — the Arcbound staff member who writes for a Client. ⚠️ An
+  assignment, not a permission: it grants no access and withholds none, and every
+  staff member still reads every Client (see **Staff Role**). Four states are
+  distinguished and never collapsed — assigned, nobody assigned, assigned to an
+  account that no longer exists, and the directory could not be read — because
+  the last two demand opposite actions: one needs a person to reassign, the other
+  needs a retry.
+
 - **Scrape** — one capture of a Client's LinkedIn post metrics at a point in
   time, produced by the external scraper. A Scrape is the input to an Upload and
   arrives as CSV or JSON.
@@ -111,15 +125,24 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 - **Resource** — a team reference link (a title and a URL) shown on the Resources
   screen.
 
-- **Immutability** — the rule that Clients and Uploads are never edited or
-  deleted, and Posts change only through re-Ingestion. ArcBase exposes no
-  edit/delete affordances for these records. **Arcbound Services are the
-  deliberate exception** — see below and
-  [ADR 0015](docs/adr/0015-arcbound-services-registry.md). A Client's **Services
-  are assignable** while the Client RECORD stays immutable: the assignment is an
-  Engagement, a row in a separate relation, and changing it alters nothing about
-  the Client's identity, name, or LinkedIn URL. Which services a Client receives
-  is a fact about the relationship, not about the Client.
+- **Immutability** — the rule that a Client's **identity** is never edited,
+  Uploads are never edited or deleted, and Posts change only through
+  re-Ingestion.
+
+  ⚠️ **Identity, not the whole Client record.** A Client's **name** and
+  **LinkedIn URL** are unreachable by every write path ArcBase has, at any
+  privilege. That is load-bearing rather than tidy: the name is the text the
+  reporting pipeline joins scraped Posts on, so editing it silently
+  re-attributes or strands a Client's entire history.
+
+  **Attributes recorded _about_ a Client are assignable by an Admin** — its
+  **Arcbound Services** ([ADR 0015](docs/adr/0015-arcbound-services-registry.md)),
+  and its **Industry** and **Writer**. ⚠️ **The line that holds is identity vs
+  attribute, not record vs relation.** An earlier wording drew it in the second
+  place — Services were "a row in a separate relation, changing nothing about the
+  Client record" — and that stopped being true when Industry and Writer landed on
+  the Client record itself. What survived the change is the narrower claim: who
+  the Client _is_ cannot be edited; what Arcbound records _about_ them can.
 
 - **Arcbound Service** — an offering Arcbound sells to its Clients (e.g. LinkedIn
   Growth, Outreach System). A registry entry, editable and archivable by an Admin.

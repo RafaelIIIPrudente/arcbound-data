@@ -38,6 +38,15 @@ function bodyRows() {
   return within(screen.getAllByRole("rowgroup")[1]!).getAllByRole("row");
 }
 
+/**
+ * The client names in render order — the whole vocabulary of a sorting
+ * assertion. Each row holds TWO links (the client name and the LinkedIn URL);
+ * the name is first in DOM order.
+ */
+function names() {
+  return bodyRows().map((r) => within(r).getAllByRole("link")[0]!.textContent);
+}
+
 beforeEach(() => {
   replace.mockClear();
 });
@@ -121,10 +130,6 @@ describe("sorting", () => {
     client({ id: "c2", name: "Alpha", postsCount: null }),
     client({ id: "c3", name: "Charlie", postsCount: 2 }),
   ];
-  // Each row holds TWO links — the client name and the LinkedIn URL. The name
-  // is first in DOM order.
-  const names = () => bodyRows().map((r) => within(r).getAllByRole("link")[0]!.textContent);
-
   it("sorts by client name", async () => {
     const user = userEvent.setup();
     render(<ClientsTable data={mixed} />);
@@ -227,13 +232,17 @@ describe("the Client List names which pipeline each column measures", () => {
     expect(screen.queryByRole("button", { name: "Sort by last upload" })).not.toBeInTheDocument();
   });
 
-  it("offers a definition on BOTH columns", () => {
+  it("offers a definition on every column that has one — and only those", () => {
     render(<ClientsTable data={rows} />);
 
+    // ⚠️ THREE NOW, NOT TWO. S5 added Writer, whose four states are the reason
+    // it has an ⓘ at all; Industry deliberately has none (D11).
     expect(
       screen.getByRole("button", { name: "What is Last ArcBase upload?" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "What is Posts?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What is Writer?" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "What is Industry?" })).toBeNull();
   });
 
   it("explains that a client can have posts with no ArcBase upload at all", async () => {
@@ -266,7 +275,7 @@ describe("the Client List names which pipeline each column measures", () => {
     // of its cells.
     render(<ClientsTable data={rows} />);
 
-    for (const name of ["Last ArcBase upload", "Posts"]) {
+    for (const name of ["Last ArcBase upload", "Posts", "Writer"]) {
       const header = screen.getByRole("columnheader", { name });
       expect(header.getAttribute("aria-label")).toBe(name);
     }
@@ -360,5 +369,213 @@ describe("the filter writes the URL", () => {
     render(<ClientsTable data={rows} q="nomatch" />);
 
     expect(bodyRows()).toHaveLength(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TWO MORE COLUMNS, ONE OF THEM WITH FOUR STATES.
+//
+// `ClientWriter` is `null | resolved | unknown | unavailable`, and two of those
+// four sound alarming while meaning opposite things: `unknown` is a broken LINK
+// (a human must reassign) and `unavailable` is a broken READ (retry). ⚠️
+// Collapsing either into "nobody is assigned" reports a staffing gap that does
+// not exist — the same defect shape as the em dash that used to render as `0`.
+//
+// The column indices below are the intended order, and they are the reason
+// these assertions can name a cell at all: two rows both showing "Not recorded"
+// in different columns are two different facts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COL = { name: 0, linkedin: 1, industry: 2, writer: 3, lastUpload: 4, posts: 5 } as const;
+
+/** One cell of a body row, by column — `getAllByText` cannot tell two apart. */
+function cell(row: HTMLElement, col: keyof typeof COL): HTMLElement {
+  return within(row).getAllByRole("cell")[COL[col]]!;
+}
+
+const RESOLVED = { status: "resolved", userId: "u1", email: "ana@arcbound.com" } as const;
+const ORPHANED = { status: "unknown", userId: "u2" } as const;
+const UNREADABLE = { status: "unavailable", userId: "u3" } as const;
+
+describe("the Writer column keeps four states four", () => {
+  const writers: ClientListRow[] = [
+    client({ id: "w1", name: "Unset", writer: null }),
+    client({ id: "w2", name: "Resolved", writer: RESOLVED }),
+    client({ id: "w3", name: "Orphaned", writer: ORPHANED }),
+    client({ id: "w4", name: "Unreadable", writer: UNREADABLE }),
+  ];
+
+  it("⚠️ renders all four writer states differently from one another", () => {
+    // ⚠️ THE SLICE, IN ONE ASSERTION. Any two of these rendering alike is a
+    // sentence the screen is not entitled to say: "nobody writes for them"
+    // where somebody does, or "retry" where a person must be reassigned.
+    render(<ClientsTable data={writers} />);
+
+    const [unset, resolved, orphaned, unreadable] = bodyRows();
+    const texts = [unset, resolved, orphaned, unreadable].map(
+      (r) => cell(r!, "writer").textContent ?? "",
+    );
+
+    expect(new Set(texts).size, texts.join(" | ")).toBe(4);
+  });
+
+  it("⚠️ renders “not recorded” as words — the dash belongs to the unread read ALONE", () => {
+    render(<ClientsTable data={writers} />);
+
+    const [unset, resolved, orphaned, unreadable] = bodyRows();
+
+    // A known fact, exactly like "Never" on the column two along.
+    expect(cell(unset!, "writer")).toHaveTextContent(/not recorded/i);
+    expect(within(cell(unset!, "writer")).queryByText("—")).toBeNull();
+
+    expect(cell(resolved!, "writer")).toHaveTextContent("ana@arcbound.com");
+    expect(within(cell(resolved!, "writer")).queryByText("—")).toBeNull();
+
+    // ⚠️ NEITHER ALARMING STATE MAY READ AS "NOBODY". `unknown` is an assignment
+    // pointing at an account that is gone; a human has to pick someone else.
+    expect(cell(orphaned!, "writer")).not.toHaveTextContent(/not recorded/i);
+    expect(within(cell(orphaned!, "writer")).queryByText("—")).toBeNull();
+
+    // …and ONLY the failed read is a dash, with the sentence a sighted reader
+    // gets from the glyph's position spelled out for the one who does not.
+    expect(within(cell(unreadable!, "writer")).getByText("—")).toBeInTheDocument();
+    expect(cell(unreadable!, "writer")).toHaveTextContent(/writer could not be read/i);
+    expect(cell(unreadable!, "writer")).not.toHaveTextContent(/not recorded/i);
+  });
+
+  it("⚠️ parks ONLY the unreadable writer last, in BOTH directions", async () => {
+    // ⚠️ `null` AND `unknown` ARE KNOWN FACTS AND SORT AS VALUES. Only a read
+    // that failed is missing data, and missing data never competes for the top
+    // of a list. Asserting the reversal of the other three is what discriminates:
+    // a row that parked would keep its place when the direction flipped.
+    const user = userEvent.setup();
+    render(<ClientsTable data={writers} />);
+    const sortWriter = screen.getByRole("button", { name: "Sort by writer" });
+
+    await user.click(sortWriter);
+    const asc = names();
+    await user.click(sortWriter);
+    const desc = names();
+
+    expect(asc.at(-1), asc.join(" → ")).toBe("Unreadable");
+    expect(desc.at(-1), desc.join(" → ")).toBe("Unreadable");
+    expect(desc.slice(0, 3)).toEqual([...asc.slice(0, 3)].reverse());
+  });
+});
+
+describe("the Industry column", () => {
+  it("renders an unrecorded industry as words, never as the dash", () => {
+    // ⚠️ THE REGISTRY IS EMPTY IN REALITY, so this is what every row shows on
+    // the first run. It has to look deliberate — a table of em dashes reads as
+    // a broken screen, and the dash means one specific thing on this table.
+    render(
+      <ClientsTable
+        data={[
+          client({ id: "c1", name: "Unset", industry: null }),
+          client({ id: "c2", name: "Recorded", industry: { id: "i1", name: "SaaS" } }),
+        ]}
+      />,
+    );
+
+    const [unset, recorded] = bodyRows();
+
+    expect(cell(unset!, "industry")).toHaveTextContent(/not recorded/i);
+    expect(within(cell(unset!, "industry")).queryByText("—")).toBeNull();
+    expect(cell(recorded!, "industry")).toHaveTextContent("SaaS");
+  });
+
+  it("carries NO ⓘ — two self-evident states need no sentence (D11)", () => {
+    render(<ClientsTable data={rows} />);
+
+    expect(screen.getByRole("columnheader", { name: "Industry" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "What is Industry?" })).toBeNull();
+  });
+});
+
+describe("both new columns hide below the breakpoint, header WITH cell", () => {
+  it("⚠️ carries the same hiding class on the header and on every cell", () => {
+    // ⚠️ HEADER AND CELL TOGETHER OR THE TABLE MISALIGNS. `meta.className`
+    // reaches both, which is why one string can do this; a hand-written class on
+    // only one of them would shift every row by a column at the breakpoint.
+    //
+    // ⚠️ THIS IS NOT A RESPONSIVENESS PROOF. jsdom applies no CSS, so it asserts
+    // the class is present — never that anything is hidden at any width.
+    render(<ClientsTable data={rows} />);
+
+    const [first] = bodyRows();
+    for (const name of ["Industry", "Writer"] as const) {
+      const header = screen.getByRole("columnheader", { name });
+      expect(header.className, `${name} header`).toMatch(/(^|\s)hidden(\s|$)/);
+      expect(header.className, `${name} header`).toMatch(/md:table-cell/);
+    }
+    for (const col of ["industry", "writer"] as const) {
+      const c = cell(first!, col);
+      expect(c.className, `${col} cell`).toMatch(/(^|\s)hidden(\s|$)/);
+      expect(c.className, `${col} cell`).toMatch(/md:table-cell/);
+    }
+  });
+});
+
+describe("the Writer column's ⓘ", () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("keeps the sort control's accessible name agreeing with the visible header", () => {
+    // The hardcoded aria-label in `clients-table.tsx` does not follow a header;
+    // a new sortable column has to be added to it by hand, and this is the test
+    // that notices when it was not.
+    render(<ClientsTable data={rows} />);
+
+    expect(screen.getByRole("button", { name: "Sort by writer" })).toBeInTheDocument();
+  });
+
+  it("⚠️ sits OUTSIDE the sort button — a button inside a button reaches no keyboard", () => {
+    render(<ClientsTable data={rows} />);
+
+    const header = screen.getByRole("columnheader", { name: "Writer" });
+    const sort = within(header).getByRole("button", { name: "Sort by writer" });
+    expect(within(header).getByRole("button", { name: "What is Writer?" })).toBeVisible();
+    expect(within(sort).queryByRole("button")).toBeNull();
+  });
+
+  it("explains all four states, so the two alarming ones cannot be confused", async () => {
+    const user = userEvent.setup();
+    render(<ClientsTable data={rows} />);
+
+    await user.click(screen.getByRole("button", { name: "What is Writer?" }));
+
+    expect(
+      await screen.findByText(METRIC_DEFINITIONS.clientListWriter.definition),
+    ).toBeInTheDocument();
+  });
+
+  it("still sorts with the ⓘ beside it", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClientsTable
+        data={[
+          client({ id: "w1", name: "Zulu", writer: RESOLVED }),
+          client({ id: "w2", name: "Alpha", writer: null }),
+        ]}
+      />,
+    );
+
+    const header = screen.getByRole("columnheader", { name: "Writer" });
+    await user.click(within(header).getByRole("button", { name: "Sort by writer" }));
+
+    // The rows REORDER, which is all this test claims: the sort control still
+    // works with a second button beside it. (TanStack's comparator puts
+    // "Not recorded" ahead of "ana@arcbound.com" — capitals sort first — which
+    // is why the row order here is the reverse of the client names.)
+    expect(names()).toEqual(["Alpha", "Zulu"]);
   });
 });

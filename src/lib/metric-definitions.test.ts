@@ -440,6 +440,27 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
       expect(clientVisible.has(key), `${key} must stay off every client-visible panel`).toBe(false);
     }
   });
+
+  it("⚠️ keeps the WRITER off every client-visible panel — that is staff PII", () => {
+    // ⚠️ A DIFFERENT BOUNDARY FROM THE ONE ABOVE, THROUGH THE SAME DOOR. The two
+    // sentences above are kept off a Client's report because they use ArcBase's
+    // ingestion vocabulary; this one is kept off because of WHAT IT IS. A writer
+    // is an Arcbound staff member and the cell it defines renders their email
+    // address, so a Client's `/r/[token]` report must never reach this key —
+    // not as a leaked word, as a leaked person (D3).
+    //
+    // The loop above already covers every key in the map; this states the reason
+    // for THIS key by name, so folding it into a client map later fails against
+    // a sentence that says why rather than only against a set membership.
+    const clientVisible = new Set(Object.values(CLIENT_MAPS).flatMap((map) => Object.values(map)));
+    const writer = CLIENT_LIST_METRIC_KEYS.Writer!;
+
+    expect(writer).toBe("clientListWriter");
+    expect(clientVisible.has(writer), "a writer's email must never reach a Client").toBe(false);
+    // …and the definition genuinely is about a named staff account, which is
+    // what makes the exclusion necessary rather than tidy.
+    expect(METRIC_DEFINITIONS[writer].definition).toMatch(/staff/i);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,7 +479,14 @@ describe("the Client List's two columns say they are two different pipelines", (
   const posts = METRIC_DEFINITIONS.clientListPosts.definition;
 
   it("maps both column headers to a definition that resolves", () => {
-    expect(Object.keys(CLIENT_LIST_METRIC_KEYS).sort()).toEqual(["Last ArcBase upload", "Posts"]);
+    // ⚠️ THREE, NOT TWO, SINCE S5. `Writer` earned an ⓘ because its cell has
+    // four states and two of them sound alarming while calling for opposite
+    // actions; `Industry` has two self-evident ones and is deliberately absent.
+    expect(Object.keys(CLIENT_LIST_METRIC_KEYS).sort()).toEqual([
+      "Last ArcBase upload",
+      "Posts",
+      "Writer",
+    ]);
     for (const [label, key] of Object.entries(CLIENT_LIST_METRIC_KEYS)) {
       expect(metricDefinition(key)?.definition, label).toBeTruthy();
     }
@@ -491,5 +519,52 @@ describe("the Client List's two columns say they are two different pipelines", (
 
   it("says Posts moves independently of the upload column", () => {
     expect(posts).toMatch(/independent/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE WRITER'S FOUR STATES, TWO OF WHICH SOUND ALARMING AND MEAN OPPOSITE THINGS.
+//
+// A table cell holds a terse label; the sentence that separates "assigned to an
+// account that no longer exists" (a human must reassign) from "the staff
+// directory could not be read" (retry) has to live somewhere, and the ⓘ is that
+// somewhere. ⚠️ A definition that explained only the state the reader asked
+// about would flatten four facts into two — the same collapse the cell exists to
+// prevent, restated in prose.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("the Client List's Writer definition explains all four states", () => {
+  const writer = METRIC_DEFINITIONS.clientListWriter.definition;
+
+  it("says the assignment is recorded in ArcBase by a person, not inferred", () => {
+    // Nothing derives a writer from anything. It is typed in, so a blank means
+    // nobody typed one — which is the only reading of `null` that is true.
+    expect(writer).toMatch(/recorded/i);
+    expect(writer).toMatch(/admin/i);
+  });
+
+  it("keeps “not recorded” a known fact, exactly like “Never” one column along", () => {
+    expect(writer).toMatch(/not recorded/i);
+    expect(writer).toMatch(/known fact/i);
+  });
+
+  it("⚠️ separates the broken LINK from the broken READ, and names the action for each", () => {
+    // ⚠️ THE WHOLE REASON THIS ⓘ EXISTS. Merged, they would send a reader to
+    // reassign a writer who is fine, or to retry a read that will never fix an
+    // account that is gone.
+    expect(writer).toMatch(/no longer/i);
+    expect(writer).toMatch(/reassign/i);
+    expect(writer).toMatch(/could not be read/i);
+  });
+
+  it("reserves the dash for the failed read, and says the assignment is probably intact", () => {
+    expect(writer).toMatch(/dash/i);
+    expect(writer).toMatch(/intact/i);
+  });
+
+  it("⚠️ does NOT read as “nobody is assigned” for either alarming state", () => {
+    // A definition is prose, so this cannot be asserted structurally — but the
+    // one phrasing that would cause the misreport can be kept out by name.
+    expect(writer).not.toMatch(/nobody is assigned/i);
   });
 });

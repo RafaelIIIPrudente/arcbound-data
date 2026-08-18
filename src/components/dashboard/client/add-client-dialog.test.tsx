@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ClientFormState } from "@/app/(app)/clients/actions";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import type { ArcboundService } from "@/services/types";
+import type { StaffDirectoryEntry } from "@/services/staff";
+import type { ArcboundService, Industry } from "@/services/types";
 
 import { AddClientFormView, shouldCloseAfter } from "./add-client-dialog";
 
@@ -40,12 +41,29 @@ const LEGACY_ARCHIVED: ArcboundService = {
   sortOrder: 40,
 };
 
+const SAAS: Industry = {
+  id: "bbbbbbbb-0000-0000-0000-000000000001",
+  name: "SaaS",
+  status: "active",
+};
+/** Retired — a brand-new Client can never already be recorded in it. */
+const FAX: Industry = {
+  id: "bbbbbbbb-0000-0000-0000-000000000002",
+  name: "Fax Machines",
+  status: "archived",
+};
+const STAFF: StaffDirectoryEntry[] = [
+  { userId: "cccccccc-0000-0000-0000-000000000001", email: "ana@arcbound.com" },
+];
+
 const noop = () => {};
 const baseProps = {
   state: { status: "idle" } as ClientFormState,
   formAction: noop,
   pending: false,
   services: [LINKEDIN, LEGACY_ARCHIVED],
+  industries: [SAAS, FAX],
+  staff: STAFF,
 };
 
 describe("AddClientFormView — picking services at registration", () => {
@@ -223,5 +241,57 @@ describe("⚠️ AddClientFormView — the resubmit guard (carried defect, close
 
     expect(screen.getByRole("alert")).toHaveTextContent(/services could not be saved/i);
     expect(screen.getByRole("button", { name: /done/i })).toBeEnabled();
+  });
+});
+
+describe("AddClientFormView — recording industry and writer at registration (S4)", () => {
+  it("offers the ACTIVE industries, and not the archived ones", () => {
+    // ⚠️ COMPLETE HERE, UNLIKE THE CLIENT OVERVIEW. That picker must ALSO offer an
+    // archived industry the Client is already recorded in, because every save
+    // re-sends both fields and a missing option would silently move or clear it.
+    // A Client being registered holds nothing, so there is nothing to preserve —
+    // and offering a retired industry would resurrect it through a side door.
+    render(<AddClientFormView {...baseProps} />);
+
+    expect(screen.getByRole("option", { name: "SaaS" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /fax machines/i })).not.toBeInTheDocument();
+  });
+
+  it("defaults both to not-recorded, which is a real answer", () => {
+    render(<AddClientFormView {...baseProps} />);
+
+    expect((screen.getByLabelText("Industry") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("Writer") as HTMLSelectElement).value).toBe("");
+    expect(screen.getAllByRole("option", { name: /not recorded/i }).length).toBe(2);
+  });
+
+  it("⚠️ an EMPTY registry points at the screen that fixes it", () => {
+    // ⚠️ THIS IS THE BRANCH THAT RENDERS TODAY. The registry is empty by decision,
+    // so this is an admin's first impression of the feature — it must read as an
+    // instruction, not as a fault.
+    render(<AddClientFormView {...baseProps} industries={[]} />);
+
+    const notice = screen.getByText(/no industries are registered yet/i);
+    expect(notice).toHaveTextContent(/settings/i);
+    expect(notice.textContent ?? "").not.toMatch(/could not|failed|error/i);
+    expect(screen.queryByLabelText("Industry")).not.toBeInTheDocument();
+  });
+
+  it("⚠️ an UNREADABLE registry says something DIFFERENT, and still registers", () => {
+    // ⚠️ `null` IS NOT `[]`. One says Arcbound has recorded no industries; the
+    // other says ArcBase could not find out. Registering must not be blocked by
+    // either, but they must not read alike.
+    render(<AddClientFormView {...baseProps} industries={null} />);
+
+    expect(screen.getByText(/industries could not be loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no industries are registered yet/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
+  });
+
+  it("an unreadable staff directory still lets the client be registered", () => {
+    render(<AddClientFormView {...baseProps} staff={null} />);
+
+    expect(screen.getByText(/staff directory could not be loaded/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
   });
 });

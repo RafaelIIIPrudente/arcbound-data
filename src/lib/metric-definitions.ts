@@ -148,6 +148,24 @@ export const METRIC_DEFINITIONS = {
       "How many posts the reporting data attributes to this client. It arrives from the external pipeline rather than from ArcBase's uploads, so it is independent of the column beside it and the two are expected to disagree. Attribution is by name match, so a client whose name is recorded differently upstream than it is registered here will be under-counted — and an under-counted client looks exactly like one who posted less. A dash means the count could not be read, which is never a zero.",
   },
 
+  // ⚠️ THE WRITER'S FOUR STATES, TWO OF WHICH SOUND ALARMING AND CALL FOR
+  // OPPOSITE ACTIONS. `unknown` is a broken LINK — the assignment points at an
+  // account that is gone, and only a person can fix it. `unavailable` is a
+  // broken READ — the assignment is probably fine and the fix is to try again.
+  // A cell can only hold a terse label, so the sentence that keeps those two
+  // apart lives here. Collapsing either of them, or `null`, into "nobody is
+  // assigned" reports a staffing gap that does not exist.
+  //
+  // ⚠️ STAFF-ONLY, AND FOR A SECOND REASON THAN ITS TWO NEIGHBOURS. Those are
+  // kept off a Client's report because they speak ArcBase's ingestion
+  // vocabulary; this one is kept off because the column it defines renders a
+  // colleague's email address (D3).
+  clientListWriter: {
+    term: "Writer",
+    definition:
+      "Which Arcbound staff member writes for this client. An admin records it here and nothing infers it, so an unset column means nobody has entered one — “Not recorded” is a known fact, not missing data. An email address means the assignment resolves to a current staff account. “Assigned · unknown account” means somebody is assigned but that account is no longer in the staff directory, so the fix is to reassign this client to a person rather than to try again. A dash is a fourth case and the only one that is missing data: the staff directory could not be read at all, which leaves the assignment on record probably intact and simply not shown.",
+  },
+
   // ── the client LinkedIn report → Key performance ───────────────────────────
   //
   // ⚠️ THE HERO ROW IS THE SELECTED PERIOD; THE TWO ROWS BENEATH IT ARE ALL-TIME.
@@ -469,6 +487,13 @@ export const OUTREACH_SUMMARY_METRIC_KEYS: Record<string, MetricKey> = {
 export const CLIENT_LIST_METRIC_KEYS: Record<string, MetricKey> = {
   "Last ArcBase upload": "clientListLastArcbaseUpload",
   Posts: "clientListPosts",
+  // ⚠️ STAFF PII, AND THE SHARPEST REASON THIS MAP IS SEPARATE. A writer is an
+  // Arcbound staff member and the column renders their email; folding this key
+  // into a client-visible map would put a colleague's address on a Client's own
+  // report. `Industry` is deliberately absent — two self-evident states need no
+  // sentence, and an ⓘ on every header is noise that devalues the ones that
+  // carry a real warning (D11).
+  Writer: "clientListWriter",
 };
 
 /**

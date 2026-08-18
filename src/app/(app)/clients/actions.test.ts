@@ -51,9 +51,13 @@ describe("createClientAction — as an admin", () => {
   it("registers the client and revalidates the list", async () => {
     const state = await createClientAction(IDLE, form(VALID, [SERVICE_A]));
 
+    // S4 widened this call: `industry_id` and `writer_id` now ride in the SAME
+    // insert (D7), and both are `null` when the form offered no pickers.
     expect(createClientMock).toHaveBeenCalledWith({
       name: "Ada Lovelace",
       linkedin_url: expect.stringContaining("adalovelace"),
+      industry_id: null,
+      writer_id: null,
     });
     expect(revalidateMock).toHaveBeenCalledWith(paths.clients.list);
     expect(state).toMatchObject({ status: "created", clientId: NEW_CLIENT });
@@ -170,6 +174,72 @@ describe("createClientAction refuses a non-admin (ADR 0013)", () => {
       createClientAction(IDLE, form({ name: "", linkedin_url: "not-a-url" })),
     ).rejects.toThrow("NEXT_REDIRECT");
 
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createClientAction — industry and writer (S4)", () => {
+  const INDUSTRY = "bbbbbbbb-0000-0000-0000-000000000001";
+  /** `normalizeLinkedInUrl` is not mocked; it strips `www.` before the seam. */
+  const NORMALIZED_URL = "https://linkedin.com/in/adalovelace";
+  const WRITER = "cccccccc-0000-0000-0000-000000000001";
+
+  it("⚠️ passes BOTH straight into createClient, for the SAME insert", () => {
+    // ⚠️ ONE WRITE, NOT TWO (D7). A follow-up `set_client_industry_writer` call
+    // would add a fifth outcome to this action's four: a Client that exists, with
+    // services, silently missing the industry and writer the admin chose — and
+    // retrying would duplicate the Client, because `clients` has no unique
+    // constraint (ADR 0009).
+    return createClientAction(
+      IDLE,
+      form({ ...VALID, industry_id: INDUSTRY, writer_id: WRITER }),
+    ).then(() => {
+      expect(createClientMock).toHaveBeenCalledWith({
+        name: VALID.name,
+        linkedin_url: NORMALIZED_URL,
+        industry_id: INDUSTRY,
+        writer_id: WRITER,
+      });
+    });
+  });
+
+  it("treats an unset picker as not-recorded, never as a validation failure", async () => {
+    // Both are optional at registration: an engagement can be registered before
+    // either is known, and refusing that would block the create path over nothing.
+    const result = await createClientAction(
+      IDLE,
+      form({ ...VALID, industry_id: "", writer_id: "" }),
+    );
+
+    expect(result.status).toBe("created_without_services");
+    expect(createClientMock).toHaveBeenCalledWith({
+      name: VALID.name,
+      linkedin_url: NORMALIZED_URL,
+      industry_id: null,
+      writer_id: null,
+    });
+  });
+
+  it("registers a Client when the fields are absent entirely", async () => {
+    // ⚠️ ABSENT IS FINE HERE AND REFUSED ON THE EDIT PATH — the asymmetry is the
+    // point. A new Client has no current value to lose, so absent and empty mean
+    // the same true thing. An EXISTING Client's absent field cannot be told apart
+    // from a deliberate clear, which is why the edit action rejects it.
+    const result = await createClientAction(IDLE, form(VALID));
+
+    expect(result.status).toBe("created_without_services");
+    expect(createClientMock).toHaveBeenCalledWith({
+      name: VALID.name,
+      linkedin_url: NORMALIZED_URL,
+      industry_id: null,
+      writer_id: null,
+    });
+  });
+
+  it("refuses a malformed id before anything is created", async () => {
+    const result = await createClientAction(IDLE, form({ ...VALID, industry_id: "nope" }));
+
+    expect(result.status).toBe("error");
     expect(createClientMock).not.toHaveBeenCalled();
   });
 });

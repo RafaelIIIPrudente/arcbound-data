@@ -3,16 +3,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 
-const { getClientMock, listUploadsMock, getReportLinkMock, getRoleMock, getClientServicesMock } =
-  vi.hoisted(() => ({
-    getClientMock: vi.fn(),
-    listUploadsMock: vi.fn(),
-    getReportLinkMock: vi.fn(),
-    getRoleMock: vi.fn(),
-    getClientServicesMock: vi.fn(),
-  }));
+const {
+  getClientMock,
+  listUploadsMock,
+  getReportLinkMock,
+  getRoleMock,
+  getClientServicesMock,
+  listIndustriesMock,
+  listStaffDirectoryMock,
+} = vi.hoisted(() => ({
+  getClientMock: vi.fn(),
+  listUploadsMock: vi.fn(),
+  getReportLinkMock: vi.fn(),
+  getRoleMock: vi.fn(),
+  getClientServicesMock: vi.fn(),
+  listIndustriesMock: vi.fn(),
+  listStaffDirectoryMock: vi.fn(),
+}));
 
 vi.mock("@/services/clients", () => ({ getClient: getClientMock }));
+vi.mock("@/services/industries", () => ({ listIndustriesAdmin: listIndustriesMock }));
+vi.mock("@/services/staff", () => ({ listStaffDirectory: listStaffDirectoryMock }));
 vi.mock("@/services/uploads", () => ({ listUploads: listUploadsMock }));
 vi.mock("@/services/report-links", () => ({ getReportLink: getReportLinkMock }));
 vi.mock("@/lib/auth/roles", () => ({
@@ -32,6 +43,27 @@ vi.mock("@/components/dashboard/client/upload-history", () => ({ UploadHistory: 
 vi.mock("@/components/dashboard/client/follower-trend", () => ({
   FollowerTrendPanel: () => null,
   ConnectionsTrendPanel: () => null,
+}));
+vi.mock("@/components/dashboard/client/client-industry-writer-card", () => ({
+  ClientIndustryWriterCard: (props: {
+    industry: { id: string } | null;
+    writer: { userId: string } | null;
+    industries: unknown[] | null;
+    staff: unknown[] | null;
+    isAdmin: boolean;
+  }) => (
+    <div
+      data-testid="industry-writer-card"
+      data-industry={props.industry?.id ?? ""}
+      data-writer={props.writer?.userId ?? ""}
+      // ⚠️ "null" AND "0" MUST BE TELLABLE APART HERE. A failed registry read
+      // reaching the card as `[]` is the silent-wipe path (see the card header),
+      // so the test asserts on which of the two arrived.
+      data-industries={props.industries === null ? "null" : String(props.industries.length)}
+      data-staff={props.staff === null ? "null" : String(props.staff.length)}
+      data-is-admin={String(props.isAdmin)}
+    />
+  ),
 }));
 vi.mock("@/components/dashboard/client/client-services-card", () => ({
   ClientServicesCard: (props: { assignedIds: string[]; isAdmin: boolean }) => (
@@ -58,6 +90,16 @@ const SERVICE = {
   sortOrder: 10,
 };
 
+const INDUSTRY = {
+  id: "bbbbbbbb-0000-0000-0000-000000000001",
+  name: "SaaS",
+  status: "active" as const,
+};
+const STAFF_ENTRY = {
+  userId: "cccccccc-0000-0000-0000-000000000001",
+  email: "ana@arcbound.com",
+};
+
 function params() {
   return { params: Promise.resolve({ id: CLIENT_ID }) };
 }
@@ -79,6 +121,10 @@ beforeEach(() => {
   getRoleMock.mockResolvedValue("admin");
   getClientServicesMock.mockReset();
   getClientServicesMock.mockResolvedValue({ services: [SERVICE], held: [SERVICE] });
+  listIndustriesMock.mockReset();
+  listIndustriesMock.mockResolvedValue([INDUSTRY]);
+  listStaffDirectoryMock.mockReset();
+  listStaffDirectoryMock.mockResolvedValue([STAFF_ENTRY]);
 });
 
 describe("the Client Overview — Services", () => {
@@ -177,5 +223,69 @@ describe("the Client Overview — the ⓘ on each headline card", () => {
     expect(METRIC_DEFINITIONS.overviewFollowers.definition).toMatch(
       /skipped rather than read as zero/,
     );
+  });
+});
+
+describe("the Client Overview — Industry & writer (S4)", () => {
+  it("hands the card the client's CURRENT values, which every save re-sends", async () => {
+    // ⚠️ THE CARD CANNOT PRESERVE WHAT IT WAS NEVER GIVEN. `set_client_industry_writer`
+    // applies both arguments including NULL, so the current industry and writer
+    // are what a writer-only change has to carry through — they are inputs to the
+    // form, not decoration.
+    getClientMock.mockResolvedValue({
+      id: CLIENT_ID,
+      name: "Ada Lovelace",
+      linkedin_url: "https://www.linkedin.com/in/adalovelace",
+      created_at: "2026-01-01T00:00:00.000Z",
+      posts: 0,
+      industry: { id: INDUSTRY.id, name: "SaaS" },
+      writer: { status: "resolved", userId: STAFF_ENTRY.userId, email: STAFF_ENTRY.email },
+    });
+
+    render(await ClientDetailPage(params()));
+
+    const card = screen.getByTestId("industry-writer-card");
+    expect(card).toHaveAttribute("data-industry", INDUSTRY.id);
+    expect(card).toHaveAttribute("data-writer", STAFF_ENTRY.userId);
+  });
+
+  it("⚠️ passes isAdmin explicitly, so an analyst gets the read-only card", async () => {
+    getRoleMock.mockResolvedValue("analyst");
+
+    render(await ClientDetailPage(params()));
+
+    expect(screen.getByTestId("industry-writer-card")).toHaveAttribute("data-is-admin", "false");
+  });
+
+  it("⚠️ passes `null` — NOT `[]` — when the industries read fails", async () => {
+    // ⚠️ THE DISTINCTION IS THE SAFETY PROPERTY, NOT A NICETY. `[]` would make the
+    // card render a picker with no option matching this Client's industry, and the
+    // next save — of the WRITER — would silently clear it. `null` tells the card to
+    // keep the current value in a hidden input instead.
+    listIndustriesMock.mockRejectedValueOnce(new Error("denied"));
+
+    render(await ClientDetailPage(params()));
+
+    expect(screen.getByTestId("industry-writer-card")).toHaveAttribute("data-industries", "null");
+  });
+
+  it("passes `null` when the staff directory read fails", async () => {
+    listStaffDirectoryMock.mockRejectedValueOnce(new Error("denied"));
+
+    render(await ClientDetailPage(params()));
+
+    expect(screen.getByTestId("industry-writer-card")).toHaveAttribute("data-staff", "null");
+  });
+
+  it("⚠️ neither read can take the page down", async () => {
+    // Both are pickers for one card. The uploads, KPIs and report link on this page
+    // have nothing to do with them and must survive their failure.
+    listIndustriesMock.mockRejectedValueOnce(new Error("denied"));
+    listStaffDirectoryMock.mockRejectedValueOnce(new Error("denied"));
+
+    render(await ClientDetailPage(params()));
+
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.getByTestId("industry-writer-card")).toBeInTheDocument();
   });
 });

@@ -31,6 +31,24 @@ import { columns, type ClientColumnMeta } from "./columns";
 const FILTER_DEBOUNCE_MS = 300;
 
 /**
+ * What each sortable column is CALLED when the sort control is announced.
+ *
+ * ⚠️ HARDCODED AND NOT DERIVED FROM THE HEADER, WHICH IS THE HAZARD AND THE
+ * REASON THIS EXISTS AS A MAP. A header rename does not reach these strings —
+ * "last upload" survived the rename to "Last ArcBase upload" here until it was
+ * changed by hand — so `clients-table.test.tsx` pins each one to the visible
+ * label. ⚠️ A NEW SORTABLE COLUMN MUST BE ADDED HERE; the fallback announces the
+ * raw column id, which is wrong but at least never announces another column's
+ * name, as an inherited `else` branch would.
+ */
+const SORT_LABELS: Record<string, string> = {
+  name: "client",
+  writer: "writer",
+  lastUpload: "last ArcBase upload",
+  postsCount: "posts",
+};
+
+/**
  * The Client List table.
  *
  * ⚠️ THE URL IS THE ONLY SOURCE OF TRUTH FOR THE FILTER. The input is
@@ -113,13 +131,10 @@ export function ClientsTable({ data, q = "" }: { data: ClientListRow[]; q?: stri
                           type="button"
                           onClick={header.column.getToggleSortingHandler()}
                           className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
-                          // ⚠️ MUST AGREE WITH THE VISIBLE HEADER IN `columns.tsx`.
-                          // This is hardcoded rather than derived, so a header
-                          // rename does NOT reach it — "last upload" survived the
-                          // rename to "Last ArcBase upload" here until it was
-                          // changed by hand, which would have left the control
-                          // announced as something other than what it reads.
-                          aria-label={`Sort by ${header.column.id === "name" ? "client" : header.column.id === "postsCount" ? "posts" : "last ArcBase upload"}`}
+                          // ⚠️ MUST AGREE WITH THE VISIBLE HEADER IN `columns.tsx`
+                          // — see `SORT_LABELS` above for why it is spelled out
+                          // there rather than derived from the header.
+                          aria-label={`Sort by ${SORT_LABELS[header.column.id] ?? header.column.id}`}
                         >
                           {label}
                           {direction === "asc" ? (

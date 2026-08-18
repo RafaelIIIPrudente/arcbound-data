@@ -8,6 +8,7 @@ import {
   ConnectionsTrendPanel,
   FollowerTrendPanel,
 } from "@/components/dashboard/client/follower-trend";
+import { ClientIndustryWriterCard } from "@/components/dashboard/client/client-industry-writer-card";
 import { ClientServicesCard } from "@/components/dashboard/client/client-services-card";
 import { MetricInfo } from "@/components/dashboard/metric-info";
 import { ReportLinkCard } from "@/components/dashboard/client/report-link-card";
@@ -19,7 +20,9 @@ import { connectionsDelta, followersDelta, postsDelta, type UploadDelta } from "
 import { paths } from "@/paths";
 import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
+import { listIndustriesAdmin } from "@/services/industries";
 import { getReportLink } from "@/services/report-links";
+import { listStaffDirectory } from "@/services/staff";
 import { listUploads } from "@/services/uploads";
 
 export const metadata: Metadata = { title: "Client detail" };
@@ -130,12 +133,22 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // 2026-08-14, so the read ordinarily succeeds and this degradation is the
   // rare path — but it is still reachable whenever the registry read fails,
   // which is the only reason it exists.
-  const [client, uploads, reportLink, role, access] = await Promise.all([
+  // ⚠️ THE TWO PICKER READS DEGRADE TO `null` AND NEVER `[]`, for the reason the
+  // whole slice turns on: a save re-sends BOTH the industry and the writer, so a
+  // picker that renders from an empty list where the read merely failed would
+  // have no option matching this Client — and the next save would silently clear
+  // the field. `null` tells the card to keep the current value in a hidden input
+  // instead of offering a choice it cannot honour.
+  //
+  // They also cannot fail the page, same rule as `getReportLink` and `getRole`.
+  const [client, uploads, reportLink, role, access, industries, staff] = await Promise.all([
     getClient(id),
     listUploads(id),
     getReportLink(id),
     getRole(),
     getClientServices(id),
+    listIndustriesAdmin().catch(() => null),
+    listStaffDirectory().catch(() => null),
   ]);
   if (!client) notFound();
 
@@ -245,6 +258,21 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           as having none.
         </p>
       )}
+
+      {/* Which industry this Client is in and who writes for them. Admin-editable;
+          an analyst sees both read-only. ⚠️ EVERY SAVE WRITES BOTH FIELDS — the
+          RPC applies both arguments including NULL, so there is no partial update
+          and whatever the form omits is cleared. The card's header explains how it
+          holds that line; `client.industry` and `client.writer` are the current
+          values it must carry through. */}
+      <ClientIndustryWriterCard
+        clientId={client.id}
+        industry={client.industry}
+        writer={client.writer}
+        industries={industries}
+        staff={staff}
+        isAdmin={isAdmin(role)}
+      />
 
       {/* The private link + out-of-band Access Code staff hand this Client their
           own report through. `status` is null when no link exists (→ Create); the

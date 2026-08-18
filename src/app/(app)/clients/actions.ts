@@ -9,8 +9,23 @@ import { paths } from "@/paths";
 import { setClientServices } from "@/services/arcbound-services";
 import { createClient } from "@/services/clients";
 
-// Clients are immutable (ADR 0007, invariant #2) — this file exposes only a
-// create action. There is deliberately no update or delete action.
+// ⚠️ THIS FILE'S OLD HEADER SAID CLIENTS WERE IMMUTABLE. THAT IS NO LONGER TRUE.
+//
+// It read: "Clients are immutable (ADR 0007, invariant #2) — this file exposes
+// only a create action. There is deliberately no update or delete action."
+// S4 falsified it. Two columns are now admin-mutable — `industry_id` and
+// `writer_id` — through `setClientIndustryWriterAction` in
+// `clients/[id]/industry-writer-actions.ts`.
+//
+// ADR 0007's own words still hold literally: `public.clients` has no update or
+// delete POLICY, so nothing writes the table directly. What changed is the
+// invariant that sentence was enforcing. The half that actually protects
+// attribution is untouched and is enforced by construction, not by convention:
+// `name` and `linkedin_url` are named by no write path in this application, so
+// the key `bi.linkedin_post_latest` joins scraped posts on cannot be edited.
+//
+// (A narrowing of ADR 0007, like the one report links applied to the same ADR.
+// Recorded in docs/decisions/2026-08-18-client-industry-and-writer.md.)
 //
 // ⚠️ REGISTERING A CLIENT IS ADMIN-ONLY (ADR 0013), AND THE GUARD RUNS FIRST —
 // BEFORE VALIDATION, NOT AFTER IT.
@@ -28,6 +43,26 @@ import { createClient } from "@/services/clients";
 const clientSchema = z.object({
   name: z.string().min(1, "Name is required."),
   linkedin_url: z.string().min(1, "LinkedIn URL is required."),
+});
+
+/**
+ * Industry and Writer at registration. Both OPTIONAL — "not recorded" is a
+ * legitimate answer, and an unset picker posts `""`.
+ *
+ * ⚠️ NO PRESENCE CHECK HERE, UNLIKE THE EDIT ACTION, AND THE ASYMMETRY IS
+ * DELIBERATE. On the edit path an absent field is indistinguishable from a
+ * deliberate clear, so it is refused. A Client being registered has no current
+ * value to lose: absent and empty mean the same thing, and both are true.
+ */
+const optionalId = (label: string) =>
+  z
+    .union([z.literal(""), z.string().uuid(label)])
+    .nullish()
+    .transform((value) => (value ? value : null));
+
+const captureSchema = z.object({
+  industry_id: optionalId("Select a valid industry."),
+  writer_id: optionalId("Select a valid writer."),
 });
 
 /**
@@ -84,9 +119,29 @@ export async function createClientAction(
   //
   // No app-side dedup — this external schema has no unique constraint on clients
   // (ADR 0009). We validate the URL shape and store it; duplicates aren't blocked.
+  // ⚠️ PARSED SEPARATELY FROM `Object.fromEntries` ABOVE, because these two are
+  // optional and that schema is not. A bad id is refused before the insert rather
+  // than surfacing as a foreign-key violation nobody can act on.
+  const capture = captureSchema.safeParse({
+    industry_id: formData.get("industry_id"),
+    writer_id: formData.get("writer_id"),
+  });
+  if (!capture.success) {
+    return { status: "error", message: capture.error.issues[0]?.message ?? "Invalid request." };
+  }
+
   let client;
   try {
-    client = await createClient({ name: parsed.data.name, linkedin_url: normalized.value });
+    // ⚠️ BOTH FIELDS RIDE IN THE SAME INSERT (D7) — NOT a follow-up call to
+    // `set_client_industry_writer`. A second write would add a fifth outcome to
+    // the four below: a Client that exists, with services, but silently missing
+    // the industry and writer the admin chose. One statement cannot half-succeed.
+    client = await createClient({
+      name: parsed.data.name,
+      linkedin_url: normalized.value,
+      industry_id: capture.data.industry_id,
+      writer_id: capture.data.writer_id,
+    });
   } catch (err) {
     // Nothing was created, so this is a plain failure and a retry is safe.
     return { status: "error", message: err instanceof Error ? err.message : String(err) };
