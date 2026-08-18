@@ -132,8 +132,15 @@ List means "could not be read" and nothing else.
   unique index will refuse a second "Ryan Prior". That refusal is correct — a
   registry whose entries cannot be told apart is useless — and the answer is a
   human making the name distinguishable, never a silent second row.
-- **A third near-identical registry.** `services`, `industries` and now `writers`
-  share a shape; a registry-wide change is edited in three places.
+- **A second near-identical registry.** `industries` and `writers` are the same
+  shape — 46 executable lines each, five functions each — so a registry-wide
+  change is edited in two places. They are deliberately not shared: a factory
+  over two instances would add about as much indirection as it removes, and the
+  half that differs is the prose, which is the half worth keeping per-registry.
+  Each file carries a ⚠️ pointer to its twin, which is the only thing that will
+  remind anyone. ⚠️ `arcbound-services.ts` is NOT a third instance — it is 182
+  lines, carries a slug, handler, sort order, per-client assignments and a
+  `can_delete` flag, and shares no function name with either.
 
 ## Alternatives considered
 
