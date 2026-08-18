@@ -4,7 +4,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import type { Client, ClientListRow, LastUpload, Paginated } from "@/services/types";
+import { listStaffDirectory } from "@/services/staff";
+import type {
+  Client,
+  ClientIndustry,
+  ClientListRow,
+  ClientWriter,
+  LastUpload,
+  Paginated,
+} from "@/services/types";
 import { latestUploadByClient } from "@/services/uploads";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,18 +31,97 @@ interface ClientRow {
   name: string;
   linkedin_profile_url: string;
   created_at: string;
+  /** The embedded industry — an object, or `null` when none is recorded. */
+  industry: ClientIndustry | ClientIndustry[] | null;
+  writer_id: string | null;
 }
 
-const CLIENT_COLUMNS = "id, name, linkedin_profile_url, created_at";
+/**
+ * ⚠️ THE INDUSTRY RIDES ALONG ON THIS SELECT, THE WRITER DOES NOT.
+ *
+ * `industry:industries(id, name)` is a PostgREST embed over the foreign key, so
+ * it costs no extra round-trip and cannot fail on its own — if the select works
+ * at all, the industry came with it. The writer cannot be resolved this way:
+ * `writer_id` points at `auth.users`, which is not readable by `authenticated`,
+ * so its email has to come from the `list_staff_directory()` RPC instead. That
+ * asymmetry is the whole reason `ClientWriter` has states `ClientIndustry` does
+ * not.
+ */
+const CLIENT_COLUMNS =
+  "id, name, linkedin_profile_url, created_at, writer_id, industry:industries(id, name)";
 
-function toClient(row: ClientRow, postsCount: number | null): Client {
+/**
+ * PostgREST returns a many-to-one embed as an OBJECT, but returns an ARRAY when
+ * it reads the relationship the other way round. Normalising both is one line;
+ * getting it wrong would report "no industry" for every Client on every screen,
+ * silently and plausibly, which is exactly the class of failure this seam keeps
+ * being bitten by.
+ */
+function toIndustry(embedded: ClientRow["industry"]): ClientIndustry | null {
+  if (!embedded) return null;
+  const row = Array.isArray(embedded) ? embedded[0] : embedded;
+  return row ? { id: row.id, name: row.name } : null;
+}
+
+/**
+ * A Client's writer, from the row's `writer_id` and the directory read.
+ *
+ * ⚠️ FOUR OUTCOMES, AND THE ORDER OF THESE THREE LINES IS THE POINT. `writer_id`
+ * is checked FIRST, so "nobody is assigned" — a fact carried by the client row
+ * alone — is never downgraded to "we could not find out" just because the
+ * directory happened to be unreadable. Only an ASSIGNED writer can be
+ * `unavailable`.
+ */
+function toWriter(writerId: string | null, emails: Map<string, string> | null): ClientWriter {
+  if (!writerId) return null;
+  if (emails === null) return { status: "unavailable", userId: writerId };
+  const email = emails.get(writerId);
+  return email
+    ? { status: "resolved", userId: writerId, email }
+    : { status: "unknown", userId: writerId };
+}
+
+function toClient(
+  row: ClientRow,
+  postsCount: number | null,
+  emails: Map<string, string> | null,
+): Client {
   return {
     id: row.id,
     name: row.name,
     linkedin_url: row.linkedin_profile_url,
     createdAt: row.created_at,
     postsCount,
+    industry: toIndustry(row.industry),
+    writer: toWriter(row.writer_id, emails),
   };
+}
+
+/**
+ * Staff emails by user id, or `null` when the directory read FAILED.
+ *
+ * ⚠️ THIS FUNCTION MUST NEVER THROW, AND THE REASON IS NOT IN THIS FILE.
+ * `getClient` is no longer only a display read: the upload name-match gate calls
+ * it before every write, and `checkAuthorNames` CATCHES ITS THROW and degrades
+ * to `{ status: "unchecked" }` — letting the upload proceed without the check
+ * that exists because fourteen posts were lost to a name mismatch. So a reader
+ * that can reject would not surface here as an error anybody sees; it would
+ * silently switch that gate off, on exactly the days the database is unwell.
+ *
+ * Hence the same contract `fetchPostCounts` and `latestUploadByClient` already
+ * follow: swallow the failure, signal it with `null`, and let `toWriter` turn
+ * that into a writer state a screen can be honest about.
+ */
+async function staffEmailsById(): Promise<Map<string, string> | null> {
+  try {
+    const directory = await listStaffDirectory();
+    return new Map(directory.map((entry) => [entry.userId, entry.email]));
+  } catch (err) {
+    console.warn(
+      `Failed to load the staff directory: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
 }
 
 /**
@@ -181,25 +268,28 @@ export async function listClients(
   const { q, page = 1, pageSize = 10 } = opts;
   const supabase = createServerClient(cookies());
 
-  // Three independent reads, issued together. Neither the counts nor the latest
-  // uploads read anything out of the client select, so none of them needed to
-  // wait; all three are joined to the rows in memory below.
+  // Four independent reads, issued together. None of the counts, the latest
+  // uploads or the staff directory reads anything out of the client select, so
+  // none of them needed to wait; all four are joined to the rows in memory below.
   //
   // `latestUploadByClient` is ONE query for every client — reading uploads per
-  // row would be an N+1.
+  // row would be an N+1 — and `staffEmailsById` is ONE read for the whole page
+  // for the same reason. The directory is the staff roster, not a per-client
+  // resource; there is nothing to fetch a second time.
   //
-  // Error precedence is unchanged: the two helpers swallow their own failures
-  // (signalling with `null`), so neither can reject, and the select's error is
+  // Error precedence is unchanged: the three helpers swallow their own failures
+  // (signalling with `null`), so none can reject, and the select's error is
   // still the only one that can surface here.
   // `readAllPages` reports THAT a read failed, not WHY. This seam's contract is
   // to throw with the database's own message, so the reader keeps the first one
   // it sees rather than losing it to a console warning.
   const failure: { message: string | null } = { message: null };
 
-  const [clientsRead, counts, latestUploads] = await Promise.all([
+  const [clientsRead, counts, latestUploads, writerEmails] = await Promise.all([
     readAllPages(clientPageReader(supabase, failure), "public.clients"),
     fetchPostCounts(supabase),
     latestUploadByClient(),
+    staffEmailsById(),
   ]);
   if (clientsRead.unavailable) {
     throw new Error(`Failed to load clients: ${failure.message ?? "read failed"}`);
@@ -210,7 +300,10 @@ export async function listClients(
     // never a fabricated 0 or "never ingested".
     const lastUpload: LastUpload =
       latestUploads === null ? "unavailable" : (latestUploads.get(row.id) ?? null);
-    return { ...toClient(row, counts === null ? null : (counts.get(row.id) ?? 0)), lastUpload };
+    return {
+      ...toClient(row, counts === null ? null : (counts.get(row.id) ?? 0), writerEmails),
+      lastUpload,
+    };
   });
 
   if (q && q.trim()) {
@@ -246,23 +339,30 @@ export async function listClients(
 export const getClient = cache(async (id: string): Promise<Client | null> => {
   const supabase = createServerClient(cookies());
 
-  // Two independent reads, issued together. The count filters on the id
-  // ARGUMENT, not on anything the select returns, so it never needed to wait:
-  // `clients.id` is a uuid, so the row's id and `id` are the same value, and
-  // `getClientReport` already filters this same BI view on the raw route param.
+  // Three independent reads, issued together. Neither the count nor the staff
+  // directory reads anything out of the select, so neither needed to wait: the
+  // count filters on the id ARGUMENT (`clients.id` is a uuid, so the row's id
+  // and `id` are the same value, and `getClientReport` already filters this same
+  // BI view on the raw route param), and the directory is the whole staff
+  // roster, which does not depend on this client at all.
   //
-  // Error precedence is unchanged. `countForClient` swallows its own failures
-  // and returns 0, so it can never reject — the only error that can surface
-  // here is still the select's, with the same message as before.
-  const [{ data, error }, postsCount] = await Promise.all([
+  // ⚠️ ERROR PRECEDENCE IS UNCHANGED, AND HERE THAT IS A SAFETY PROPERTY RATHER
+  // THAN TIDINESS. `countForClient` and `staffEmailsById` both swallow their own
+  // failures, so neither can reject — the only error that can surface from this
+  // function is still the select's, with the same message as before. The upload
+  // name-match gate calls `getClient` and treats ANY throw as "could not check",
+  // proceeding with the write; a directory that could reject would therefore
+  // turn that gate off without a word on screen.
+  const [{ data, error }, postsCount, writerEmails] = await Promise.all([
     supabase.from("clients").select(CLIENT_COLUMNS).eq("id", id).maybeSingle(),
     countForClient(supabase, id),
+    staffEmailsById(),
   ]);
 
   if (error) throw new Error(`Failed to load client: ${error.message}`);
   if (!data) return null;
 
-  return toClient(data as ClientRow, postsCount);
+  return toClient(data as ClientRow, postsCount, writerEmails);
 });
 
 export async function createClient(input: { name: string; linkedin_url: string }): Promise<Client> {
@@ -275,5 +375,8 @@ export async function createClient(input: { name: string; linkedin_url: string }
     .single();
   if (error) throw new Error(`Failed to create client: ${error.message}`);
 
-  return toClient(data as ClientRow, 0);
+  // No directory read: the insert sets neither column, so a brand-new Client has
+  // no industry and no writer by construction. An empty map is the honest input
+  // — there is no id to look up, and nothing to be uncertain about.
+  return toClient(data as ClientRow, 0, new Map());
 }

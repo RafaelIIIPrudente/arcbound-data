@@ -38,7 +38,61 @@ export interface Client {
    * ArcBase (ADR 0009), so we cannot see which, and must not claim to.
    */
   postsCount: number | null;
+  /**
+   * The Arcbound industry this Client is recorded in, or `null` when none is.
+   *
+   * ⚠️ `null` HAS EXACTLY ONE MEANING HERE — "not recorded yet" — and that is a
+   * guarantee the database makes, not an assumption. `clients.industry_id` is a
+   * foreign key onto `public.industries` whose delete action is NO ACTION, and
+   * `delete_industry` refuses while any Client references it, so a dangling id
+   * cannot exist; the registry's SELECT policy is `to authenticated using
+   * (true)`, so no staff session is shown a subset. A set industry therefore
+   * always resolves, which is why this needs none of the extra states `writer`
+   * carries. If either of those two facts ever changes, this type is wrong.
+   *
+   * An ARCHIVED industry still resolves. Archiving stops one being OFFERED for
+   * new assignments; it does not evict the Clients already in it.
+   */
+  industry: ClientIndustry | null;
+  /** Who writes for this Client — see `ClientWriter`, which has four states. */
+  writer: ClientWriter;
 }
+
+/** An Arcbound industry, as a Client carries it. */
+export interface ClientIndustry {
+  id: string;
+  name: string;
+}
+
+/**
+ * Who writes for a Client:
+ *   • `null`          — NOBODY IS ASSIGNED. Known from the client row alone
+ *                       (`writer_id` is null), so a broken directory read cannot
+ *                       make this uncertain.
+ *   • `resolved`      — assigned, and their email was found.
+ *   • `unknown`       — assigned, but that id is in no staff account we can see.
+ *   • `unavailable`   — the staff directory READ FAILED, so we do not know.
+ *
+ * ⚠️ FOUR STATES BECAUSE THEY ARE FOUR DIFFERENT FACTS, and the same rule that
+ * governs `LastUpload` and `postsCount` governs this: a screen that renders two
+ * of them identically is lying about which one happened.
+ *
+ * ⚠️ `unknown` AND `unavailable` ARE DELIBERATELY NOT MERGED. They call for
+ * opposite actions. `unavailable` is about ArcBase — the read broke, the
+ * assignment is probably fine, try again. `unknown` is about the data — nobody
+ * holds that id, so a human must reassign the Client. Merging them tells an
+ * admin to retry when a reassignment is needed, or to reassign when nothing is
+ * wrong.
+ *
+ * ⚠️ THE WRITER IS RESOLVED THROUGH A SEPARATE RPC (`list_staff_directory`),
+ * which is why it has states the industry does not: the industry rides along on
+ * the client SELECT via its foreign key, while this can fail on its own.
+ */
+export type ClientWriter =
+  | null
+  | { status: "resolved"; userId: string; email: string }
+  | { status: "unknown"; userId: string }
+  | { status: "unavailable"; userId: string };
 
 /**
  * When a Client was last ingested:

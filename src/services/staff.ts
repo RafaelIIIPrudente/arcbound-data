@@ -89,6 +89,41 @@ export async function listStaff(): Promise<StaffMember[]> {
   }));
 }
 
+/** One staff account, as any authenticated staff member may see it. */
+export interface StaffDirectoryEntry {
+  userId: string;
+  email: string;
+}
+
+/**
+ * Every staff account, as `user_id` and `email` — and NOTHING ELSE.
+ *
+ * ⚠️ THIS IS NOT `listStaff()` WITH FEWER FIELDS, IT IS A DIFFERENT RPC WITH A
+ * DIFFERENT AUDIENCE. `list_staff` is admin-only and carries role, `assigned`
+ * and `pending`; `list_staff_directory` is granted to every authenticated staff
+ * member and returns two columns, so a Data Analyst can read
+ * "Writer: ada@arcbound.com" instead of a raw uuid. That follows ADR 0013's own
+ * principle — a privilege tier removes the ability to CHANGE things, never the
+ * ability to SEE them — rather than widening the admin roster's reach. If this
+ * function ever grows a role or an invite state, that boundary is gone.
+ *
+ * ⚠️ THROWS ON FAILURE, and `clients.ts` deliberately does NOT let that reach
+ * `getClient` — see the block above `staffEmailsById` there, which explains why
+ * a throw from this read would silently disable the upload name-match gate. A
+ * caller that wants to tell a broken directory from an empty one (S3's writer
+ * picker) gets that distinction here.
+ */
+export async function listStaffDirectory(): Promise<StaffDirectoryEntry[]> {
+  const supabase = createClient(cookies());
+  const { data, error } = await supabase.rpc("list_staff_directory");
+  if (error) throw new Error(`Failed to list the staff directory: ${error.message}`);
+
+  const rows = (data ?? []) as { user_id: string; email: string }[];
+  // Two fields, named explicitly. A column added to the RPC later cannot reach a
+  // screen through this mapping without someone editing this line.
+  return rows.map((row) => ({ userId: row.user_id, email: row.email }));
+}
+
 /**
  * Assign a Staff Role. Admin-only, and refused if it would leave zero admins.
  *

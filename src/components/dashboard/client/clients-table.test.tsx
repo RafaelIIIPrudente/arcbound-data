@@ -19,6 +19,11 @@ function client(over: Partial<ClientListRow> & { id: string; name: string }): Cl
     createdAt: "2026-01-04T09:00:00.000Z",
     postsCount: 5,
     lastUpload: "2026-07-15T09:00:00.000Z",
+    // Both default to unset — the state every Client was in before S1 added the
+    // columns. This table does not render either field yet (S4 owns that); they
+    // are here because `ClientListRow` now requires them.
+    industry: null,
+    writer: null,
     ...over,
   };
 }

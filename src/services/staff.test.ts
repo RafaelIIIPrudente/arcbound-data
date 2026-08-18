@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({ rpc: rpcMock, functions: { invoke: invokeMock } }),
 }));
 
-import { inviteStaff, listStaff, setStaffRole } from "./staff";
+import { inviteStaff, listStaff, listStaffDirectory, setStaffRole } from "./staff";
 
 const ADMIN_ROW = {
   user_id: "11111111-1111-1111-1111-111111111111",
@@ -183,5 +183,64 @@ describe("inviteStaff", () => {
     invokeMock.mockResolvedValueOnce({ data: { unexpected: true }, error: null });
 
     await expect(inviteStaff("someone@arcbound.com", "admin")).rejects.toThrow();
+  });
+});
+
+describe("listStaffDirectory — the analyst-readable roster (D4)", () => {
+  it("maps user_id/email, and calls the DIRECTORY rpc — never list_staff", () => {
+    // ⚠️ THE RPC NAME IS THE ASSERTION. `list_staff` is admin-only and carries
+    // role, `assigned` and `pending`; this one is granted to every authenticated
+    // staff member and returns two columns. Pointing this function at the admin
+    // RPC would make every analyst's Client screen raise 42501 — and pointing it
+    // at a widened directory would hand them the governance data that guard
+    // exists to protect. The name is the whole boundary.
+    rpcMock.mockResolvedValueOnce({
+      data: [
+        { user_id: ADMIN_ROW.user_id, email: "admin@arcbound.com" },
+        { user_id: UNASSIGNED_ROW.user_id, email: "newhire@arcbound.com" },
+      ],
+      error: null,
+    });
+
+    return listStaffDirectory().then((directory) => {
+      expect(rpcMock).toHaveBeenCalledWith("list_staff_directory");
+      expect(rpcMock).not.toHaveBeenCalledWith("list_staff");
+      expect(directory).toEqual([
+        { userId: ADMIN_ROW.user_id, email: "admin@arcbound.com" },
+        { userId: UNASSIGNED_ROW.user_id, email: "newhire@arcbound.com" },
+      ]);
+    });
+  });
+
+  it("carries NO role, assigned or pending — even if the RPC grew them", async () => {
+    // Defence in depth against the database being widened later: the mapping
+    // names two fields explicitly, so an extra column arriving over the wire
+    // cannot reach a screen an analyst can read.
+    rpcMock.mockResolvedValueOnce({
+      data: [{ ...ADMIN_ROW, email: "admin@arcbound.com" }],
+      error: null,
+    });
+
+    const [entry] = await listStaffDirectory();
+
+    expect(entry).toEqual({ userId: ADMIN_ROW.user_id, email: "admin@arcbound.com" });
+    expect(entry).not.toHaveProperty("role");
+    expect(entry).not.toHaveProperty("assigned");
+    expect(entry).not.toHaveProperty("pending");
+  });
+
+  it("returns an empty directory when the RPC yields no rows", async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: null });
+    await expect(listStaffDirectory()).resolves.toEqual([]);
+  });
+
+  it("THROWS when the directory read fails", async () => {
+    // ⚠️ THROWING HERE IS DELIBERATE, AND IS NOT A CONTRADICTION OF THE RULE
+    // THAT `getClient` MUST NOT THROW. This seam reports what the database said;
+    // `clients.ts` is where the failure is caught and turned into a writer state,
+    // because that is the module the upload gate reads through. A caller that
+    // wants the distinction (S3's picker) can still have it.
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: "permission denied" } });
+    await expect(listStaffDirectory()).rejects.toThrow(/permission denied/);
   });
 });

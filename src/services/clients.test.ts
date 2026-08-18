@@ -43,6 +43,16 @@ function ordersOn(table: string): unknown[][] {
   return orderCalls.filter((c) => c.table === table).map((c) => c.args);
 }
 
+/**
+ * Every `supabase.rpc(name)` issued, in order.
+ *
+ * ⚠️ COUNTED, NOT JUST RECORDED. The staff directory is ONE read for a whole
+ * page of clients; resolving a writer per row would be an N+1 that produces the
+ * identical output, so only the call COUNT can tell the two implementations
+ * apart. Asserting on the resolved emails would pass under both.
+ */
+let rpcCalls: string[] = [];
+
 function chainable(result: unknown, table = "?"): unknown {
   const q: Record<string, unknown> = {};
   let from = 0;
@@ -99,10 +109,17 @@ function mockSupabase(
   clientsResult: unknown,
   biResult: unknown,
   uploadsResult: unknown = { data: [], error: null },
+  directoryResult: unknown = { data: [], error: null },
 ) {
   supabase.current = {
     from: (table: string) => chainable(table === "uploads" ? uploadsResult : clientsResult, table),
     schema: () => ({ from: (t: string) => chainable(biResult, t) }),
+    // Routed through the same `chainable`, so the directory joins the
+    // concurrency probe below rather than being invisible to it.
+    rpc: (name: string) => {
+      rpcCalls.push(name);
+      return chainable(directoryResult, `rpc:${name}`);
+    },
   };
 }
 
@@ -117,11 +134,34 @@ const UPLOAD = (clientId: string, createdAt: string) => ({
   created_at: createdAt,
 });
 
-const ROW = (id: string, name: string) => ({
+/**
+ * A `public.clients` row AS POSTGREST RETURNS IT — including the embedded
+ * industry, which arrives as a nested object (or `null`) rather than an id.
+ * Both new fields default to unset, which is what every existing Client is.
+ */
+const ROW = (
+  id: string,
+  name: string,
+  over: { industry?: { id: string; name: string } | null; writer_id?: string | null } = {},
+) => ({
   id,
   name,
   linkedin_profile_url: `https://linkedin.com/in/${name.toLowerCase().replace(/\s/g, "")}`,
   created_at: "2026-07-16T00:00:00.000Z",
+  industry: null,
+  writer_id: null,
+  ...over,
+});
+
+const WRITER_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const WRITER_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const WRITER_C = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const SAAS = { id: "ind-1", name: "SaaS" };
+
+/** A successful `list_staff_directory()` read. */
+const DIRECTORY = (...entries: [string, string][]) => ({
+  data: entries.map(([user_id, email]) => ({ user_id, email })),
+  error: null,
 });
 
 beforeEach(() => {
@@ -129,6 +169,7 @@ beforeEach(() => {
   probe.inFlight = 0;
   probe.peak = 0;
   orderCalls = [];
+  rpcCalls = [];
 });
 
 describe("clients service (real seam)", () => {
@@ -227,7 +268,7 @@ describe("clients service (real seam)", () => {
     expect(await getClient("missing")).toBeNull();
   });
 
-  it("fetches the client rows, the post counts and the latest uploads CONCURRENTLY", async () => {
+  it("fetches the rows, the counts, the latest uploads and the directory CONCURRENTLY", async () => {
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish")], error: null },
       { data: [{ client_id: "c1" }], error: null },
@@ -236,25 +277,34 @@ describe("clients service (real seam)", () => {
 
     await listClients();
 
-    // Neither `fetchPostCounts` nor `latestUploadByClient` reads anything out of
-    // the client select, so neither needed to wait. Peak in-flight is 1 if they
-    // are serialised and 3 when all three go out together.
+    // None of `fetchPostCounts`, `latestUploadByClient` or `staffEmailsById`
+    // reads anything out of the client select, so none needed to wait. Peak
+    // in-flight is 1 if they are serialised and 4 when all four go out together.
     //
     // Counting PEAK rather than total is what makes this discriminate: a serial
-    // implementation issues the same three queries and would pass a total.
-    expect(probe.peak).toBe(3);
+    // implementation issues the same four queries and would pass a total.
+    //
+    // ⚠️ WAS 3 BEFORE THE STAFF DIRECTORY JOINED THEM. The number rising is the
+    // proof that the new read was added to the existing `Promise.all` rather
+    // than awaited after it — a fourth serial round-trip on every page.
+    expect(probe.peak).toBe(4);
   });
 
-  it("fetches the client row and its post count CONCURRENTLY", async () => {
+  it("fetches the client row, its post count and the directory CONCURRENTLY", async () => {
     mockSupabase({ data: ROW("c1", "Bryan Wish"), error: null }, { count: 5, error: null });
 
     await getClient("c1");
 
-    // The count filters on the id ARGUMENT, so it never needed the select's
-    // result. Peak in-flight is the discriminator: 1 when the count awaits the
-    // row, 2 once they go out together. Asserting the query count would pass
-    // under both and prove nothing.
-    expect(probe.peak).toBe(2);
+    // The count filters on the id ARGUMENT and the directory is the whole staff
+    // roster, so neither needed the select's result. Peak in-flight is the
+    // discriminator: 1 when they await the row, 3 once all three go out
+    // together. Asserting the query count would pass under both and prove
+    // nothing.
+    //
+    // ⚠️ WAS 2 BEFORE THE STAFF DIRECTORY JOINED THEM — and `getClient` runs on
+    // the upload path, so a read appended serially here would add a round-trip
+    // to every upload as well as every page view.
+    expect(probe.peak).toBe(3);
   });
 
   it("still returns null for a missing client, though the count now runs anyway", async () => {
@@ -395,6 +445,237 @@ describe("clients service (real seam)", () => {
   it("throws when the clients query errors", async () => {
     mockSupabase({ data: null, error: { message: "denied" } }, { data: [], error: null });
     await expect(listClients()).rejects.toThrow(/Failed to load clients: denied/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INDUSTRY AND WRITER (S2).
+//
+// ⚠️ THE HAZARD THIS BLOCK GUARDS IS NOT IN THIS MODULE — IT IS IN WHAT CALLS
+// IT. `getClient` stopped being a display read when the name-match gate started
+// calling it before every upload write: `checkAuthorNames` catches its throw and
+// degrades to `{ status: "unchecked" }`, so the upload proceeds WITHOUT the
+// check that exists because fourteen posts were lost. A new read inside
+// `getClient` that can throw therefore does not surface as an error anyone sees
+// — it silently switches the gate off.
+//
+// So the directory read is swallowed, and the tests below are how that stays
+// true: one asserts `getClient` RESOLVES when the directory throws, and one
+// asserts the failure is still visible in the writer's state rather than being
+// laundered into "nobody assigned".
+// ─────────────────────────────────────────────────────────────────────────────
+describe("industry and writer resolve through the client reads", () => {
+  it("reads NOT-ASSIGNED as a fact, not as an error, when neither is set", async () => {
+    mockSupabase({ data: ROW("c1", "Bryan Wish"), error: null }, { count: 0, error: null });
+
+    const client = await getClient("c1");
+
+    // Every Client that existed before this slice is exactly this row: both
+    // columns NULL, meaning "not recorded yet" — which is true, and is not a
+    // failure of any kind.
+    expect(client!.industry).toBeNull();
+    expect(client!.writer).toBeNull();
+  });
+
+  it("resolves both when both are set", async () => {
+    mockSupabase(
+      { data: ROW("c1", "Bryan Wish", { industry: SAAS, writer_id: WRITER_A }), error: null },
+      { count: 3, error: null },
+      { data: [], error: null },
+      DIRECTORY([WRITER_A, "ada@arcbound.com"]),
+    );
+
+    const client = await getClient("c1");
+
+    expect(client!.industry).toEqual({ id: "ind-1", name: "SaaS" });
+    expect(client!.writer).toEqual({
+      status: "resolved",
+      userId: WRITER_A,
+      email: "ada@arcbound.com",
+    });
+  });
+
+  it("resolves both on the LIST too", async () => {
+    mockSupabase(
+      {
+        data: [
+          ROW("c1", "Bryan Wish", { industry: SAAS, writer_id: WRITER_A }),
+          ROW("c2", "Priya Nadella"),
+        ],
+        error: null,
+      },
+      { data: [], error: null },
+      { data: [], error: null },
+      DIRECTORY([WRITER_A, "ada@arcbound.com"]),
+    );
+
+    const { items } = await listClients();
+
+    const bryan = items.find((c) => c.id === "c1")!;
+    expect(bryan.industry).toEqual(SAAS);
+    expect(bryan.writer).toMatchObject({ status: "resolved", email: "ada@arcbound.com" });
+    expect(items.find((c) => c.id === "c2")!.writer).toBeNull();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // ⚠️ THE ONE THAT PROTECTS THE UPLOAD GATE.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("⚠️ STILL RESOLVES when the staff directory read FAILS — getClient must not throw", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSupabase(
+      { data: ROW("c1", "Bryan Wish", { writer_id: WRITER_A }), error: null },
+      { count: 0, error: null },
+      { data: [], error: null },
+      { data: null, error: { message: "permission denied for function list_staff_directory" } },
+    );
+
+    // Asserted as `resolves`, not by reading the value: a rejection here would
+    // reach `checkAuthorNames`, be caught, and turn the name-match gate off for
+    // that upload. The absence of a throw IS the behaviour under test.
+    await expect(getClient("c1")).resolves.not.toBeNull();
+
+    const client = await getClient("c1");
+    expect(client!.name).toBe("Bryan Wish");
+    warn.mockRestore();
+  });
+
+  it("marks a writer UNAVAILABLE — not absent — when the directory read fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSupabase(
+      { data: ROW("c1", "Bryan Wish", { writer_id: WRITER_A }), error: null },
+      { count: 0, error: null },
+      { data: [], error: null },
+      { data: null, error: { message: "permission denied" } },
+    );
+
+    const client = await getClient("c1");
+
+    // Same principle as postsCount and lastUpload: a failed read must not
+    // masquerade as a fact. "Nobody writes for this client" is a claim, and it
+    // is not the one the database made.
+    expect(client!.writer).toEqual({ status: "unavailable", userId: WRITER_A });
+    expect(client!.writer).not.toBeNull();
+    warn.mockRestore();
+  });
+
+  it("keeps ASSIGNED-BUT-UNRESOLVABLE apart from a FAILED directory read", async () => {
+    // ⚠️ THESE TWO CALL FOR OPPOSITE ACTIONS, WHICH IS WHY THEY ARE NOT MERGED.
+    // `unavailable` is about ArcBase — the read broke, the assignment is
+    // probably fine, try again. `unknown` is about the data — this id is in no
+    // staff account, so somebody must reassign the client. Collapsing them tells
+    // an admin to retry when a reassignment is needed, or to reassign when
+    // nothing is wrong.
+    mockSupabase(
+      { data: ROW("c1", "Bryan Wish", { writer_id: WRITER_A }), error: null },
+      { count: 0, error: null },
+      { data: [], error: null },
+      DIRECTORY([WRITER_B, "someone.else@arcbound.com"]),
+    );
+
+    const client = await getClient("c1");
+
+    expect(client!.writer).toEqual({ status: "unknown", userId: WRITER_A });
+  });
+
+  it("reads NOBODY-ASSIGNED as null even when the directory read failed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSupabase(
+      { data: ROW("c1", "Bryan Wish"), error: null },
+      { count: 0, error: null },
+      { data: [], error: null },
+      { data: null, error: { message: "permission denied" } },
+    );
+
+    const client = await getClient("c1");
+
+    // "No writer is assigned" is known from the client row ALONE — `writer_id`
+    // is null — so a broken directory cannot make that fact uncertain. Reporting
+    // "unavailable" here would invent a doubt the data does not have.
+    expect(client!.writer).toBeNull();
+    warn.mockRestore();
+  });
+
+  it("still resolves an ARCHIVED industry — retiring one must not break its clients", async () => {
+    // `set_industry_status` archives an industry so it stops being OFFERED; the
+    // clients already recorded in it are still in it. The read follows the
+    // foreign key, not the status, so nothing about a Client changes when their
+    // industry is retired.
+    mockSupabase(
+      {
+        data: ROW("c1", "Bryan Wish", { industry: { id: "ind-9", name: "Fax Machines" } }),
+        error: null,
+      },
+      { count: 0, error: null },
+    );
+
+    const client = await getClient("c1");
+
+    expect(client!.industry).toEqual({ id: "ind-9", name: "Fax Machines" });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // ⚠️ ONE READ PER PAGE, NOT ONE PER ROW.
+  // ───────────────────────────────────────────────────────────────────────────
+  it("⚠️ issues ONE staff-directory read for a whole page of clients", async () => {
+    mockSupabase(
+      {
+        data: [
+          ROW("c1", "Bryan Wish", { writer_id: WRITER_A }),
+          ROW("c2", "Priya Nadella", { writer_id: WRITER_B }),
+          ROW("c3", "Nadia Vega", { writer_id: WRITER_C }),
+        ],
+        error: null,
+      },
+      { data: [], error: null },
+      { data: [], error: null },
+      DIRECTORY(
+        [WRITER_A, "ada@arcbound.com"],
+        [WRITER_B, "priya@arcbound.com"],
+        [WRITER_C, "nadia@arcbound.com"],
+      ),
+    );
+
+    const { items } = await listClients();
+
+    // THE assertion: three clients, three DISTINCT writers, ONE read. Resolving
+    // per row returns the identical emails below, so only this count separates
+    // the two implementations — the same reason `latestUploadByClient` is one
+    // query rather than one per row.
+    expect(rpcCalls.filter((n) => n === "list_staff_directory")).toHaveLength(1);
+    expect(items.map((c) => (c.writer as { email?: string } | null)?.email)).toEqual([
+      "ada@arcbound.com",
+      "priya@arcbound.com",
+      "nadia@arcbound.com",
+    ]);
+  });
+
+  it("does not change WHICH error surfaces from listClients", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The clients select fails AND the directory fails. Error precedence is
+    // unchanged: the directory swallows its own failure, so the select's message
+    // is still the only one that can reach the caller.
+    mockSupabase(
+      { data: null, error: { message: "denied" } },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: null, error: { message: "permission denied for function" } },
+    );
+
+    await expect(listClients()).rejects.toThrow(/Failed to load clients: denied/);
+    warn.mockRestore();
+  });
+
+  it("does not change WHICH error surfaces from getClient", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSupabase(
+      { data: null, error: { message: "denied" } },
+      { count: null, error: { message: "schema bi is not exposed" } },
+      { data: [], error: null },
+      { data: null, error: { message: "permission denied for function" } },
+    );
+
+    await expect(getClient("c1")).rejects.toThrow(/Failed to load client: denied/);
+    warn.mockRestore();
   });
 });
 
