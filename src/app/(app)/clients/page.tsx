@@ -6,7 +6,7 @@ import { getRole, isAdmin } from "@/lib/auth/roles";
 import { listServices } from "@/services/arcbound-services";
 import { listClients } from "@/services/clients";
 import { listIndustriesAdmin } from "@/services/industries";
-import { listStaffDirectory } from "@/services/staff";
+import { listWritersAdmin } from "@/services/writers";
 
 export const metadata: Metadata = { title: "Client list" };
 
@@ -43,7 +43,7 @@ export default async function ClientsPage({
   // while `[]` would claim Arcbound sells nothing. The dialog says it could not
   // load them and still registers the client (ADR 0015).
   //
-  // The industries registry and the staff directory join it on the same terms
+  // The industries and writers registries join it on the same terms
   // (D10) — both feed the Add-Client pickers, both degrade to `null`, and neither
   // may take the Client List down. ⚠️ `null` NEVER `[]`: the industries registry
   // is EMPTY today, so `[]` is a true and common answer and the dialog says
@@ -53,11 +53,11 @@ export default async function ClientsPage({
   //
   // Fetched together rather than in sequence: three independent reads, one
   // round-trip's worth of latency.
-  const [services, industries, staff] = admin
+  const [services, industries, writers] = admin
     ? await Promise.all([
         listServices().catch(() => null),
         listIndustriesAdmin().catch(() => null),
-        listStaffDirectory().catch(() => null),
+        listWritersAdmin().catch(() => null),
       ])
     : [null, null, null];
 
@@ -88,7 +88,7 @@ export default async function ClientsPage({
           </p>
         </div>
         {admin ? (
-          <AddClientDialog services={services} industries={industries} staff={staff} />
+          <AddClientDialog services={services} industries={industries} writers={writers} />
         ) : null}
       </div>
       {truncated ? (

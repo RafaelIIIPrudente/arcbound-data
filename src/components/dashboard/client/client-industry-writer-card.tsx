@@ -9,9 +9,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { WRITER_PROSE_WORDING, writerLabel } from "@/lib/client-writer";
-import type { StaffDirectoryEntry } from "@/services/staff";
-import type { ClientIndustry, ClientWriter, Industry, RegistryPickers } from "@/services/types";
+import type {
+  ClientIndustry,
+  ClientWriter,
+  Industry,
+  RegistryPickers,
+  Writer,
+} from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A Client's Industry and Writer. Admin-editable; read-only for a Data Analyst,
@@ -88,34 +92,36 @@ function industryOptions(industries: Industry[], current: ClientIndustry | null)
 }
 
 /**
- * ⚠️ THE SAME TRAP, ON THE OTHER FIELD. A writer assigned to an account that has
- * since left the directory has no matching option, so an INDUSTRY-only change
- * would clear the writer. Offer the id itself, named for what it is.
+ * ⚠️ THE SAME RULE, ON THE OTHER FIELD — and it is now literally the same code.
+ *
+ * Archiving a writer stops them being OFFERED; it does not evict the Clients
+ * already recorded against them. So a picker of active rows only would have no
+ * option matching such a Client, and — because every save re-sends BOTH fields —
+ * an industry-only change would silently clear the writer.
+ *
+ * This function used to take the staff directory and hand back an id labelled
+ * "assigned to an account that no longer exists". There is no directory and no
+ * account: `writers` is a registry Clients point at by foreign key, exactly like
+ * `industries` (D15).
  */
-function writerOptions(staff: StaffDirectoryEntry[], currentId: string | null): Option[] {
-  const options: Option[] = staff.map((entry) => ({ value: entry.userId, label: entry.email }));
+function writerOptions(writers: Writer[], current: ClientWriter | null): Option[] {
+  const active = writers.filter((row) => row.status === "active");
+  const options: Option[] = active.map((row) => ({ value: row.id, label: row.name }));
 
-  if (currentId && !staff.some((entry) => entry.userId === currentId)) {
-    // ⚠️ NOT THE UUID. An identifier is not a name, and an admin cannot act on
-    // one; there is only ever a single such option — the current value — so it
-    // needs no disambiguation. Matches what the Client List cell says for the
-    // same state.
-    options.push({ value: currentId, label: "Assigned · unknown account" });
+  if (current && !active.some((row) => row.id === current.id)) {
+    const known = writers.find((row) => row.id === current.id);
+    options.push({
+      value: current.id,
+      // ⚠️ ONLY SAY "ARCHIVED" WHEN THE REGISTRY SAID SO — the same reasoning as
+      // `industryOptions` above. The foreign key should make the second branch
+      // unreachable; it is here because "should" is not "does", and a wrong
+      // label is worse than a plain one.
+      label: known
+        ? `${known.name} (archived)`
+        : `${current.name} — no longer in the writers registry`,
+    });
   }
   return options;
-}
-
-/** What an analyst is told about a writer, in the four states `ClientWriter` has. */
-function writerText(writer: ClientWriter): string {
-  // ⚠️ THE BROKEN READ IS HANDLED HERE AND NOWHERE ELSE. It is the one state of
-  // the four that is missing data rather than a fact, and every surface renders
-  // it differently — this card as a sentence, the Client List as an em dash. The
-  // other three go through the shared dispatch, so a fifth state, or a corrected
-  // reading of an existing one, is found once instead of twice.
-  if (writer?.status === "unavailable") {
-    return "Assigned, but the staff directory could not be looked up";
-  }
-  return writerLabel(writer, WRITER_PROSE_WORDING);
 }
 
 /**
@@ -131,7 +137,7 @@ interface CardViewProps extends RegistryPickers {
   clientId: string;
   /** What this Client is recorded in now, or `null` for "not recorded". */
   industry: ClientIndustry | null;
-  writer: ClientWriter;
+  writer: ClientWriter | null;
   /**
    * ⚠️ REQUIRED, AND DELIBERATELY NOT DEFAULTED — same rule as `ClientServicesCard`
    * and `ReportLinkCard`. A default would let a new call site forget the question
@@ -148,7 +154,7 @@ export function ClientIndustryWriterCardView({
   industry,
   writer,
   industries,
-  staff,
+  writers,
   isAdmin,
   state,
   formAction,
@@ -156,7 +162,7 @@ export function ClientIndustryWriterCardView({
 }: CardViewProps) {
   const fieldId = useId();
   const currentIndustryId = industry?.id ?? "";
-  const currentWriterId = writer?.userId ?? "";
+  const currentWriterId = writer?.id ?? "";
 
   const savedKey = stateKey(currentIndustryId, currentWriterId);
   const [baseline, setBaseline] = useState(savedKey);
@@ -198,7 +204,7 @@ export function ClientIndustryWriterCardView({
             <dt className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
               Writer
             </dt>
-            <dd className="mt-1 text-sm">{writerText(writer)}</dd>
+            <dd className="mt-1 text-sm">{writer?.name ?? "Not recorded"}</dd>
           </div>
         </dl>
       </section>
@@ -206,7 +212,7 @@ export function ClientIndustryWriterCardView({
   }
 
   const industryChoices = industries === null ? null : industryOptions(industries, industry);
-  const writerChoices = staff === null ? null : writerOptions(staff, writer?.userId ?? null);
+  const writerChoices = writers === null ? null : writerOptions(writers, writer);
 
   return (
     <section className="space-y-4 rounded-lg border bg-card p-5">
@@ -348,12 +354,12 @@ export function ClientIndustryWriterCard({
   industry,
   writer,
   industries,
-  staff,
+  writers,
   isAdmin,
 }: RegistryPickers & {
   clientId: string;
   industry: ClientIndustry | null;
-  writer: ClientWriter;
+  writer: ClientWriter | null;
   isAdmin: boolean;
 }) {
   const [state, formAction, pending] = useActionState(setClientIndustryWriterAction, IDLE);
@@ -364,7 +370,7 @@ export function ClientIndustryWriterCard({
       industry={industry}
       writer={writer}
       industries={industries}
-      staff={staff}
+      writers={writers}
       isAdmin={isAdmin}
       state={state}
       formAction={formAction}

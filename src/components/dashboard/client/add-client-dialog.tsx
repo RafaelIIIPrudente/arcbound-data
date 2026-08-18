@@ -18,8 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { StaffDirectoryEntry } from "@/services/staff";
-import type { ArcboundService, Industry, RegistryPickers } from "@/services/types";
+import type { ArcboundService, Industry, RegistryPickers, Writer } from "@/services/types";
 
 const INITIAL: ClientFormState = { status: "idle" };
 
@@ -59,7 +58,7 @@ function alreadyCreated(state: ClientFormState): boolean {
 export function AddClientDialog({
   services,
   industries,
-  staff,
+  writers,
 }: RegistryPickers & {
   services: ArcboundService[] | null;
 }) {
@@ -87,7 +86,7 @@ export function AddClientDialog({
           onSuccess={close}
           services={services}
           industries={industries}
-          staff={staff}
+          writers={writers}
         />
       </DialogContent>
     </Dialog>
@@ -118,8 +117,8 @@ interface FormViewProps {
    * registry is empty at the moment it might be full and unreachable.
    */
   industries: Industry[] | null;
-  /** The staff directory, or `null` when it could not be read. */
-  staff: StaffDirectoryEntry[] | null;
+  /** The writers registry, or `null` when it could not be read. */
+  writers: Writer[] | null;
 }
 
 export function AddClientFormView({
@@ -128,7 +127,7 @@ export function AddClientFormView({
   pending,
   services,
   industries,
-  staff,
+  writers,
 }: FormViewProps) {
   const errors = state.status === "error" ? state.errors : undefined;
 
@@ -138,6 +137,10 @@ export function AddClientFormView({
   // to protect, and offering one would assign a retired offering afresh.
   const selectable = services?.filter((service) => service.status === "active") ?? [];
   const activeIndustries = industries?.filter((industry) => industry.status === "active") ?? [];
+  // ⚠️ ACTIVE ONLY, AND UNLIKE THE OVERVIEW CARD THERE IS NO CURRENT VALUE TO
+  // PRESERVE. A Client being registered has no writer yet, so offering an
+  // archived one would resurrect a retired row through a side door.
+  const activeWriters = writers?.filter((writer) => writer.status === "active") ?? [];
 
   return (
     <form action={formAction} className="space-y-4">
@@ -251,19 +254,32 @@ export function AddClientFormView({
 
       <div className="space-y-2">
         <Label htmlFor="writer_id">Writer</Label>
-        {staff === null ? (
+        {writers === null ? (
           <p className="text-xs text-muted-foreground">
-            The staff directory could not be loaded, so no writer can be selected. The client will
-            still be registered — assign a writer from their overview afterwards.
+            Writers could not be loaded, so none can be selected. The client will still be
+            registered — record their writer from their overview afterwards.
           </p>
-        ) : staff.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No staff accounts to choose from.</p>
+        ) : writers.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No writers are registered yet. An admin adds them under Settings, Writers.
+          </p>
+        ) : activeWriters.length === 0 ? (
+          /* ⚠️ THE THIRD STATE, EXACTLY AS ON THE INDUSTRY FIELD ABOVE. The read
+             succeeded and the registry is FULL — every row in it is archived, so
+             nothing is offered. Telling an admin to "add them" is false in the
+             expensive direction: names are unique case-insensitively, so
+             re-adding one hands them a constraint error for following the
+             instruction. The way out is to restore one. */
+          <p className="text-xs text-muted-foreground">
+            Every writer is archived, so none can be selected. An admin can restore one under
+            Settings, Writers — the client will still be registered without one.
+          </p>
         ) : (
           <NativeSelect id="writer_id" name="writer_id" defaultValue="">
             <option value="">Not recorded</option>
-            {staff.map((entry) => (
-              <option key={entry.userId} value={entry.userId}>
-                {entry.email}
+            {activeWriters.map((writer) => (
+              <option key={writer.id} value={writer.id}>
+                {writer.name}
               </option>
             ))}
           </NativeSelect>
@@ -310,7 +326,7 @@ function AddClientForm({
   onSuccess,
   services,
   industries,
-  staff,
+  writers,
 }: RegistryPickers & {
   onSuccess: () => void;
   services: ArcboundService[] | null;
@@ -328,7 +344,7 @@ function AddClientForm({
       pending={pending}
       services={services}
       industries={industries}
-      staff={staff}
+      writers={writers}
     />
   );
 }

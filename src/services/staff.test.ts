@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({ rpc: rpcMock, functions: { invoke: invokeMock } }),
 }));
 
-import { inviteStaff, listStaff, listStaffDirectory, setStaffRole } from "./staff";
+import { inviteStaff, listStaff, setStaffRole } from "./staff";
 
 const ADMIN_ROW = {
   user_id: "11111111-1111-1111-1111-111111111111",
@@ -186,61 +186,26 @@ describe("inviteStaff", () => {
   });
 });
 
-describe("listStaffDirectory — the analyst-readable roster (D4)", () => {
-  it("maps user_id/email, and calls the DIRECTORY rpc — never list_staff", () => {
-    // ⚠️ THE RPC NAME IS THE ASSERTION. `list_staff` is admin-only and carries
-    // role, `assigned` and `pending`; this one is granted to every authenticated
-    // staff member and returns two columns. Pointing this function at the admin
-    // RPC would make every analyst's Client screen raise 42501 — and pointing it
-    // at a widened directory would hand them the governance data that guard
-    // exists to protect. The name is the whole boundary.
-    rpcMock.mockResolvedValueOnce({
-      data: [
-        { user_id: ADMIN_ROW.user_id, email: "admin@arcbound.com" },
-        { user_id: UNASSIGNED_ROW.user_id, email: "newhire@arcbound.com" },
-      ],
-      error: null,
-    });
-
-    return listStaffDirectory().then((directory) => {
-      expect(rpcMock).toHaveBeenCalledWith("list_staff_directory");
-      expect(rpcMock).not.toHaveBeenCalledWith("list_staff");
-      expect(directory).toEqual([
-        { userId: ADMIN_ROW.user_id, email: "admin@arcbound.com" },
-        { userId: UNASSIGNED_ROW.user_id, email: "newhire@arcbound.com" },
-      ]);
-    });
-  });
-
-  it("carries NO role, assigned or pending — even if the RPC grew them", async () => {
-    // Defence in depth against the database being widened later: the mapping
-    // names two fields explicitly, so an extra column arriving over the wire
-    // cannot reach a screen an analyst can read.
-    rpcMock.mockResolvedValueOnce({
-      data: [{ ...ADMIN_ROW, email: "admin@arcbound.com" }],
-      error: null,
-    });
-
-    const [entry] = await listStaffDirectory();
-
-    expect(entry).toEqual({ userId: ADMIN_ROW.user_id, email: "admin@arcbound.com" });
-    expect(entry).not.toHaveProperty("role");
-    expect(entry).not.toHaveProperty("assigned");
-    expect(entry).not.toHaveProperty("pending");
-  });
-
-  it("returns an empty directory when the RPC yields no rows", async () => {
-    rpcMock.mockResolvedValueOnce({ data: null, error: null });
-    await expect(listStaffDirectory()).resolves.toEqual([]);
-  });
-
-  it("THROWS when the directory read fails", async () => {
-    // ⚠️ THROWING HERE IS DELIBERATE, AND IS NOT A CONTRADICTION OF THE RULE
-    // THAT `getClient` MUST NOT THROW. This seam reports what the database said;
-    // `clients.ts` is where the failure is caught and turned into a writer state,
-    // because that is the module the upload gate reads through. A caller that
-    // wants the distinction (S3's picker) can still have it.
-    rpcMock.mockResolvedValueOnce({ data: null, error: { message: "permission denied" } });
-    await expect(listStaffDirectory()).rejects.toThrow(/permission denied/);
-  });
-});
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ FOUR TESTS FOR `listStaffDirectory` WERE DELETED HERE (D15), AND THE
+// CONSTRUCT IS THE DELETION OF THE FUNCTION ITSELF.
+//
+//   • "maps user_id/email, and calls the DIRECTORY rpc — never list_staff"
+//   • "carries NO role, assigned or pending — even if the RPC grew them"
+//   • "returns an empty directory when the RPC yields no rows"
+//   • "THROWS when the directory read fails"
+//
+// `listStaffDirectory` and `StaffDirectoryEntry` no longer exist in `./staff`,
+// so importing them is a compile error — the deleted tests cannot be
+// reintroduced without reintroducing the function. It had exactly one caller,
+// `clients.ts`, resolving a `writer_id` that pointed at `auth.users`; a writer
+// is now a row in `public.writers` read through the client select's own embed,
+// so there is nobody left to ask.
+//
+// ⚠️ WHAT THEY GUARDED IS NOT LOST. Their real subject was the boundary between
+// `list_staff` (admin-only: role, `assigned`, `pending`) and the two-column
+// directory granted to every analyst. That boundary is now simply the absence of
+// the second RPC — `list_staff` is the only staff read left, and the tests above
+// still pin that it is admin-gated. The SQL function is dropped separately and
+// later; see supabase/drop-staff-directory.sql.
+// ─────────────────────────────────────────────────────────────────────────────

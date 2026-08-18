@@ -393,73 +393,90 @@ function cell(row: HTMLElement, col: keyof typeof COL): HTMLElement {
   return within(row).getAllByRole("cell")[COL[col]]!;
 }
 
-const RESOLVED = { status: "resolved", userId: "u1", email: "ana@arcbound.com" } as const;
-const ORPHANED = { status: "unknown", userId: "u2" } as const;
-const UNREADABLE = { status: "unavailable", userId: "u3" } as const;
+const ANA = { id: "u1", name: "Ana Wells" } as const;
+const BO = { id: "u2", name: "Bo Chen" } as const;
 
-describe("the Writer column keeps four states four", () => {
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THREE TESTS WERE DELETED HERE, AND ONE SURVIVES REWRITTEN. What they proved
+// was that the Writer cell kept FOUR states apart: an email, "not recorded", an
+// assignment pointing at an account nobody holds, and a directory read that
+// failed. Two of those four no longer exist, so two of the tests could not be
+// kept honest — a test that constructs an impossible value proves nothing.
+//
+// The construct that makes them impossible is not "the model changed". It is:
+//
+//   • `ClientWriter` is now `{ id: string; name: string }`. It has no `status`
+//     member, so `{ status: "unknown", userId }` and `{ status: "unavailable",
+//     userId }` are COMPILE ERRORS — `tsc` refuses the fixture, not the
+//     assertion. (Watched: both spellings failed with TS2353/TS2739 before
+//     these lines were rewritten.)
+//   • Its only producer is `toWriter`, which normalises a PostgREST embed and
+//     returns `{ id, name }` or `null`. An embed rides the client SELECT over
+//     the foreign key: if the select worked, the writer came with it, and a
+//     foreign key cannot dangle. There is no second read left to fail and no
+//     unresolvable id to hold.
+//
+// What survives unchanged is `null`, which is a real and common state — nobody
+// has been recorded — and still renders as WORDS. The em dash on this table
+// means "could not be read" and nothing else, and the Writer column no longer
+// has any state that could earn one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("the Writer column keeps its two states apart", () => {
   const writers: ClientListRow[] = [
     client({ id: "w1", name: "Unset", writer: null }),
-    client({ id: "w2", name: "Resolved", writer: RESOLVED }),
-    client({ id: "w3", name: "Orphaned", writer: ORPHANED }),
-    client({ id: "w4", name: "Unreadable", writer: UNREADABLE }),
+    client({ id: "w2", name: "Recorded", writer: ANA }),
   ];
 
-  it("⚠️ renders all four writer states differently from one another", () => {
-    // ⚠️ THE SLICE, IN ONE ASSERTION. Any two of these rendering alike is a
-    // sentence the screen is not entitled to say: "nobody writes for them"
-    // where somebody does, or "retry" where a person must be reassigned.
+  it("⚠️ renders “not recorded” as WORDS, never as the dash", () => {
+    // ⚠️ THE HALF OF THE OLD FOUR-STATE TEST THAT IS STILL A REAL CLAIM. `null`
+    // is a fact carried by the client row itself — nobody has been recorded —
+    // and rendering it as an em dash would say "could not be read", which is the
+    // one thing this column can no longer mean.
     render(<ClientsTable data={writers} />);
 
-    const [unset, resolved, orphaned, unreadable] = bodyRows();
-    const texts = [unset, resolved, orphaned, unreadable].map(
-      (r) => cell(r!, "writer").textContent ?? "",
-    );
+    const [unset, recorded] = bodyRows();
 
-    expect(new Set(texts).size, texts.join(" | ")).toBe(4);
-  });
-
-  it("⚠️ renders “not recorded” as words — the dash belongs to the unread read ALONE", () => {
-    render(<ClientsTable data={writers} />);
-
-    const [unset, resolved, orphaned, unreadable] = bodyRows();
-
-    // A known fact, exactly like "Never" on the column two along.
     expect(cell(unset!, "writer")).toHaveTextContent(/not recorded/i);
     expect(within(cell(unset!, "writer")).queryByText("—")).toBeNull();
 
-    expect(cell(resolved!, "writer")).toHaveTextContent("ana@arcbound.com");
-    expect(within(cell(resolved!, "writer")).queryByText("—")).toBeNull();
-
-    // ⚠️ NEITHER ALARMING STATE MAY READ AS "NOBODY". `unknown` is an assignment
-    // pointing at an account that is gone; a human has to pick someone else.
-    expect(cell(orphaned!, "writer")).not.toHaveTextContent(/not recorded/i);
-    expect(within(cell(orphaned!, "writer")).queryByText("—")).toBeNull();
-
-    // …and ONLY the failed read is a dash, with the sentence a sighted reader
-    // gets from the glyph's position spelled out for the one who does not.
-    expect(within(cell(unreadable!, "writer")).getByText("—")).toBeInTheDocument();
-    expect(cell(unreadable!, "writer")).toHaveTextContent(/writer could not be read/i);
-    expect(cell(unreadable!, "writer")).not.toHaveTextContent(/not recorded/i);
+    expect(cell(recorded!, "writer")).toHaveTextContent("Ana Wells");
+    expect(within(cell(recorded!, "writer")).queryByText("—")).toBeNull();
   });
 
-  it("⚠️ parks ONLY the unreadable writer last, in BOTH directions", async () => {
-    // ⚠️ `null` AND `unknown` ARE KNOWN FACTS AND SORT AS VALUES. Only a read
-    // that failed is missing data, and missing data never competes for the top
-    // of a list. Asserting the reversal of the other three is what discriminates:
-    // a row that parked would keep its place when the direction flipped.
-    const user = userEvent.setup();
+  it("⚠️ renders NO em dash in this column for any input it can be given", () => {
+    // The type admits exactly two values, and both are here. There is no third
+    // fixture to write, which is the point: the dash is unreachable by
+    // construction rather than by omission.
     render(<ClientsTable data={writers} />);
-    const sortWriter = screen.getByRole("button", { name: "Sort by writer" });
 
-    await user.click(sortWriter);
+    for (const row of bodyRows()) {
+      expect(within(cell(row, "writer")).queryByText("—")).toBeNull();
+      expect(cell(row, "writer")).not.toHaveTextContent(/could not be read/i);
+    }
+  });
+
+  it("sorts by writer as a value — nothing parks, because nothing is missing", async () => {
+    // The old test asserted that only `unavailable` parked last in BOTH
+    // directions. With no unreadable state there is nothing to park, and "not
+    // recorded" sorts as the value it is.
+    const user = userEvent.setup();
+    render(
+      <ClientsTable
+        data={[
+          client({ id: "w1", name: "Zulu", writer: BO }),
+          client({ id: "w2", name: "Alpha", writer: ANA }),
+          client({ id: "w3", name: "Mike", writer: null }),
+        ]}
+      />,
+    );
+
+    const sort = screen.getByRole("button", { name: "Sort by writer" });
+    await user.click(sort);
     const asc = names();
-    await user.click(sortWriter);
-    const desc = names();
+    await user.click(sort);
 
-    expect(asc.at(-1), asc.join(" → ")).toBe("Unreadable");
-    expect(desc.at(-1), desc.join(" → ")).toBe("Unreadable");
-    expect(desc.slice(0, 3)).toEqual([...asc.slice(0, 3)].reverse());
+    expect(names()).toEqual([...asc].reverse());
   });
 });
 
@@ -563,7 +580,7 @@ describe("the Writer column's ⓘ", () => {
     render(
       <ClientsTable
         data={[
-          client({ id: "w1", name: "Zulu", writer: RESOLVED }),
+          client({ id: "w1", name: "Zulu", writer: ANA }),
           client({ id: "w2", name: "Alpha", writer: null }),
         ]}
       />,
@@ -573,9 +590,9 @@ describe("the Writer column's ⓘ", () => {
     await user.click(within(header).getByRole("button", { name: "Sort by writer" }));
 
     // The rows REORDER, which is all this test claims: the sort control still
-    // works with a second button beside it. (TanStack's comparator puts
-    // "Not recorded" ahead of "ana@arcbound.com" — capitals sort first — which
-    // is why the row order here is the reverse of the client names.)
+    // works with a second button beside it. An unrecorded writer sorts as the
+    // empty string — a value, not missing data — so it leads ascending, exactly
+    // as an unrecorded industry does in the column beside it.
     expect(names()).toEqual(["Alpha", "Zulu"]);
   });
 });

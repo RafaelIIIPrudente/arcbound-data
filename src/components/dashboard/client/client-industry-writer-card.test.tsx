@@ -2,8 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ClientIndustryWriterCardView } from "./client-industry-writer-card";
-import type { StaffDirectoryEntry } from "@/services/staff";
-import type { ClientIndustry, ClientWriter, Industry } from "@/services/types";
+import type { ClientIndustry, ClientWriter, Industry, Writer } from "@/services/types";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
 const SAAS = "22222222-2222-2222-2222-222222222222";
@@ -14,16 +13,17 @@ const WRITER_B = "55555555-5555-5555-5555-555555555555";
 const ACTIVE: Industry = { id: SAAS, name: "SaaS", status: "active" };
 const ARCHIVED: Industry = { id: FAX, name: "Fax Machines", status: "archived" };
 
-const STAFF: StaffDirectoryEntry[] = [
-  { userId: WRITER_A, email: "ana@arcbound.com" },
-  { userId: WRITER_B, email: "bo@arcbound.com" },
-];
+const ANA: Writer = { id: WRITER_A, name: "Ana Wells", status: "active" };
+const BO: Writer = { id: WRITER_B, name: "Bo Chen", status: "active" };
+/** Retired. Archiving stops a writer being OFFERED; it evicts nobody. */
+const RETIRED: Writer = { id: WRITER_B, name: "Bo Chen", status: "archived" };
+const WRITERS: Writer[] = [ANA, BO];
 
 function view(overrides: {
   industry?: ClientIndustry | null;
-  writer?: ClientWriter;
+  writer?: ClientWriter | null;
   industries?: Industry[] | null;
-  staff?: StaffDirectoryEntry[] | null;
+  writers?: Writer[] | null;
   isAdmin?: boolean;
 }) {
   return render(
@@ -32,7 +32,7 @@ function view(overrides: {
       industry={overrides.industry ?? null}
       writer={overrides.writer ?? null}
       industries={overrides.industries === undefined ? [ACTIVE] : overrides.industries}
-      staff={overrides.staff === undefined ? STAFF : overrides.staff}
+      writers={overrides.writers === undefined ? WRITERS : overrides.writers}
       isAdmin={overrides.isAdmin ?? true}
       state={{ status: "idle" }}
       formAction={vi.fn()}
@@ -57,7 +57,7 @@ describe("ClientIndustryWriterCardView — the archived-industry trap", () => {
     // offered whatever its status.
     view({
       industry: { id: FAX, name: "Fax Machines" },
-      writer: { status: "resolved", userId: WRITER_A, email: "ana@arcbound.com" },
+      writer: { id: WRITER_A, name: "Ana Wells" },
       industries: [ACTIVE, ARCHIVED],
     });
 
@@ -86,17 +86,21 @@ describe("ClientIndustryWriterCardView — the archived-industry trap", () => {
     expect(screen.queryByRole("option", { name: /fax machines/i })).not.toBeInTheDocument();
   });
 
-  it("⚠️ keeps a writer whose account is no longer in the directory", () => {
-    // The same trap, on the other field: an assigned writer missing from the
-    // directory has no matching option, so an industry-only change would clear it.
+  it("⚠️ keeps an ARCHIVED current writer when only the industry changes", () => {
+    // ⚠️ THE SAME TRAP D9 DESCRIBES, ON THE OTHER FIELD, AND NOW LITERALLY THE
+    // SAME SHAPE. Archiving a writer stops them being OFFERED; it does not evict
+    // the Clients recorded against them. Every save re-sends both fields, so a
+    // picker of active rows only would have no option matching this Client and
+    // the next save would silently clear the writer.
     view({
       industry: null,
-      writer: { status: "unknown", userId: WRITER_A },
-      staff: [{ userId: WRITER_B, email: "bo@arcbound.com" }],
+      writer: { id: WRITER_B, name: "Bo Chen" },
+      writers: [ANA, RETIRED],
     });
 
-    expect((screen.getByLabelText(/writer/i) as HTMLSelectElement).value).toBe(WRITER_A);
-    expect(submitted().get("writer_id")).toBe(WRITER_A);
+    expect((screen.getByLabelText(/writer/i) as HTMLSelectElement).value).toBe(WRITER_B);
+    expect(submitted().get("writer_id")).toBe(WRITER_B);
+    expect(screen.getByRole("option", { name: /bo chen.*archived/i })).toBeInTheDocument();
   });
 });
 
@@ -129,8 +133,13 @@ describe("ClientIndustryWriterCardView — empty vs unreadable", () => {
     expect(posted.get("industry_id")).toBe(FAX);
   });
 
-  it("⚠️ an unreadable staff directory PRESERVES the current writer", () => {
-    view({ writer: { status: "unavailable", userId: WRITER_A }, staff: null });
+  it("⚠️ an unreadable writers REGISTRY preserves the current writer", () => {
+    // ⚠️ THE READ THAT CAN STILL FAIL. What went away is the writer STATE that a
+    // failed read used to produce on a Client; the registry read behind the
+    // PICKER is exactly as fallible as the industries one beside it, and the
+    // rule is unchanged — no picker to select from means a hidden input carrying
+    // the current value, or an industry change erases the writer.
+    view({ writer: { id: WRITER_A, name: "Ana Wells" }, writers: null });
 
     expect(submitted().get("writer_id")).toBe(WRITER_A);
     expect(screen.getByRole("alert", { name: /writer/i })).toHaveTextContent(/could not be read/i);
@@ -151,12 +160,12 @@ describe("ClientIndustryWriterCardView — who may edit", () => {
   it("shows an analyst the values without any way to change them", () => {
     view({
       industry: { id: SAAS, name: "SaaS" },
-      writer: { status: "resolved", userId: WRITER_A, email: "ana@arcbound.com" },
+      writer: { id: WRITER_A, name: "Ana Wells" },
       isAdmin: false,
     });
 
     expect(screen.getByText("SaaS")).toBeInTheDocument();
-    expect(screen.getByText("ana@arcbound.com")).toBeInTheDocument();
+    expect(screen.getByText("Ana Wells")).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
   });
@@ -167,13 +176,13 @@ describe("ClientIndustryWriterCardView — who may edit", () => {
     expect(screen.getAllByText(/not recorded/i).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("⚠️ distinguishes an unresolved writer from an unassigned one", () => {
-    // `unavailable` means the directory read failed — NOT that nobody writes for
-    // this Client. Collapsing the two would report a staffing gap that isn't real.
-    view({ writer: { status: "unavailable", userId: WRITER_A }, isAdmin: false });
-
-    expect(screen.getByText(/could not be looked up/i)).toBeInTheDocument();
-  });
+  // ⚠️ DELETED WITH THE STATE IT GUARDED: "distinguishes an unresolved writer
+  // from an unassigned one". It asserted that `{ status: "unavailable" }`
+  // rendered "could not be looked up" rather than "Not recorded". That value
+  // can no longer be constructed — `ClientWriter` is `{ id, name }`, so
+  // `writer: { status: "unavailable", userId }` is a compile error, and the
+  // only producer, `toWriter`, reads a PostgREST embed that either carries a row
+  // or is null. There is no second read left to fail.
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,24 +195,24 @@ describe("ClientIndustryWriterCardView — who may edit", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("the pickers do not claim more than they read", () => {
-  it("⚠️ never renders a raw uuid at an admin", () => {
-    // The writer's account has left the directory. The option must still exist —
-    // otherwise an industry-only save clears the writer — but a uuid is not a
-    // name and there is nothing an admin can do with one. There is only ever one
-    // such option, so it needs no disambiguating id.
-    // ⚠️ AN ID THE DIRECTORY DOES NOT HOLD — that is what "unknown" means. Using
-    // one of the STAFF ids would leave the ordinary email option matching and
-    // test nothing.
-    const GONE = "66666666-6666-6666-6666-666666666666";
-    view({ writer: { status: "unknown", userId: GONE } });
+  it("⚠️ does NOT call a writer “archived” when the registry never listed them", () => {
+    // ⚠️ THE TWIN OF THE INDUSTRY ASSERTION BELOW. The current writer is absent
+    // from the registry entirely, so nothing here read a status — and naming one
+    // would be a claim about the registry dressed up as a claim about this
+    // Client. The option must still exist, or an industry-only save clears the
+    // writer.
+    //
+    // (This replaces "never renders a raw uuid at an admin", which guarded the
+    // old `{ status: "unknown", userId }` value. A writer now carries its own
+    // NAME, so there is no id to render and no `userId` to read: the label
+    // interpolates `current.name`, and the field the old test needed does not
+    // exist on the type.)
+    view({ writer: { id: WRITER_A, name: "Ana Wells" }, writers: [BO] });
 
-    const option = screen.getByRole("option", { name: /unknown account/i });
-    expect(option).toBeInTheDocument();
-    expect(option.textContent ?? "").not.toContain(GONE);
-    // …and the whole card, not just that option.
-    expect(document.body.textContent ?? "").not.toContain(GONE);
-    // Still selected, so an industry-only save re-sends the writer.
-    expect(submitted().get("writer_id")).toBe(GONE);
+    const option = screen.getByRole("option", { name: /ana wells/i });
+    expect(option.textContent ?? "").not.toMatch(/archived/i);
+    expect(option.textContent ?? "").toMatch(/no longer in the writers registry/i);
+    expect(submitted().get("writer_id")).toBe(WRITER_A);
   });
 
   it("⚠️ does NOT call an industry “archived” when the registry never listed it", () => {

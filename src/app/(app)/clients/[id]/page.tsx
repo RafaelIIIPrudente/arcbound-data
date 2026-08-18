@@ -22,7 +22,7 @@ import { getClientServices } from "@/services/arcbound-services";
 import { getClient } from "@/services/clients";
 import { listIndustriesAdmin } from "@/services/industries";
 import { getReportLink } from "@/services/report-links";
-import { listStaffDirectory } from "@/services/staff";
+import { listWritersAdmin } from "@/services/writers";
 import { listUploads } from "@/services/uploads";
 
 export const metadata: Metadata = { title: "Client detail" };
@@ -136,10 +136,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // ⚠️ THE ROLE IS READ FIRST, AND ONLY BECAUSE SOMETHING DEPENDS ON IT. The two
   // picker reads below fill controls that ONLY an admin is shown, so an analyst
   // must not trigger them: they would be work with no consumer, and one of them
-  // is the staff directory — every colleague's email address — serialized into a
-  // read-only viewer's page payload for a component that returns before touching
-  // it. `clients/page.tsx` has always gated the identical pair this way; this
-  // page did not, and that asymmetry was the bug.
+  // was the staff directory — every colleague's email address — serialized into
+  // a read-only viewer's page payload for a component that returns before
+  // touching it. That particular exposure is gone with the directory itself
+  // (D15: a writer is a registry row, not an account), but the gating stands:
+  // an analyst cannot edit either field, so reading either registry for them is
+  // work with no consumer. `clients/page.tsx` gates the identical pair this way.
   //
   // The extra await costs nothing measurable: `getRole()` is `cache()`-memoised
   // per request and the shell has already called it by the time this renders.
@@ -158,13 +160,13 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // asserted in `page.test.tsx` rather than left to hold by luck.
   //
   // They also cannot fail the page, same rule as `getReportLink` and `getRole`.
-  const [client, uploads, reportLink, access, industries, staff] = await Promise.all([
+  const [client, uploads, reportLink, access, industries, writers] = await Promise.all([
     getClient(id),
     listUploads(id),
     getReportLink(id),
     getClientServices(id),
     admin ? listIndustriesAdmin().catch(() => null) : null,
-    admin ? listStaffDirectory().catch(() => null) : null,
+    admin ? listWritersAdmin().catch(() => null) : null,
   ]);
   if (!client) notFound();
 
@@ -286,7 +288,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         industry={client.industry}
         writer={client.writer}
         industries={industries}
-        staff={staff}
+        writers={writers}
         isAdmin={admin}
       />
 

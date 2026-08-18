@@ -29,6 +29,25 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // ⚠️ APPLIED AFTER THE CODE DEPLOYS, UNLIKE EVERY OTHER PAIR HERE. It drops
+    // a function whose last caller is removed in the same release, so applying
+    // it with the registry swap below would take the function away while the
+    // running app still calls it.
+    name: "drop-staff-directory",
+    script: "drop-staff-directory.sql",
+    migration: "migrations/20260818150000_drop_staff_directory.sql",
+  },
+  {
+    // ⚠️ ALTERS A PAIR THAT IS ALREADY APPLIED. `client-industry-writer` made
+    // `clients.writer_id` reference `auth.users`; this replaces that foreign key
+    // with one onto `public.writers`. The applied script is not edited — editing
+    // an applied script makes the file and the database disagree with no way to
+    // tell which is which — so the correction is a later pair that runs after it.
+    name: "writers-registry",
+    script: "writers-registry.sql",
+    migration: "migrations/20260818140000_writers_registry.sql",
+  },
+  {
     // The only DATA pair in this list. It fills the registry the pair below
     // creates empty, so it must stay in step for the same reason: a value added
     // to one copy and forgotten in the other means the SQL editor and

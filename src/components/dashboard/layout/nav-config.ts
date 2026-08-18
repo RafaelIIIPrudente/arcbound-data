@@ -99,6 +99,10 @@ export function resolvePageTitle(pathname: string): PageTitle {
   if (pathname.startsWith(paths.settings.industries)) {
     return { lead: "Client", accent: "industries" };
   }
+  // ⚠️ ABOVE THE `/settings` PREFIX LINE BELOW, like every nested settings route.
+  if (pathname.startsWith(paths.settings.writers)) {
+    return { lead: "Client", accent: "writers" };
+  }
   if (pathname.startsWith(paths.settings.profile)) return { lead: "", accent: "Settings" };
   return { lead: "", accent: "ArcBase" };
 }

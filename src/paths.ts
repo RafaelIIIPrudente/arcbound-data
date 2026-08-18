@@ -61,6 +61,14 @@ export const paths = {
     // ADMIN-ONLY, and a sibling of `roles` and `services` for the same reason:
     // `/settings` itself must stay reachable by every staff member.
     industries: "/settings/industries",
+    // The writers registry the Client Writer picker draws from (D15). ADMIN-ONLY,
+    // and a sibling of the three above for the same reason: `/settings` itself
+    // must stay reachable by every staff member.
+    //
+    // ⚠️ A REGISTRY OF PEOPLE, NOT OF ACCOUNTS. A row here grants no access and
+    // withholds none — that is `/settings/roles`, which is a different screen
+    // about a different thing.
+    writers: "/settings/writers",
   },
   auth: {
     resetPassword: "/auth/reset-password",

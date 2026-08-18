@@ -156,14 +156,20 @@ const UPLOAD = (clientId: string, createdAt: string) => ({
 const ROW = (
   id: string,
   name: string,
-  over: { industry?: { id: string; name: string } | null; writer_id?: string | null } = {},
+  over: {
+    industry?: { id: string; name: string } | null;
+    writer?: { id: string; name: string } | null;
+  } = {},
 ) => ({
   id,
   name,
   linkedin_profile_url: `https://linkedin.com/in/${name.toLowerCase().replace(/\s/g, "")}`,
   created_at: "2026-07-16T00:00:00.000Z",
+  // ⚠️ BOTH ARRIVE AS NESTED OBJECTS NOW. `writer_id` used to be a bare uuid
+  // resolved by a second read; it is a PostgREST embed over the foreign key,
+  // exactly like `industry` (D15).
   industry: null,
-  writer_id: null,
+  writer: null,
   ...over,
 });
 
@@ -172,11 +178,8 @@ const WRITER_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const WRITER_C = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const SAAS = { id: "ind-1", name: "SaaS" };
 
-/** A successful `list_staff_directory()` read. */
-const DIRECTORY = (...entries: [string, string][]) => ({
-  data: entries.map(([user_id, email]) => ({ user_id, email })),
-  error: null,
-});
+const ADA = { id: WRITER_A, name: "Ada Lovelace" };
+const GRACE = { id: WRITER_B, name: "Grace Hopper" };
 
 beforeEach(() => {
   supabase.current = null;
@@ -284,7 +287,7 @@ describe("clients service (real seam)", () => {
     expect(await getClient("missing")).toBeNull();
   });
 
-  it("fetches the rows, the counts, the latest uploads and the directory CONCURRENTLY", async () => {
+  it("fetches the rows, the counts and the latest uploads CONCURRENTLY", async () => {
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish")], error: null },
       { data: [{ client_id: "c1" }], error: null },
@@ -293,34 +296,33 @@ describe("clients service (real seam)", () => {
 
     await listClients();
 
-    // None of `fetchPostCounts`, `latestUploadByClient` or `staffEmailsById`
-    // reads anything out of the client select, so none needed to wait. Peak
-    // in-flight is 1 if they are serialised and 4 when all four go out together.
+    // Neither `fetchPostCounts` nor `latestUploadByClient` reads anything out of
+    // the client select, so neither needed to wait. Peak in-flight is 1 if they
+    // are serialised and 3 when all three go out together.
     //
     // Counting PEAK rather than total is what makes this discriminate: a serial
-    // implementation issues the same four queries and would pass a total.
+    // implementation issues the same three queries and would pass a total.
     //
-    // ⚠️ WAS 3 BEFORE THE STAFF DIRECTORY JOINED THEM. The number rising is the
-    // proof that the new read was added to the existing `Promise.all` rather
-    // than awaited after it — a fourth serial round-trip on every page.
-    expect(probe.peak).toBe(4);
+    // ⚠️ WAS 4 AND IS NOW 3, AND THE FALL IS THE POINT. The staff directory read
+    // is gone: the writer rides the client select as an embed, so the page makes
+    // one fewer round-trip (D15). A 4 here would mean a directory read survived.
+    expect(probe.peak).toBe(3);
   });
 
-  it("fetches the client row, its post count and the directory CONCURRENTLY", async () => {
+  it("fetches the client row and its post count CONCURRENTLY", async () => {
     mockSupabase({ data: ROW("c1", "Bryan Wish"), error: null }, { count: 5, error: null });
 
     await getClient("c1");
 
-    // The count filters on the id ARGUMENT and the directory is the whole staff
-    // roster, so neither needed the select's result. Peak in-flight is the
-    // discriminator: 1 when they await the row, 3 once all three go out
-    // together. Asserting the query count would pass under both and prove
-    // nothing.
+    // The count filters on the id ARGUMENT, so it never needed the select's
+    // result. Peak in-flight is the discriminator: 1 when the count awaits the
+    // row, 2 when both go out together. Asserting the query count would pass
+    // under both and prove nothing.
     //
-    // ⚠️ WAS 2 BEFORE THE STAFF DIRECTORY JOINED THEM — and `getClient` runs on
-    // the upload path, so a read appended serially here would add a round-trip
-    // to every upload as well as every page view.
-    expect(probe.peak).toBe(3);
+    // ⚠️ WAS 3 AND IS NOW 2. `getClient` runs on the upload path, so the removed
+    // directory read is a round-trip saved on every upload as well as every page
+    // view (D15).
+    expect(probe.peak).toBe(2);
   });
 
   it("still returns null for a missing client, though the count now runs anyway", async () => {
@@ -495,41 +497,39 @@ describe("industry and writer resolve through the client reads", () => {
 
   it("resolves both when both are set", async () => {
     mockSupabase(
-      { data: ROW("c1", "Bryan Wish", { industry: SAAS, writer_id: WRITER_A }), error: null },
+      { data: ROW("c1", "Bryan Wish", { industry: SAAS, writer: ADA }), error: null },
       { count: 3, error: null },
       { data: [], error: null },
-      DIRECTORY([WRITER_A, "ada@arcbound.com"]),
+      { data: [], error: null },
     );
 
     const client = await getClient("c1");
 
     expect(client!.industry).toEqual({ id: "ind-1", name: "SaaS" });
-    expect(client!.writer).toEqual({
-      status: "resolved",
-      userId: WRITER_A,
-      email: "ada@arcbound.com",
-    });
+    // ⚠️ THE SAME SHAPE AS THE INDUSTRY BESIDE IT, which is the whole of D15:
+    // both are registry rows carried by an embed over a foreign key.
+    expect(client!.writer).toEqual(ADA);
   });
 
   it("resolves both on the LIST too", async () => {
     mockSupabase(
       {
         data: [
-          ROW("c1", "Bryan Wish", { industry: SAAS, writer_id: WRITER_A }),
+          ROW("c1", "Bryan Wish", { industry: SAAS, writer: ADA }),
           ROW("c2", "Priya Nadella"),
         ],
         error: null,
       },
       { data: [], error: null },
       { data: [], error: null },
-      DIRECTORY([WRITER_A, "ada@arcbound.com"]),
+      { data: [], error: null },
     );
 
     const { items } = await listClients();
 
     const bryan = items.find((c) => c.id === "c1")!;
     expect(bryan.industry).toEqual(SAAS);
-    expect(bryan.writer).toMatchObject({ status: "resolved", email: "ada@arcbound.com" });
+    expect(bryan.writer).toEqual(ADA);
     expect(items.find((c) => c.id === "c2")!.writer).toBeNull();
   });
 
@@ -550,7 +550,7 @@ describe("industry and writer resolve through the client reads", () => {
       },
       { data: [], error: null },
       { data: [], error: null },
-      DIRECTORY(),
+      { data: [], error: null },
     );
 
     const { items, total } = await listClients({ q: "saas" });
@@ -568,7 +568,7 @@ describe("industry and writer resolve through the client reads", () => {
       },
       { data: [], error: null },
       { data: [], error: null },
-      DIRECTORY(),
+      { data: [], error: null },
     );
 
     const { items } = await listClients({ q: "priya" });
@@ -576,81 +576,57 @@ describe("industry and writer resolve through the client reads", () => {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
-  // ⚠️ THE ONE THAT PROTECTS THE UPLOAD GATE.
+  // ⚠️ FOUR TESTS ABOUT THE STAFF DIRECTORY WERE DELETED HERE, AND THIS IS THE
+  // CONSTRUCT THAT MAKES EACH OF THEIR CASES IMPOSSIBLE.
+  //
+  //   • "STILL RESOLVES when the staff directory read FAILS"
+  //   • "marks a writer UNAVAILABLE — not absent — when the directory read fails"
+  //   • "keeps ASSIGNED-BUT-UNRESOLVABLE apart from a FAILED directory read"
+  //   • "reads NOBODY-ASSIGNED as null even when the directory read failed"
+  //
+  // All four constructed a FAILED OR INCOMPLETE SECOND READ and asserted which
+  // of four writer states came out. There is no second read: `staffEmailsById`
+  // and `listStaffDirectory` are gone, and `getClient` issues exactly two
+  // queries (asserted above, `probe.peak` is 2 — a third would fail it). The
+  // writer arrives inside the client SELECT as an embed over the foreign key, so
+  // it cannot fail on its own, and `ClientWriter` is `{ id, name }` — it has no
+  // `status`, so `{ status: "unavailable", userId }` is a COMPILE error rather
+  // than a fixture. Nothing about a writer can be half-read any more.
+  //
+  // ⚠️ WHAT THOSE TESTS ALSO PROTECTED IS NOT LOST, AND IS NOT PROVED HERE. The
+  // reason they were written is that `getClient` feeds the upload name-match
+  // gate: `checkAuthorNames` catches any throw and degrades to "could not
+  // check", so a reader that could reject would silently switch that gate off.
+  // Moving the writer INTO the select changes the shape of that risk rather than
+  // removing it — an embed PostgREST cannot resolve fails the whole select. That
+  // is a live concern, not a unit-testable one; see the reload-and-load-/clients
+  // step in supabase/WRITERS-REGISTRY-APPLY.md.
   // ───────────────────────────────────────────────────────────────────────────
-  it("⚠️ STILL RESOLVES when the staff directory read FAILS — getClient must not throw", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockSupabase(
-      { data: ROW("c1", "Bryan Wish", { writer_id: WRITER_A }), error: null },
-      { count: 0, error: null },
-      { data: [], error: null },
-      { data: null, error: { message: "permission denied for function list_staff_directory" } },
-    );
 
-    // Asserted as `resolves`, not by reading the value: a rejection here would
-    // reach `checkAuthorNames`, be caught, and turn the name-match gate off for
-    // that upload. The absence of a throw IS the behaviour under test.
-    await expect(getClient("c1")).resolves.not.toBeNull();
-
-    const client = await getClient("c1");
-    expect(client!.name).toBe("Bryan Wish");
-    warn.mockRestore();
-  });
-
-  it("marks a writer UNAVAILABLE — not absent — when the directory read fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockSupabase(
-      { data: ROW("c1", "Bryan Wish", { writer_id: WRITER_A }), error: null },
-      { count: 0, error: null },
-      { data: [], error: null },
-      { data: null, error: { message: "permission denied" } },
-    );
+  it("reads NOBODY-ASSIGNED as null, which is a fact about the row itself", async () => {
+    mockSupabase({ data: ROW("c1", "Bryan Wish"), error: null }, { count: 0, error: null });
 
     const client = await getClient("c1");
 
-    // Same principle as postsCount and lastUpload: a failed read must not
-    // masquerade as a fact. "Nobody writes for this client" is a claim, and it
-    // is not the one the database made.
-    expect(client!.writer).toEqual({ status: "unavailable", userId: WRITER_A });
-    expect(client!.writer).not.toBeNull();
-    warn.mockRestore();
-  });
-
-  it("keeps ASSIGNED-BUT-UNRESOLVABLE apart from a FAILED directory read", async () => {
-    // ⚠️ THESE TWO CALL FOR OPPOSITE ACTIONS, WHICH IS WHY THEY ARE NOT MERGED.
-    // `unavailable` is about ArcBase — the read broke, the assignment is
-    // probably fine, try again. `unknown` is about the data — this id is in no
-    // staff account, so somebody must reassign the client. Collapsing them tells
-    // an admin to retry when a reassignment is needed, or to reassign when
-    // nothing is wrong.
-    mockSupabase(
-      { data: ROW("c1", "Bryan Wish", { writer_id: WRITER_A }), error: null },
-      { count: 0, error: null },
-      { data: [], error: null },
-      DIRECTORY([WRITER_B, "someone.else@arcbound.com"]),
-    );
-
-    const client = await getClient("c1");
-
-    expect(client!.writer).toEqual({ status: "unknown", userId: WRITER_A });
-  });
-
-  it("reads NOBODY-ASSIGNED as null even when the directory read failed", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockSupabase(
-      { data: ROW("c1", "Bryan Wish"), error: null },
-      { count: 0, error: null },
-      { data: [], error: null },
-      { data: null, error: { message: "permission denied" } },
-    );
-
-    const client = await getClient("c1");
-
-    // "No writer is assigned" is known from the client row ALONE — `writer_id`
-    // is null — so a broken directory cannot make that fact uncertain. Reporting
-    // "unavailable" here would invent a doubt the data does not have.
+    // ⚠️ `null` SURVIVED THE COLLAPSE INTACT. Nobody has been recorded — known
+    // from the client row alone, exactly as an unrecorded industry is.
     expect(client!.writer).toBeNull();
-    warn.mockRestore();
+  });
+
+  it("⚠️ still resolves an ARCHIVED writer — retiring one must not break their clients", async () => {
+    // The twin of the industry assertion below. `set_writer_status` archives a
+    // writer so they stop being OFFERED; the Clients already recorded against
+    // them are still recorded. The read follows the foreign key, not the status,
+    // so nothing about a Client changes when their writer is retired — which is
+    // what makes archiving the right tool when somebody leaves.
+    mockSupabase(
+      { data: ROW("c1", "Bryan Wish", { writer: GRACE }), error: null },
+      { count: 0, error: null },
+    );
+
+    const client = await getClient("c1");
+
+    expect(client!.writer).toEqual(GRACE);
   });
 
   it("still resolves an ARCHIVED industry — retiring one must not break its clients", async () => {
@@ -674,37 +650,36 @@ describe("industry and writer resolve through the client reads", () => {
   // ───────────────────────────────────────────────────────────────────────────
   // ⚠️ ONE READ PER PAGE, NOT ONE PER ROW.
   // ───────────────────────────────────────────────────────────────────────────
-  it("⚠️ issues ONE staff-directory read for a whole page of clients", async () => {
+  it("⚠️ resolves a whole page of writers with NO extra read at all", async () => {
+    // ⚠️ DELETED AND REPLACED: "issues ONE staff-directory read for a whole page
+    // of clients". That test counted `list_staff_directory` calls to catch an
+    // N+1 — three clients, three distinct writers, one read. There is no read to
+    // count now: the writer rides each row in the client SELECT itself, so the
+    // N+1 it guarded against cannot be written. Its successor is the peak-in-
+    // flight assertion above, which is 3 and would be 4 if any directory read
+    // came back.
+    //
+    // ⚠️ THE CONSTRUCT: `staffEmailsById` and `listStaffDirectory` are deleted,
+    // and `CLIENT_COLUMNS` carries `writer:writers(id, name)`. Nothing in the
+    // client seam can issue a per-row writer read, because nothing in it reads
+    // writers at all — asserted as ZERO rpc calls, which is strictly stronger
+    // than the "exactly one" the old test could manage.
     mockSupabase(
       {
         data: [
-          ROW("c1", "Bryan Wish", { writer_id: WRITER_A }),
-          ROW("c2", "Priya Nadella", { writer_id: WRITER_B }),
-          ROW("c3", "Nadia Vega", { writer_id: WRITER_C }),
+          ROW("c1", "Bryan Wish", { writer: ADA }),
+          ROW("c2", "Priya Nadella", { writer: GRACE }),
+          ROW("c3", "Nadia Vega"),
         ],
         error: null,
       },
       { data: [], error: null },
-      { data: [], error: null },
-      DIRECTORY(
-        [WRITER_A, "ada@arcbound.com"],
-        [WRITER_B, "priya@arcbound.com"],
-        [WRITER_C, "nadia@arcbound.com"],
-      ),
     );
 
     const { items } = await listClients();
 
-    // THE assertion: three clients, three DISTINCT writers, ONE read. Resolving
-    // per row returns the identical emails below, so only this count separates
-    // the two implementations — the same reason `latestUploadByClient` is one
-    // query rather than one per row.
-    expect(rpcCalls.filter((n) => n === "list_staff_directory")).toHaveLength(1);
-    expect(items.map((c) => (c.writer as { email?: string } | null)?.email)).toEqual([
-      "ada@arcbound.com",
-      "priya@arcbound.com",
-      "nadia@arcbound.com",
-    ]);
+    expect(rpcCalls).toEqual([]);
+    expect(items.map((c) => c.writer)).toEqual([ADA, GRACE, null]);
   });
 
   it("does not change WHICH error surfaces from listClients", async () => {
@@ -779,10 +754,10 @@ describe("createClient — industry and writer at registration (D7)", () => {
     // retrying would duplicate it". A separate industry/writer write would add
     // another such outcome; folding both into the insert adds none.
     mockSupabase(
-      { data: ROW("new", "Nadia Vega", { industry: SAAS, writer_id: WRITER_A }), error: null },
+      { data: ROW("new", "Nadia Vega", { industry: SAAS, writer: ADA }), error: null },
       { data: [], error: null },
       { data: [], error: null },
-      DIRECTORY([WRITER_A, "ana@arcbound.com"]),
+      { data: [], error: null },
     );
 
     await createClient({
@@ -818,18 +793,28 @@ describe("createClient — industry and writer at registration (D7)", () => {
     expect(inserts[0]?.payload).toMatchObject({ industry_id: null, writer_id: null });
   });
 
-  it("⚠️ does NOT report a just-assigned writer as `unknown`", async () => {
-    // ⚠️ TRAP 3. This function used to end `toClient(row, 0, new Map())`, and the
-    // empty map was honest ONLY because the insert set neither column. Now that it
-    // can set `writer_id`, an empty map resolves that writer to `unknown` — which
-    // in this codebase means "assigned to an id no staff account matches, a human
-    // must reassign". That would be a false alarm about a writer the admin just
-    // successfully assigned, manufactured by the create path itself.
+  it("⚠️ returns the writer it just recorded, read back from the inserted row", async () => {
+    // ⚠️ TWO TESTS WERE DELETED HERE AND THIS ONE REPLACES BOTH:
+    //   • "does NOT report a just-assigned writer as `unknown`"
+    //   • "says `unavailable`, never `unknown`, when the directory read fails"
+    //
+    // Both existed because `createClient` had to resolve a writer through a
+    // SECOND read after the insert. Against an empty directory map an
+    // assigned writer came back `unknown` — "a human must reassign" — a false
+    // alarm about a writer the admin had just successfully set; and a failed
+    // directory read had to come back `unavailable` rather than `unknown`.
+    //
+    // ⚠️ THE CONSTRUCT: the insert's own `.select(CLIENT_COLUMNS)` returns the
+    // writer embedded, so the value is read from the row that was written. There
+    // is no map to be empty and no directory read to fail, and `ClientWriter`
+    // has neither `status` nor `userId`, so both deleted assertions are compile
+    // errors rather than judgement calls.
     mockSupabase(
-      { data: ROW("new", "Nadia Vega", { writer_id: WRITER_A }), error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      DIRECTORY([WRITER_A, "ana@arcbound.com"]),
+      { data: ROW("new", "Nadia Vega", { writer: ADA }), error: null },
+      {
+        data: [],
+        error: null,
+      },
     );
 
     const created = await createClient({
@@ -838,30 +823,7 @@ describe("createClient — industry and writer at registration (D7)", () => {
       writer_id: WRITER_A,
     });
 
-    expect(created.writer).toEqual({
-      status: "resolved",
-      userId: WRITER_A,
-      email: "ana@arcbound.com",
-    });
-  });
-
-  it("⚠️ says `unavailable`, never `unknown`, when the directory read fails", async () => {
-    // The two are different facts. "We could not look it up" is true; "that id
-    // matches no staff account" would be an accusation we cannot support.
-    mockSupabase(
-      { data: ROW("new", "Nadia Vega", { writer_id: WRITER_A }), error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: null, error: { message: "denied" } },
-    );
-
-    const created = await createClient({
-      name: "Nadia Vega",
-      linkedin_url: "https://linkedin.com/in/nadiavega",
-      writer_id: WRITER_A,
-    });
-
-    expect(created.writer).toEqual({ status: "unavailable", userId: WRITER_A });
+    expect(created.writer).toEqual(ADA);
   });
 
   it("does not read the directory when no writer was assigned", async () => {

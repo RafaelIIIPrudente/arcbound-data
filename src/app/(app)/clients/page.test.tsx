@@ -19,24 +19,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // to add rows that already exist, or hide an outage behind an empty picker.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const {
-  listClientsMock,
-  listServicesMock,
-  listIndustriesMock,
-  listStaffDirectoryMock,
-  getRoleMock,
-} = vi.hoisted(() => ({
-  listClientsMock: vi.fn(),
-  listServicesMock: vi.fn(),
-  listIndustriesMock: vi.fn(),
-  listStaffDirectoryMock: vi.fn(),
-  getRoleMock: vi.fn(),
-}));
+const { listClientsMock, listServicesMock, listIndustriesMock, listWritersMock, getRoleMock } =
+  vi.hoisted(() => ({
+    listClientsMock: vi.fn(),
+    listServicesMock: vi.fn(),
+    listIndustriesMock: vi.fn(),
+    listWritersMock: vi.fn(),
+    getRoleMock: vi.fn(),
+  }));
 
 vi.mock("@/services/clients", () => ({ listClients: listClientsMock }));
 vi.mock("@/services/arcbound-services", () => ({ listServices: listServicesMock }));
 vi.mock("@/services/industries", () => ({ listIndustriesAdmin: listIndustriesMock }));
-vi.mock("@/services/staff", () => ({ listStaffDirectory: listStaffDirectoryMock }));
+vi.mock("@/services/writers", () => ({ listWritersAdmin: listWritersMock }));
 vi.mock("@/lib/auth/roles", () => ({
   getRole: getRoleMock,
   isAdmin: (role: string | null) => role === "admin",
@@ -49,13 +44,13 @@ vi.mock("@/components/dashboard/client/add-client-dialog", () => ({
   AddClientDialog: (props: {
     services: unknown[] | null;
     industries: unknown[] | null;
-    staff: unknown[] | null;
+    writers: unknown[] | null;
   }) => (
     <div
       data-testid="add-client-dialog"
       data-services={props.services === null ? "null" : String(props.services.length)}
       data-industries={props.industries === null ? "null" : String(props.industries.length)}
-      data-staff={props.staff === null ? "null" : String(props.staff.length)}
+      data-writers={props.writers === null ? "null" : String(props.writers.length)}
     />
   ),
 }));
@@ -73,7 +68,7 @@ import ClientsPage from "./page";
 
 const SERVICE = { id: "s1", slug: "linkedin-growth", name: "LinkedIn Growth" };
 const INDUSTRY = { id: "i1", name: "SaaS", status: "active" as const };
-const STAFF = { userId: "u1", email: "ana@arcbound.com" };
+const WRITER = { id: "u1", name: "Ana Wells", status: "active" as const };
 
 function client(id: string, name: string) {
   return {
@@ -99,8 +94,8 @@ beforeEach(() => {
   listServicesMock.mockResolvedValue([SERVICE]);
   listIndustriesMock.mockReset();
   listIndustriesMock.mockResolvedValue([INDUSTRY]);
-  listStaffDirectoryMock.mockReset();
-  listStaffDirectoryMock.mockResolvedValue([STAFF]);
+  listWritersMock.mockReset();
+  listWritersMock.mockResolvedValue([WRITER]);
   getRoleMock.mockReset();
   getRoleMock.mockResolvedValue("admin");
 });
@@ -126,13 +121,13 @@ describe("the Client List page — what it reads, and for whom", () => {
     const dialog = screen.getByTestId("add-client-dialog");
     expect(dialog).toHaveAttribute("data-services", "1");
     expect(dialog).toHaveAttribute("data-industries", "1");
-    expect(dialog).toHaveAttribute("data-staff", "1");
+    expect(dialog).toHaveAttribute("data-writers", "1");
   });
 
   it("⚠️ triggers NO registry read at all for an analyst", async () => {
     // ⚠️ NOT MERELY HIDING THE DIALOG. An analyst cannot register a client, so
     // the three reads that exist to fill its pickers are work with no consumer —
-    // and one of them, the staff directory, is a list of colleagues' email
+    // and one of them, the writers registry, is a list of colleagues' email
     // addresses that a read-only viewer has no reason to have fetched.
     getRoleMock.mockResolvedValue("analyst");
 
@@ -141,7 +136,7 @@ describe("the Client List page — what it reads, and for whom", () => {
     expect(screen.queryByTestId("add-client-dialog")).toBeNull();
     expect(listServicesMock).not.toHaveBeenCalled();
     expect(listIndustriesMock).not.toHaveBeenCalled();
-    expect(listStaffDirectoryMock).not.toHaveBeenCalled();
+    expect(listWritersMock).not.toHaveBeenCalled();
     // …and the roster itself still renders in full. The analyst loses the
     // dialog, not the page.
     expect(screen.getByTestId("clients-table")).toHaveAttribute("data-ids", "c1");
@@ -151,7 +146,7 @@ describe("the Client List page — what it reads, and for whom", () => {
 describe("⚠️ a failed registry read and an empty one do NOT converge", () => {
   it("passes `null` for a registry whose read threw", async () => {
     listIndustriesMock.mockRejectedValue(new Error("boom"));
-    listStaffDirectoryMock.mockRejectedValue(new Error("boom"));
+    listWritersMock.mockRejectedValue(new Error("boom"));
     listServicesMock.mockRejectedValue(new Error("boom"));
 
     render(await ClientsPage(props()));
@@ -159,7 +154,7 @@ describe("⚠️ a failed registry read and an empty one do NOT converge", () =>
     const dialog = screen.getByTestId("add-client-dialog");
     expect(dialog).toHaveAttribute("data-services", "null");
     expect(dialog).toHaveAttribute("data-industries", "null");
-    expect(dialog).toHaveAttribute("data-staff", "null");
+    expect(dialog).toHaveAttribute("data-writers", "null");
   });
 
   it("⚠️ passes `[]` for a registry that read fine and holds nothing", async () => {

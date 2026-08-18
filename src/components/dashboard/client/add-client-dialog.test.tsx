@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ClientFormState } from "@/app/(app)/clients/actions";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import type { StaffDirectoryEntry } from "@/services/staff";
-import type { ArcboundService, Industry } from "@/services/types";
+import type { ArcboundService, Industry, Writer } from "@/services/types";
 
 import { AddClientFormView, shouldCloseAfter } from "./add-client-dialog";
 
@@ -52,9 +51,17 @@ const FAX: Industry = {
   name: "Fax Machines",
   status: "archived",
 };
-const STAFF: StaffDirectoryEntry[] = [
-  { userId: "cccccccc-0000-0000-0000-000000000001", email: "ana@arcbound.com" },
-];
+const ANA: Writer = {
+  id: "cccccccc-0000-0000-0000-000000000001",
+  name: "Ana Wells",
+  status: "active",
+};
+/** Retired — a brand-new Client can never already be recorded against them. */
+const RETIRED_WRITER: Writer = {
+  id: "cccccccc-0000-0000-0000-000000000002",
+  name: "Bo Chen",
+  status: "archived",
+};
 
 const noop = () => {};
 const baseProps = {
@@ -63,7 +70,7 @@ const baseProps = {
   pending: false,
   services: [LINKEDIN, LEGACY_ARCHIVED],
   industries: [SAAS, FAX],
-  staff: STAFF,
+  writers: [ANA, RETIRED_WRITER],
 };
 
 describe("AddClientFormView — picking services at registration", () => {
@@ -308,10 +315,41 @@ describe("AddClientFormView — recording industry and writer at registration (S
     expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
   });
 
-  it("an unreadable staff directory still lets the client be registered", () => {
-    render(<AddClientFormView {...baseProps} staff={null} />);
+  it("offers the ACTIVE writers, and not the archived ones", () => {
+    // The same rule as the industry field above, and now literally the same
+    // code: a Client being registered has no writer to preserve, so offering a
+    // retired one would resurrect them through a side door.
+    render(<AddClientFormView {...baseProps} />);
 
-    expect(screen.getByText(/staff directory could not be loaded/i)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Ana Wells" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /bo chen/i })).not.toBeInTheDocument();
+  });
+
+  it("an unreadable writers registry still lets the client be registered", () => {
+    render(<AddClientFormView {...baseProps} writers={null} />);
+
+    expect(screen.getByText(/writers could not be loaded/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add client/i })).toBeEnabled();
+  });
+
+  it("⚠️ an EMPTY writers registry points at the screen that fixes it", () => {
+    render(<AddClientFormView {...baseProps} writers={[]} />);
+
+    const notice = screen.getByText(/no writers are registered yet/i);
+    expect(notice).toHaveTextContent(/settings/i);
+    expect(notice.textContent ?? "").not.toMatch(/could not|failed|error/i);
+    expect(screen.queryByLabelText("Writer")).not.toBeInTheDocument();
+  });
+
+  it("⚠️ does NOT say the writers registry is empty when every writer is ARCHIVED", () => {
+    // The twin of the industry assertion above: the read succeeded and the
+    // registry is full, so "add them" is false in the expensive direction —
+    // names are unique case-insensitively.
+    render(<AddClientFormView {...baseProps} writers={[RETIRED_WRITER]} />);
+
+    expect(screen.queryByText(/no writers are registered yet/i)).not.toBeInTheDocument();
+    const notice = screen.getByText(/every writer is archived/i);
+    expect(notice.textContent ?? "").toMatch(/restore/i);
+    expect(notice.textContent ?? "").not.toMatch(/could not|failed|error/i);
   });
 });

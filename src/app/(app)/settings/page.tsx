@@ -49,6 +49,12 @@ export default async function SettingsPage() {
             >
               Industries
             </Link>
+            <Link
+              href={paths.settings.writers}
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Writers
+            </Link>
           </nav>
         ) : null}
       </div>

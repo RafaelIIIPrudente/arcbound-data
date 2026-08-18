@@ -53,8 +53,8 @@ const ENTRIES = [
  */
 const FORBIDDEN = [
   "src/services/industries.ts",
+  "src/services/writers.ts",
   "src/services/staff.ts",
-  "src/lib/client-writer.ts",
   "src/components/dashboard/client/client-industry-writer-card.tsx",
   "src/components/dashboard/client/add-client-dialog.tsx",
   "src/components/dashboard/client/columns.tsx",
@@ -62,6 +62,9 @@ const FORBIDDEN = [
   "src/app/(app)/clients/[id]/industry-writer-actions.ts",
   "src/app/(app)/settings/industries/actions.ts",
   "src/app/(app)/settings/industries/page.tsx",
+  "src/app/(app)/settings/writers/actions.ts",
+  "src/app/(app)/settings/writers/page.tsx",
+  "src/components/dashboard/settings/writers-table.tsx",
 ];
 
 const CACHE = new Map<string, string | null>();

@@ -1,13 +1,9 @@
-// ⚠️ BOTH IMPORTS IN THIS FILE ARE TYPE-ONLY, AND MUST STAY THAT WAY. They erase
-// at compile time, so nothing is added to any bundle and no runtime cycle can
-// form — `services/staff.ts` pulls in `@/lib/supabase/server`, which a plain
-// import from this file would drag into everything that reads a type.
-//
-// `IngestResult`'s name-mismatch member carries the author-match evidence, whose
-// shape is documented beside the pure logic that builds it rather than copied
-// here. `StaffDirectoryEntry` is owned by the staff seam for the same reason.
+// ⚠️ TYPE-ONLY, AND THE ONLY IMPORT IN THIS FILE. `IngestResult`'s name-mismatch
+// member carries the author-match evidence, and that shape is documented beside
+// the pure logic that builds it rather than copied here. `lib/author-match` is
+// dependency-free and the import erases at compile time, so nothing is added to
+// any bundle by this line.
 import type { AuthorMatchReport } from "@/lib/author-match";
-import type { StaffDirectoryEntry } from "@/services/staff";
 
 export type CustomerStatus = "active" | "blocked" | "pending";
 
@@ -58,8 +54,18 @@ export interface Client {
    * new assignments; it does not evict the Clients already in it.
    */
   industry: ClientIndustry | null;
-  /** Who writes for this Client — see `ClientWriter`, which has four states. */
-  writer: ClientWriter;
+  /**
+   * Who writes for this Client, or `null` when nobody has been recorded.
+   *
+   * ⚠️ THE SAME TWO STATES AS `industry`, FOR THE SAME REASON: both are registry
+   * rows reached by a foreign key and read through the same embed. `writer` used
+   * to carry two more states; see `ClientWriter` for why they cannot occur.
+   *
+   * An ARCHIVED writer still resolves. Archiving stops one being OFFERED for new
+   * assignments — the right tool when somebody leaves — and does not evict the
+   * Clients already recorded against them.
+   */
+  writer: ClientWriter | null;
 }
 
 /** An Arcbound industry, as a Client carries it. */
@@ -70,6 +76,9 @@ export interface ClientIndustry {
 
 /** Whether an industry is still offered for new assignments. */
 export type IndustryStatus = "active" | "archived";
+
+/** Whether a writer is still offered for new assignments. */
+export type WriterStatus = "active" | "archived";
 
 /**
  * The two registries an Industry/Writer picker is filled from.
@@ -86,7 +95,7 @@ export type IndustryStatus = "active" | "archived";
  */
 export interface RegistryPickers {
   industries: Industry[] | null;
-  staff: StaffDirectoryEntry[] | null;
+  writers: Writer[] | null;
 }
 
 /**
@@ -109,34 +118,55 @@ export interface Industry {
 }
 
 /**
- * Who writes for a Client:
- *   • `null`          — NOBODY IS ASSIGNED. Known from the client row alone
- *                       (`writer_id` is null), so a broken directory read cannot
- *                       make this uncertain.
- *   • `resolved`      — assigned, and their email was found.
- *   • `unknown`       — assigned, but that id is in no staff account we can see.
- *   • `unavailable`   — the staff directory READ FAILED, so we do not know.
+ * A row of the writers registry, as the ADMIN SCREEN sees it.
  *
- * ⚠️ FOUR STATES BECAUSE THEY ARE FOUR DIFFERENT FACTS, and the same rule that
- * governs `LastUpload` and `postsCount` governs this: a screen that renders two
- * of them identically is lying about which one happened.
+ * ⚠️ NOT A REPLACEMENT FOR `ClientWriter`, AND THE DIFFERENCE IS THE POINT —
+ * exactly as it is for `Industry` and `ClientIndustry`. `ClientWriter` is what a
+ * Client carries: the two fields a reader needs to be told who writes for them.
+ * This is the registry entry itself, and it adds the one field only an
+ * administrator acts on: `status`.
  *
- * ⚠️ `unknown` AND `unavailable` ARE DELIBERATELY NOT MERGED. They call for
- * opposite actions. `unavailable` is about ArcBase — the read broke, the
- * assignment is probably fine, try again. `unknown` is about the data — nobody
- * holds that id, so a human must reassign the Client. Merging them tells an
- * admin to retry when a reassignment is needed, or to reassign when nothing is
- * wrong.
- *
- * ⚠️ THE WRITER IS RESOLVED THROUGH A SEPARATE RPC (`list_staff_directory`),
- * which is why it has states the industry does not: the industry rides along on
- * the client SELECT via its foreign key, while this can fail on its own.
+ * ⚠️ `status` MUST NOT LEAK INTO THE CLIENT-FACING READ. A Client recorded
+ * against a writer stays recorded after that writer is archived — archiving stops
+ * one being OFFERED, it does not evict anybody — so showing a Client as
+ * "archived" would be a statement about the registry dressed up as a statement
+ * about them.
  */
-export type ClientWriter =
-  | null
-  | { status: "resolved"; userId: string; email: string }
-  | { status: "unknown"; userId: string }
-  | { status: "unavailable"; userId: string };
+export interface Writer {
+  id: string;
+  name: string;
+  status: WriterStatus;
+}
+
+/**
+ * Who writes for a Client — a row of the writers registry, or `null`.
+ *
+ * ⚠️ TWO STATES, AND IT USED TO HAVE FOUR. The other two — `unknown` ("assigned
+ * to an account nobody holds") and `unavailable` ("the staff directory read
+ * failed") — are GONE, and deleting a distinction is only honest when the thing
+ * it distinguished can no longer happen. It can no longer happen:
+ *
+ *   `writer_id` referenced `auth.users`, whose emails are unreadable by
+ *   `authenticated`, so a writer had to be resolved through a SEPARATE RPC that
+ *   could fail on its own or come back without the id. Both extra states were
+ *   artefacts of that second read. `writer_id` now references `public.writers`
+ *   and rides the client SELECT as a PostgREST embed over the foreign key — the
+ *   same mechanism `industry` has always used. An embed cannot fail on its own
+ *   (if the select worked, the writer came with it) and the foreign key cannot
+ *   dangle. A set writer always resolves. There is no second read left to break.
+ *
+ * ⚠️ `null` IS STILL A REAL STATE AND MUST SURVIVE INTACT: nobody has been
+ * recorded yet. It is a known fact, carried by the client row itself, and it
+ * renders as words — never as the em dash, which on the Client List means "could
+ * not be read" and nothing else.
+ *
+ * ⚠️ AND A WRITER GRANTS NOTHING. This is an attribution, not a permission: a
+ * row here is a person Arcbound writes for clients with, not a login (D15).
+ */
+export interface ClientWriter {
+  id: string;
+  name: string;
+}
 
 /**
  * When a Client was last ingested:

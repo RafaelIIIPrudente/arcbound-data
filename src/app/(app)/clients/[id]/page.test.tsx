@@ -10,7 +10,7 @@ const {
   getRoleMock,
   getClientServicesMock,
   listIndustriesMock,
-  listStaffDirectoryMock,
+  listWritersMock,
 } = vi.hoisted(() => ({
   getClientMock: vi.fn(),
   listUploadsMock: vi.fn(),
@@ -18,12 +18,12 @@ const {
   getRoleMock: vi.fn(),
   getClientServicesMock: vi.fn(),
   listIndustriesMock: vi.fn(),
-  listStaffDirectoryMock: vi.fn(),
+  listWritersMock: vi.fn(),
 }));
 
 vi.mock("@/services/clients", () => ({ getClient: getClientMock }));
 vi.mock("@/services/industries", () => ({ listIndustriesAdmin: listIndustriesMock }));
-vi.mock("@/services/staff", () => ({ listStaffDirectory: listStaffDirectoryMock }));
+vi.mock("@/services/writers", () => ({ listWritersAdmin: listWritersMock }));
 vi.mock("@/services/uploads", () => ({ listUploads: listUploadsMock }));
 vi.mock("@/services/report-links", () => ({ getReportLink: getReportLinkMock }));
 vi.mock("@/lib/auth/roles", () => ({
@@ -47,20 +47,20 @@ vi.mock("@/components/dashboard/client/follower-trend", () => ({
 vi.mock("@/components/dashboard/client/client-industry-writer-card", () => ({
   ClientIndustryWriterCard: (props: {
     industry: { id: string } | null;
-    writer: { userId: string } | null;
+    writer: { id: string } | null;
     industries: unknown[] | null;
-    staff: unknown[] | null;
+    writers: unknown[] | null;
     isAdmin: boolean;
   }) => (
     <div
       data-testid="industry-writer-card"
       data-industry={props.industry?.id ?? ""}
-      data-writer={props.writer?.userId ?? ""}
+      data-writer={props.writer?.id ?? ""}
       // ⚠️ "null" AND "0" MUST BE TELLABLE APART HERE. A failed registry read
       // reaching the card as `[]` is the silent-wipe path (see the card header),
       // so the test asserts on which of the two arrived.
       data-industries={props.industries === null ? "null" : String(props.industries.length)}
-      data-staff={props.staff === null ? "null" : String(props.staff.length)}
+      data-writers={props.writers === null ? "null" : String(props.writers.length)}
       data-is-admin={String(props.isAdmin)}
     />
   ),
@@ -95,9 +95,10 @@ const INDUSTRY = {
   name: "SaaS",
   status: "active" as const,
 };
-const STAFF_ENTRY = {
-  userId: "cccccccc-0000-0000-0000-000000000001",
-  email: "ana@arcbound.com",
+const WRITER_ENTRY = {
+  id: "cccccccc-0000-0000-0000-000000000001",
+  name: "Ana Wells",
+  status: "active" as const,
 };
 
 function params() {
@@ -123,8 +124,8 @@ beforeEach(() => {
   getClientServicesMock.mockResolvedValue({ services: [SERVICE], held: [SERVICE] });
   listIndustriesMock.mockReset();
   listIndustriesMock.mockResolvedValue([INDUSTRY]);
-  listStaffDirectoryMock.mockReset();
-  listStaffDirectoryMock.mockResolvedValue([STAFF_ENTRY]);
+  listWritersMock.mockReset();
+  listWritersMock.mockResolvedValue([WRITER_ENTRY]);
 });
 
 describe("the Client Overview — Services", () => {
@@ -187,7 +188,7 @@ describe("⚠️ the admin-only registries are not read for an analyst", () => {
     // ⚠️ THE SIBLING PAGE ALREADY DOES THIS. `clients/page.tsx` gates the
     // identical pair on `admin`; this page read them for everyone. An analyst
     // gets the read-only card, which uses neither list — so the reads were work
-    // with no consumer, and the staff directory (every colleague's email
+    // with no consumer, and the writers registry (every colleague's email
     // address) was serialized into a read-only viewer's page payload for a
     // component that had already returned before touching it.
     getRoleMock.mockResolvedValue("analyst");
@@ -195,22 +196,22 @@ describe("⚠️ the admin-only registries are not read for an analyst", () => {
     render(await ClientDetailPage(params()));
 
     expect(listIndustriesMock).not.toHaveBeenCalled();
-    expect(listStaffDirectoryMock).not.toHaveBeenCalled();
+    expect(listWritersMock).not.toHaveBeenCalled();
 
     const card = screen.getByTestId("industry-writer-card");
     expect(card).toHaveAttribute("data-is-admin", "false");
     expect(card).toHaveAttribute("data-industries", "null");
-    expect(card).toHaveAttribute("data-staff", "null");
+    expect(card).toHaveAttribute("data-writers", "null");
   });
 
   it("still reads both for an admin, who has pickers to fill", async () => {
     render(await ClientDetailPage(params()));
 
     expect(listIndustriesMock).toHaveBeenCalled();
-    expect(listStaffDirectoryMock).toHaveBeenCalled();
+    expect(listWritersMock).toHaveBeenCalled();
     const card = screen.getByTestId("industry-writer-card");
     expect(card).toHaveAttribute("data-industries", "1");
-    expect(card).toHaveAttribute("data-staff", "1");
+    expect(card).toHaveAttribute("data-writers", "1");
   });
 
   it("⚠️ the analyst's `null` is not the card's read-failed signal reaching a screen", async () => {
@@ -222,7 +223,7 @@ describe("⚠️ the admin-only registries are not read for an analyst", () => {
     render(await ClientDetailPage(params()));
 
     expect(screen.queryByText(/industries registry could not be read/i)).toBeNull();
-    expect(screen.queryByText(/staff directory could not be read/i)).toBeNull();
+    expect(screen.queryByText(/writers registry could not be read/i)).toBeNull();
   });
 });
 
@@ -283,14 +284,14 @@ describe("the Client Overview — Industry & writer (S4)", () => {
       created_at: "2026-01-01T00:00:00.000Z",
       posts: 0,
       industry: { id: INDUSTRY.id, name: "SaaS" },
-      writer: { status: "resolved", userId: STAFF_ENTRY.userId, email: STAFF_ENTRY.email },
+      writer: { id: WRITER_ENTRY.id, name: WRITER_ENTRY.name },
     });
 
     render(await ClientDetailPage(params()));
 
     const card = screen.getByTestId("industry-writer-card");
     expect(card).toHaveAttribute("data-industry", INDUSTRY.id);
-    expect(card).toHaveAttribute("data-writer", STAFF_ENTRY.userId);
+    expect(card).toHaveAttribute("data-writer", WRITER_ENTRY.id);
   });
 
   it("⚠️ passes isAdmin explicitly, so an analyst gets the read-only card", async () => {
@@ -313,19 +314,19 @@ describe("the Client Overview — Industry & writer (S4)", () => {
     expect(screen.getByTestId("industry-writer-card")).toHaveAttribute("data-industries", "null");
   });
 
-  it("passes `null` when the staff directory read fails", async () => {
-    listStaffDirectoryMock.mockRejectedValueOnce(new Error("denied"));
+  it("passes `null` when the writers registry read fails", async () => {
+    listWritersMock.mockRejectedValueOnce(new Error("denied"));
 
     render(await ClientDetailPage(params()));
 
-    expect(screen.getByTestId("industry-writer-card")).toHaveAttribute("data-staff", "null");
+    expect(screen.getByTestId("industry-writer-card")).toHaveAttribute("data-writers", "null");
   });
 
   it("⚠️ neither read can take the page down", async () => {
     // Both are pickers for one card. The uploads, KPIs and report link on this page
     // have nothing to do with them and must survive their failure.
     listIndustriesMock.mockRejectedValueOnce(new Error("denied"));
-    listStaffDirectoryMock.mockRejectedValueOnce(new Error("denied"));
+    listWritersMock.mockRejectedValueOnce(new Error("denied"));
 
     render(await ClientDetailPage(params()));
 

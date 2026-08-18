@@ -523,48 +523,57 @@ describe("the Client List's two columns say they are two different pipelines", (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE WRITER'S FOUR STATES, TWO OF WHICH SOUND ALARMING AND MEAN OPPOSITE THINGS.
+// THE WRITER'S TWO STATES — AND THE TWO THAT WENT AWAY.
 //
-// A table cell holds a terse label; the sentence that separates "assigned to an
-// account that no longer exists" (a human must reassign) from "the staff
-// directory could not be read" (retry) has to live somewhere, and the ⓘ is that
-// somewhere. ⚠️ A definition that explained only the state the reader asked
-// about would flatten four facts into two — the same collapse the cell exists to
-// prevent, restated in prose.
+// This block used to be titled "four states, two of which sound alarming and
+// mean opposite things", and it asserted that the definition separated "assigned
+// to an account that no longer exists" from "the staff directory could not be
+// read". Two of its assertions have been DELETED with the states they described:
+// `/no longer/`, `/reassign/`, `/could not be read/`, `/dash/` and `/intact/`
+// were all about a writer that could fail to resolve.
+//
+// ⚠️ THE CONSTRUCT THAT MAKES THEIR CASE IMPOSSIBLE: `ClientWriter` is
+// `{ id, name }`, produced only by `toWriter` from a PostgREST embed over
+// `clients.writer_id → writers.id`. There is no second read, so nothing can be
+// half-known; a definition that explained a state the type cannot hold would be
+// prose about a screen nobody can reach.
+//
+// ⚠️ WHAT IS NOT DELETED: the sweep keeping this key off every client-visible
+// map, and the "not recorded is a known fact" claim. The first is asserted in
+// the D3 block above and is the reason this definition is separate at all.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("the Client List's Writer definition explains all four states", () => {
+describe("the Client List's Writer definition explains its two states", () => {
   const writer = METRIC_DEFINITIONS.clientListWriter.definition;
 
   it("says the assignment is recorded in ArcBase by a person, not inferred", () => {
-    // Nothing derives a writer from anything. It is typed in, so a blank means
-    // nobody typed one — which is the only reading of `null` that is true.
+    // Nothing derives a writer from anything. It is chosen from a registry, so a
+    // blank means nobody chose one — the only reading of `null` that is true.
     expect(writer).toMatch(/recorded/i);
     expect(writer).toMatch(/admin/i);
+    expect(writer).toMatch(/registry/i);
   });
 
   it("keeps “not recorded” a known fact, exactly like “Never” one column along", () => {
     expect(writer).toMatch(/not recorded/i);
     expect(writer).toMatch(/known fact/i);
+    expect(writer).toMatch(/not missing data/i);
   });
 
-  it("⚠️ separates the broken LINK from the broken READ, and names the action for each", () => {
-    // ⚠️ THE WHOLE REASON THIS ⓘ EXISTS. Merged, they would send a reader to
-    // reassign a writer who is fine, or to retry a read that will never fix an
-    // account that is gone.
-    expect(writer).toMatch(/no longer/i);
-    expect(writer).toMatch(/reassign/i);
-    expect(writer).toMatch(/could not be read/i);
+  it("⚠️ says a recorded writer ALWAYS resolves, and why", () => {
+    // ⚠️ THE SENTENCE THAT REPLACES THE TWO DELETED STATES. A reader who
+    // remembers the old column needs to be told the alarming middle ground is
+    // gone rather than merely unmentioned — and the reason is the mechanism.
+    expect(writer).toMatch(/always resolves/i);
+    expect(writer).toMatch(/no separate lookup/i);
   });
 
-  it("reserves the dash for the failed read, and says the assignment is probably intact", () => {
-    expect(writer).toMatch(/dash/i);
-    expect(writer).toMatch(/intact/i);
+  it("says archiving a writer changes nothing about their clients", () => {
+    expect(writer).toMatch(/archiv/i);
+    expect(writer).toMatch(/changes nothing about the clients/i);
   });
 
-  it("⚠️ does NOT read as “nobody is assigned” for either alarming state", () => {
-    // A definition is prose, so this cannot be asserted structurally — but the
-    // one phrasing that would cause the misreport can be kept out by name.
+  it("⚠️ does NOT read as “nobody is assigned” for a recorded writer", () => {
     expect(writer).not.toMatch(/nobody is assigned/i);
   });
 });

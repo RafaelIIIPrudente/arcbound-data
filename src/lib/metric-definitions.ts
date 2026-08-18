@@ -148,22 +148,26 @@ export const METRIC_DEFINITIONS = {
       "How many posts the reporting data attributes to this client. It arrives from the external pipeline rather than from ArcBase's uploads, so it is independent of the column beside it and the two are expected to disagree. Attribution is by name match, so a client whose name is recorded differently upstream than it is registered here will be under-counted — and an under-counted client looks exactly like one who posted less. A dash means the count could not be read, which is never a zero.",
   },
 
-  // ⚠️ THE WRITER'S FOUR STATES, TWO OF WHICH SOUND ALARMING AND CALL FOR
-  // OPPOSITE ACTIONS. `unknown` is a broken LINK — the assignment points at an
-  // account that is gone, and only a person can fix it. `unavailable` is a
-  // broken READ — the assignment is probably fine and the fix is to try again.
-  // A cell can only hold a terse label, so the sentence that keeps those two
-  // apart lives here. Collapsing either of them, or `null`, into "nobody is
-  // assigned" reports a staffing gap that does not exist.
+  // ⚠️ TWO STATES, AND IT USED TO BE FOUR. The Writer cell could say "assigned
+  // to an account that no longer exists" or "the staff directory could not be
+  // read" — two alarming states calling for opposite actions — because a writer
+  // was an `auth.users` row resolved through a separate RPC. A writer is now a
+  // registry row carried by the client select's own embed, so a set writer
+  // always resolves and neither state can occur (D15). The ⓘ stays because the
+  // one distinction that remains is still worth stating: "not recorded" is a
+  // fact, not a gap in the data.
   //
-  // ⚠️ STAFF-ONLY, AND FOR A SECOND REASON THAN ITS TWO NEIGHBOURS. Those are
-  // kept off a Client's report because they speak ArcBase's ingestion
-  // vocabulary; this one is kept off because the column it defines renders a
-  // colleague's email address (D3).
+  // ⚠️ STAFF-ONLY, AND THE REASON CHANGED WITHOUT THE RULE CHANGING. This key
+  // used to be kept off a Client's report because the column rendered a
+  // COLLEAGUE'S EMAIL ADDRESS. It renders a NAME now — and a staff member's name
+  // is still theirs and still nothing a Client is owed. Who Arcbound has working
+  // on an account is an internal staffing fact; putting it on the client-facing
+  // report would turn an attribution into a disclosure. D3 stands, on a narrower
+  // but sufficient basis, and `metric-definitions.test.ts` still sweeps for it.
   clientListWriter: {
     term: "Writer",
     definition:
-      "Which Arcbound staff member writes for this client. An admin records it here and nothing infers it, so an unset column means nobody has entered one — “Not recorded” is a known fact, not missing data. An email address means the assignment resolves to a current staff account. “Assigned · unknown account” means somebody is assigned but that account is no longer in the staff directory, so the fix is to reassign this client to a person rather than to try again. A dash is a fourth case and the only one that is missing data: the staff directory could not be read at all, which leaves the assignment on record probably intact and simply not shown.",
+      "Which Arcbound staff member writes for this client. An admin records it here from the writers registry and nothing infers it, so an unset column means nobody has entered one — \u201cNot recorded\u201d is a known fact, not missing data. A recorded writer always resolves to a name: the value is a registry row this client points at, read alongside the client itself, so there is no separate lookup that could fail or come back empty. Archiving a writer stops them being offered for new assignments and changes nothing about the clients already recorded against them.",
   },
 
   // ── the client LinkedIn report → Key performance ───────────────────────────
@@ -487,10 +491,12 @@ export const OUTREACH_SUMMARY_METRIC_KEYS: Record<string, MetricKey> = {
 export const CLIENT_LIST_METRIC_KEYS: Record<string, MetricKey> = {
   "Last ArcBase upload": "clientListLastArcbaseUpload",
   Posts: "clientListPosts",
-  // ⚠️ STAFF PII, AND THE SHARPEST REASON THIS MAP IS SEPARATE. A writer is an
-  // Arcbound staff member and the column renders their email; folding this key
-  // into a client-visible map would put a colleague's address on a Client's own
-  // report. `Industry` is deliberately absent — two self-evident states need no
+  // ⚠️ STAFF-ONLY, AND THE SHARPEST REASON THIS MAP IS SEPARATE. A writer is an
+  // Arcbound staff member; the column used to render their email address and now
+  // renders their NAME, which is no less theirs. Folding this key into a
+  // client-visible map would put who Arcbound has working on an account onto
+  // that account's own report — an attribution turned into a disclosure (D3).
+  // `Industry` is deliberately absent — two self-evident states need no
   // sentence, and an ⓘ on every header is noise that devalues the ones that
   // carry a real warning (D11).
   Writer: "clientListWriter",

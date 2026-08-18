@@ -60,25 +60,6 @@ function formatUploadDate(iso: string): string {
   });
 }
 
-/**
- * What the Writer cell SAYS, in the three states that are facts.
- *
- * ⚠️ `unavailable` IS NOT HERE ON PURPOSE — it is the em dash, and it is the
- * only one of the four that may be. This function is also the column's sort
- * key, so the list orders by exactly what a reader can see in it.
- *
- * ⚠️ NEITHER ALARMING STATE MAY READ AS "NOBODY". `unknown` is an assignment
- * pointing at an account that no longer exists — somebody IS assigned and a
- * human has to pick a replacement — while `null` is nobody having been entered
- * at all. Rendering them alike would report a staffing gap that does not exist,
- * or hide one that does.
- */
-function writerLabel(writer: Exclude<ClientWriter, { status: "unavailable" }>): string {
-  if (writer === null) return "Not recorded";
-  if (writer.status === "resolved") return writer.email;
-  return "Assigned · unknown account";
-}
-
 export const columns: ColumnDef<ClientListRow>[] = [
   {
     accessorKey: "name",
@@ -152,16 +133,22 @@ export const columns: ColumnDef<ClientListRow>[] = [
   },
   {
     id: "writer",
-    // The same `undefined` + `sortUndefined: "last"` rule as `lastUpload`, for
-    // the same reason — and ⚠️ FOR EXACTLY ONE OF THE FOUR STATES. `null` and
-    // `unknown` are things we KNOW, so they sort as values; only a directory
-    // read that failed is missing data, and missing data never competes for the
-    // top of a list.
-    accessorFn: (client) =>
-      client.writer?.status === "unavailable" ? undefined : writerLabel(client.writer),
-    sortUndefined: "last",
+    // ⚠️ NO `sortUndefined` AND NO DASH — THIS COLUMN NO LONGER HAS A STATE THAT
+    // COULD USE EITHER. It had four: an email, nobody, an assignment pointing at
+    // an account that was gone, and a directory read that failed. The last two
+    // existed only because resolving a writer took a SECOND read that could fail
+    // or come back short. The writer is now a registry row reached through the
+    // client select's own embed, exactly like the industry beside it — so a set
+    // writer always resolves, and "not recorded" is the only other answer (D15).
+    //
+    // An unrecorded writer sorts as the empty string — a VALUE, so it takes its
+    // place in the order and leads ascending. It is not `undefined`, which is
+    // what `lastUpload` uses to park unreadable rows at the bottom in both
+    // directions; nothing on this column parks, because nothing on it is
+    // missing. Identical to the Industry column above.
+    accessorFn: (client) => client.writer?.name ?? "",
     header: () => <span className={HEAD}>Writer</span>,
-    // ⚠️ `clients-table.tsx` HARDCODES THE SORT CONTROL'S NAME — a new sortable
+    // ⚠️ `clients-table.tsx` HARDCODES THE SORT CONTROL'S NAME — a sortable
     // column has to be added to that map by hand, and a test pins the two
     // together because a control announced as a different column is worse than
     // one announced clumsily.
@@ -169,25 +156,19 @@ export const columns: ColumnDef<ClientListRow>[] = [
       className: "hidden w-[19%] max-w-0 md:table-cell",
       infoMetric: CLIENT_LIST_METRIC_KEYS.Writer,
     } satisfies ClientColumnMeta,
-    cell: ({ row }) => {
-      const { writer } = row.original;
-      return (
-        <span className="block truncate font-mono text-xs text-muted-foreground">
-          {writer?.status === "unavailable" ? (
-            // ⚠️ THE ONE STATE OF FOUR THAT MAY BE A DASH: the directory read
-            // failed, so we do not know. Not "nobody", and not "gone".
-            <Unavailable what="Writer" />
-          ) : writer === null ? (
-            <span className="text-muted-foreground/60">{writerLabel(writer)}</span>
-          ) : (
-            // Resolved reads as the email; `unknown` reads as a problem that
-            // needs a person. Neither is dimmed like an absence, because
-            // neither is one.
-            writerLabel(writer)
-          )}
-        </span>
-      );
-    },
+    cell: ({ row }) => (
+      <span className="block truncate text-xs text-muted-foreground">
+        {row.original.writer ? (
+          row.original.writer.name
+        ) : (
+          // ⚠️ WORDS, NEVER THE DASH — the same rule as the Industry column and
+          // for the same reason. Nobody has been recorded, which is a fact we
+          // know; the dash on this table means "could not be read" and nothing
+          // else, and there is now no writer state that could earn it.
+          <span className="text-muted-foreground/60">Not recorded</span>
+        )}
+      </span>
+    ),
   },
   {
     id: "lastUpload",
