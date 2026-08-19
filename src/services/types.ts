@@ -938,9 +938,21 @@ export interface ClientReport {
   totalPostsAllTime: number;
   keyPerformance: {
     /**
-     * The hero: three figures scoped to the selected period. Also the print
-     * cover's three headline figures, so this array's shape and labels are
-     * read in two places.
+     * The hero: four figures scoped to the selected period — total posts, avg
+     * interactions, total interactions, total impressions, in that order.
+     *
+     * ⚠️ TWO CONSUMERS, AND THE LENGTH IS THE CONTRACT — NOT AN INCIDENTAL OF
+     * WHAT THE ARRAY HAPPENS TO HOLD. It is rendered by
+     * `report/key-performance.tsx` (the section hero, on all three surfaces) AND
+     * by `report/print/report-cover.tsx` — page 1 of the PDF a client receives,
+     * which does no arithmetic of its own and lays out whatever it is handed.
+     * Both grids are sized for this count against a FIXED 700px paper column, so
+     * adding or removing a figure is a layout change in two files, one of them
+     * the first and often only page a client reads.
+     *
+     * The labels are load-bearing too: `REPORT_METRIC_KEYS` is keyed by them, so
+     * a figure renamed without that map loses its ⓘ. `key-performance.test.tsx`
+     * fails on an unmapped label rather than letting the gap ship.
      */
     selected: ReportFigure[];
     /** All-time context, read against the matrix's column headers. */

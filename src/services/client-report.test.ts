@@ -372,11 +372,34 @@ describe("period scoping — what the picker moves, and what it deliberately doe
     r.keyPerformance.selected.map((f) => [f.label, f.value]);
 
   // Jul ×2, Jun ×1, May ×1 — a period change genuinely changes the row set.
+  // Impressions are non-zero so the FOURTH hero figure widens with the other
+  // three: a fixture of zeroes would leave "Total impressions" reading 0 under
+  // both periods, which this test's own name says should not happen.
   const SPREAD = [
-    row({ linkedin_post_id: "jul1", estimated_post_date: "2026-07-10", interactions: 10 }),
-    row({ linkedin_post_id: "jul2", estimated_post_date: "2026-07-11", interactions: 20 }),
-    row({ linkedin_post_id: "jun1", estimated_post_date: "2026-06-10", interactions: 100 }),
-    row({ linkedin_post_id: "may1", estimated_post_date: "2026-05-10", interactions: 500 }),
+    row({
+      linkedin_post_id: "jul1",
+      estimated_post_date: "2026-07-10",
+      impressions: 100,
+      interactions: 10,
+    }),
+    row({
+      linkedin_post_id: "jul2",
+      estimated_post_date: "2026-07-11",
+      impressions: 200,
+      interactions: 20,
+    }),
+    row({
+      linkedin_post_id: "jun1",
+      estimated_post_date: "2026-06-10",
+      impressions: 1000,
+      interactions: 100,
+    }),
+    row({
+      linkedin_post_id: "may1",
+      estimated_post_date: "2026-05-10",
+      impressions: 5000,
+      interactions: 500,
+    }),
   ];
 
   it("widens the HERO figures when the period widens to all-time", () => {
@@ -384,11 +407,13 @@ describe("period scoping — what the picker moves, and what it deliberately doe
       ["Total posts", 2],
       ["Avg interactions", 15],
       ["Total interactions", 30],
+      ["Total impressions", 300],
     ]);
     expect(figures(build(SPREAD, "all"))).toEqual([
       ["Total posts", 4],
       ["Avg interactions", 157.5],
       ["Total interactions", 630],
+      ["Total impressions", 6300],
     ]);
   });
 
@@ -1037,7 +1062,7 @@ describe("buildClientReport (pure)", () => {
     expect(ratio.approximate).toBe(true); // followers are per-Upload, not per-post
   });
 
-  it("leads the scoped row with Total posts, Avg interactions, Total interactions", () => {
+  it("leads the scoped row with Total posts, Avg interactions, Total interactions, Total impressions", () => {
     const report = buildClientReport(HISTORY, new Map(), {
       period: JULY,
       now: NOW,
@@ -1052,7 +1077,75 @@ describe("buildClientReport (pure)", () => {
       "Total posts",
       "Avg interactions",
       "Total interactions",
+      "Total impressions",
     ]);
+  });
+
+  it("totals impressions over the SAME posts as Total posts — undated ones included", () => {
+    // ⚠️ THE POPULATION IS THE WHOLE POINT. "Total posts" is `selected.length`,
+    // so "Total impressions" must sum `selected` — never `selectedPlaceable`,
+    // the narrower DATABLE set the charts read. A post with no resolvable date
+    // cannot be placed on a timeline, but its impressions are a real
+    // measurement: dropping them would understate the total against a post
+    // count that counted the post, under one period caption.
+    const dated = row({
+      linkedin_post_id: "dated",
+      estimated_post_date: "2026-07-10",
+      impressions: 300,
+      interactions: 3,
+    });
+    const ghost = row({
+      // Neither a resolved publish date nor a scrape timestamp, so it is
+      // genuinely unplaceable: `selectPeriodRows` keeps it under all-time and
+      // `selectPeriodPlaceable` drops it. That divergence is what this pins.
+      linkedin_post_id: "ghost",
+      estimated_post_date: null,
+      scraped_at: null,
+      impressions: 700,
+      interactions: 7,
+    });
+    const rows = [dated, ghost];
+
+    const report = buildClientReport(rows, new Map(), {
+      period: ALL_TIME,
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: availablePeriods(rows),
+    });
+    const value = (label: string) =>
+      report.keyPerformance.selected.find((f) => f.label === label)!.value;
+
+    expect(value("Total posts")).toBe(2);
+    expect(value("Total impressions")).toBe(1000);
+    // THE DISCRIMINATOR. The charts really did exclude the undated post, so a
+    // total of 1,000 cannot have come from the placeable set. A 300 here would
+    // mean the two hero figures describe different sets of posts.
+    expect(report.impressionsPostCount).toBe(1);
+  });
+
+  it("counts a post carrying NO impressions figure as 0, never blanking the total", () => {
+    // `impressions` is `number | null` on the BI row and the local `sum()`
+    // coerces through `num()` — the same coercion already blessed for likes,
+    // comments and reposts. One post missing a figure must not turn the hero
+    // into an em dash: an em dash means "could not be read", and this total was
+    // read fine. (`saves` is the column that must never be coerced; untouched.)
+    const rows = [
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-10", impressions: 250 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-11", impressions: null }),
+    ];
+
+    const report = buildClientReport(rows, new Map(), {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+    const total = report.keyPerformance.selected.find((f) => f.label === "Total impressions")!;
+    expect(total.value).toBe(250);
+    expect(total.value).not.toBeNull();
   });
 
   it("totals interactions from the `interactions` field, NOT from likes + comments + reposts", () => {
@@ -1684,6 +1777,8 @@ describe("buildClientReport — a custom period", () => {
       ["Total posts", 3],
       ["Avg interactions", 43.3],
       ["Total interactions", 130],
+      // jun1 1,000 + jul1 100 + jul2 200 — may1's 5,000 is outside the window.
+      ["Total impressions", 1300],
     ]);
   });
 

@@ -6,9 +6,14 @@ import type { ReadTruncation, ReportFigure, ReportPeriod } from "@/services/type
  * The cover page of the exported report — the only part of the document that is
  * not a panel, and the only forced page break in it.
  *
- * Everything here is handed in. In particular the three headline figures arrive
- * as `ReportFigure[]` straight from `getClientReport`: the cover does no
- * arithmetic of its own, so it cannot disagree with the panels behind it.
+ * Everything here is handed in. In particular the headline figures arrive as
+ * `ReportFigure[]` straight from `getClientReport`: the cover does no arithmetic
+ * of its own, so it cannot disagree with the panels behind it.
+ *
+ * ⚠️ THE ARRAY'S LENGTH IS THIS COMPONENT'S CONTRACT, NOT AN INCIDENTAL. It is
+ * `keyPerformance.selected`, which is also the on-screen hero — four figures
+ * today. The grid below is sized for that count, so a fifth (or a third) needs
+ * this layout reconsidered against the fixed paper column, not just accepted.
  */
 
 const MONTH_NAMES = [
@@ -112,7 +117,7 @@ export function ReportCover({
   now: Date;
   /**
    * Set when the post read behind this report hit the pager's cap. The cover's
-   * three headline figures are computed from that same partial read, so page 1 —
+   * headline figures are computed from that same partial read, so page 1 —
    * the first, often only, page a client reads — must carry the caveat too, not
    * leave a lower-bound standing as a total. Same component the body and screen
    * use, so the surfaces cannot word it differently.
@@ -148,7 +153,14 @@ export function ReportCover({
           sits directly beneath the numbers it qualifies without unbalancing the
           cover's full-page `justify-between` layout. */}
       <div>
-        <div className="grid grid-cols-3 gap-8 border-t pt-8">
+        {/* ⚠️ TWO COLUMNS, NOT FOUR. The paper column is FIXED at 700px
+            (`--print-column`), so four across would leave about 163px a figure
+            against 36px type — and impressions run one to two orders of
+            magnitude wider than the figures beside them. A 2×2 gives each ~334px
+            without touching the type scale. Compacting the number is forbidden:
+            every figure on this document is exact. No test can see the overflow
+            this prevents, so the printed sheet still wants one human look. */}
+        <div className="grid grid-cols-2 gap-8 border-t pt-8">
           {figures.map((figure) => (
             <HeadlineFigure key={figure.label} figure={figure} />
           ))}

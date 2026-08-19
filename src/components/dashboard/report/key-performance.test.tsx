@@ -55,6 +55,9 @@ const GRID: ClientReport["keyPerformance"] = {
     { label: "Total posts", value: 12 },
     { label: "Avg interactions", value: 56 },
     { label: "Total interactions", value: 1234 },
+    // Deliberately an order of magnitude wider than its three neighbours —
+    // impressions is the figure that makes the 4-up layout a real question.
+    { label: "Total impressions", value: 284391 },
   ],
   matrix: [
     {
@@ -89,15 +92,54 @@ const NO_FOLLOWERS: ClientReport["keyPerformance"] = {
 };
 
 describe("KeyPerformance", () => {
-  it("leads with the three selected-period figures", () => {
+  it("leads with the four selected-period figures", () => {
     render(<KeyPerformance keyPerformance={GRID} hasPosts />);
 
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("56")).toBeInTheDocument();
     expect(screen.getByText("1,234")).toBeInTheDocument();
+    // Printed in full. `format()` is exact everywhere on this document, and a
+    // compacted "284.4K" would be a precision claim the report cannot support.
+    expect(screen.getByText("284,391")).toBeInTheDocument();
     expect(screen.getByText("Total posts")).toBeInTheDocument();
     expect(screen.getByText("Avg interactions")).toBeInTheDocument();
     expect(screen.getByText("Total interactions")).toBeInTheDocument();
+    expect(screen.getByText("Total impressions")).toBeInTheDocument();
+  });
+
+  it("seats four hero figures without a three-column track", () => {
+    // ⚠️ WHAT THIS PROVES, AND WHAT IT CANNOT. jsdom computes no layout, so it
+    // can see neither an overflow nor a second-row orphan — it pins the
+    // STRUCTURE that makes both safe. Four figures in a three-column track
+    // strand one alone on a second row, on screen AND on page 1 of the client's
+    // PDF. Two columns seat them 2×2 at every width, which is the choice the
+    // fixed 700px print column forces: four across would leave ~163px a figure
+    // against 48px type (D5). The printed sheet still wants one human look.
+    render(<KeyPerformance keyPerformance={GRID} hasPosts />);
+
+    const hero = screen.getByText("Total impressions").closest("div.grid");
+    expect(hero).not.toBeNull();
+    expect(hero!.className).toMatch(/\bgrid-cols-2\b/);
+    expect(hero!.className).not.toMatch(/\bgrid-cols-3\b/);
+    // ⚠️ 4-UP IS GATED ON THE CONTAINER, NOT THE VIEWPORT, AND THAT IS THE WHOLE
+    // POINT. A viewport gate was tried and measured wrong: `xl:` fires at a
+    // 1280px VIEWPORT, but the staff report spends 300px of that on the sidebar
+    // and page padding, leaving a 233px cell against 239.2px of text — six pixels
+    // past the margin line every other figure aligns to, in the 1280–1304 band.
+    // `@6xl` (a 1152px CONTAINER) measures the thing that actually constrains the
+    // figure, so the sidebar is accounted for automatically and `/r/[token]`,
+    // which has no sidebar, goes 4-up at a narrower window than the staff page.
+    // Paper is a 700px container, so it never fires there.
+    //
+    // jsdom evaluates no container query, so what is pinned here is only that the
+    // class is DECLARED, that its container exists, and which breakpoint carries
+    // it — never that the four fit. That was measured in a browser instead.
+    expect(hero!.className).toMatch(/\B@6xl:grid-cols-4\b/);
+    expect(hero!.className).not.toMatch(/\b(sm|md|lg|xl|2xl):grid-cols-4\b/);
+    // A `@`-variant without a `@container` ancestor silently never matches.
+    expect(hero!.parentElement!.className).toMatch(/\B@container\b/);
+    // ...and it really is the hero grid holding all four, not some ancestor.
+    expect(within(hero as HTMLElement).getAllByText(/^[\d,]+$/)).toHaveLength(4);
   });
 
   it("accents the hero with the brand colour and leaves the matrix neutral", () => {
@@ -111,7 +153,7 @@ describe("KeyPerformance", () => {
     // strong it is.
     const accent = /\btext-primary\b/;
 
-    for (const hero of ["12", "56", "1,234"]) {
+    for (const hero of ["12", "56", "1,234", "284,391"]) {
       expect(screen.getByText(hero).className).toMatch(accent);
     }
     for (const cell of ["4.5", "40", "180", "9", "400"]) {
@@ -301,6 +343,7 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
       "Total posts",
       "Avg interactions",
       "Total interactions",
+      "Total impressions",
       "Monthly avg",
       "Monthly max",
       "Avg interactions per 1K followers",
@@ -388,6 +431,29 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
     expect(screen.queryByRole("button", { name: /^What is / })).not.toBeInTheDocument();
   });
 
+  it("keeps the ⓘ's own count of the hero figures true to what the service emits", () => {
+    // ⚠️ A NUMBER SPELLED OUT IN A SENTENCE A CLIENT READS. "The four large
+    // figures are all scoped to that period" is a claim about this array's
+    // LENGTH, made inside a definition — and nothing else in the suite would
+    // notice it going stale. It went stale once already: the sentence said
+    // "three" on the day a fourth figure landed. Driven from the real service so
+    // a fifth figure fails here rather than shipping a false count.
+    const report = buildClientReport([biRow({ linkedin_post_id: "p1" })], new Map(), {
+      period: { kind: "all", key: "all", label: "All time" },
+      now: NOW,
+      followers: 1000,
+      connections: 50,
+      availablePeriods: [],
+    });
+    const words = ["no", "one", "two", "three", "four", "five", "six"];
+    const spelled = words[report.keyPerformance.selected.length];
+
+    expect(spelled, "hero grew past this test's number words").toBeDefined();
+    expect(METRIC_DEFINITIONS.reportTotalPosts.definition).toContain(
+      `The ${spelled} large figures are all scoped to that period`,
+    );
+  });
+
   it("covers every label the REAL service emits — a new figure cannot slip in undefined", () => {
     // ⚠️ DRIVEN FROM `buildClientReport`, NOT FROM THE FIXTURE ABOVE. The map is
     // keyed by label, so a label the service renames or adds would silently lose
@@ -414,7 +480,10 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
       kp.connections.label,
     ];
 
-    expect(labels.length).toBeGreaterThanOrEqual(7);
+    // ⚠️ RAISED 7 → 8 WITH THE FOURTH HERO FIGURE. The floor exists so the guard
+    // cannot go slack the moment it is satisfied; leaving it at 7 would let a
+    // figure be DELETED without this test noticing.
+    expect(labels.length).toBeGreaterThanOrEqual(8);
     expect(labels.filter((l) => REPORT_METRIC_KEYS[l] === undefined)).toEqual([]);
     for (const label of labels) {
       expect(metricDefinition(REPORT_METRIC_KEYS[label]!), label).toBeDefined();

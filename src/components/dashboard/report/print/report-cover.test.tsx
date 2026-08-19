@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import type { ReportFigure, ReportPeriod } from "@/services/types";
 
@@ -9,6 +9,10 @@ const FIGURES: ReportFigure[] = [
   { label: "Total posts", value: 12 },
   { label: "Avg interactions", value: 56 },
   { label: "Total interactions", value: 1234 },
+  // The cover renders whatever `keyPerformance.selected` hands it, so this
+  // fixture must carry the same four figures the service now emits — and the
+  // widest of them, because the paper column here is fixed.
+  { label: "Total impressions", value: 284391 },
 ];
 
 const JULY: ReportPeriod = {
@@ -71,17 +75,39 @@ describe("ReportCover", () => {
     expect(screen.getByText("July 2026")).toBeInTheDocument();
   });
 
-  it("carries the three headline figures with their labels", () => {
+  it("carries the four headline figures with their labels", () => {
     renderCover();
 
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("1,234")).toBeInTheDocument();
     expect(screen.getByText("56")).toBeInTheDocument();
+    // Exact, never compacted: every figure on this document is exact, and the
+    // cover is the page most likely to be read on its own.
+    expect(screen.getByText("284,391")).toBeInTheDocument();
     expect(screen.getByText("Total posts")).toBeInTheDocument();
     expect(screen.getByText("Avg interactions")).toBeInTheDocument();
     // Total interactions is THE headline number a reader looks for first, and
     // it reaches the cover straight from keyPerformance.selected.
     expect(screen.getByText("Total interactions")).toBeInTheDocument();
+    expect(screen.getByText("Total impressions")).toBeInTheDocument();
+  });
+
+  it("seats four headline figures without a three-column track", () => {
+    // ⚠️ PAGE 1 OF THE CLIENT'S PDF, WHICH IS THE POINT. The array's LENGTH is
+    // this component's whole contract — it does no arithmetic and renders what
+    // it is handed — so a fourth figure against a three-column track strands one
+    // alone on a second row on the first, often only, page a client reads.
+    // jsdom computes no layout, so this pins the STRUCTURE, not the absence of
+    // overflow: at the fixed 700px paper column two columns give each figure
+    // ~334px against 36px type, where four would give ~163px. The printed sheet
+    // still wants one human look.
+    renderCover();
+
+    const grid = screen.getByText("Total impressions").closest("div.grid");
+    expect(grid).not.toBeNull();
+    expect(grid!.className).toMatch(/\bgrid-cols-2\b/);
+    expect(grid!.className).not.toMatch(/\bgrid-cols-3\b/);
+    expect(within(grid as HTMLElement).getAllByText(/^[\d,]+$/)).toHaveLength(4);
   });
 
   it("dates the document", () => {

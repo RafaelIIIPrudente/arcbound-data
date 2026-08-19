@@ -297,6 +297,7 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
       "Connections",
       "Monthly avg",
       "Monthly max",
+      "Total impressions",
       "Total interactions",
       "Total posts",
     ]);

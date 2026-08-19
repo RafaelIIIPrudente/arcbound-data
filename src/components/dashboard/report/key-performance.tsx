@@ -29,7 +29,7 @@ import type { ClientReport, MatrixRow, ReportFigure } from "@/services/types";
  * `color-mix(in oklab, …, transparent)` — the same construction ramp.ts uses —
  * so the figure mixes toward whatever it sits on: lighter over the light
  * ground, darker over the dark one. At full strength the brand red is too hot
- * for three 48px figures, and on paper it reads heavier still. The percentage
+ * for four 48px figures, and on paper it reads heavier still. The percentage
  * is the dial to turn if it wants more or less presence.
  */
 
@@ -149,18 +149,49 @@ export function KeyPerformance({
           reads as the anchor rather than as one panel among nine. The period is
           named by the section caption and the picker, so it is NOT repeated
           here. */}
-      <div className="grid grid-cols-3 gap-x-4 gap-y-6">
-        {selected.map((figure) => (
-          <div key={figure.label}>
-            <div className="font-display text-3xl leading-none font-extrabold tracking-tight text-primary/75 tabular-nums sm:text-5xl">
-              {format(figure)}
+      {/* ⚠️ 2×2 BY DEFAULT, AND THE PRINT COLUMN IS WHY. This component is also
+          the print export, where the paper column is fixed at 700px
+          (`--print-column`) and `sm:` IS active — so four across would leave
+          about 163px a figure against 48px type, and impressions run one to two
+          orders of magnitude wider than the figures beside them. Measured in a
+          browser at that width: a 2×2 cell is 342px and `1,012,301` renders
+          239.2px, so nine digits fit; four across fits eight at best.
+          Compacting the number instead ("1.0M") is forbidden — `format()` is
+          exact everywhere on this document.
+
+          ⚠️ THE 4-UP IS GATED ON THE CONTAINER, NEVER ON THE VIEWPORT. A
+          viewport gate was tried and measured wrong: `xl:` fires at a 1280px
+          VIEWPORT, but the staff report spends 300px of it on the sidebar and
+          page padding, leaving a 233px cell against that same 239.2px — six
+          pixels past the margin line every other figure aligns to, for every
+          window from 1280 to 1304. `@6xl` asks about the 1152px CONTAINER, which
+          is the thing that actually constrains the figure: the sidebar is
+          accounted for by construction, `/r/[token]` (no sidebar) reaches 4-up
+          at a narrower window than the staff page, and paper — a 700px container
+          — never reaches it at all.
+
+          ⚠️ THE `@container` PARENT IS LOAD-BEARING, NOT DECORATION. A
+          `@`-variant with no `@container` ancestor silently never matches, so
+          the hero would simply never go 4-up and nothing would fail.
+
+          ⚠️ NO TEST CAN SEE OVERFLOW. `key-performance.test.tsx` pins the
+          classes; the widths above came from a real browser. The printed sheet
+          still wants one human look before it reaches a client, the same
+          standing caveat `interactions-comparison.tsx` carries. */}
+      <div className="@container">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-6 @6xl:grid-cols-4">
+          {selected.map((figure) => (
+            <div key={figure.label}>
+              <div className="font-display text-3xl leading-none font-extrabold tracking-tight text-primary/75 tabular-nums sm:text-5xl">
+                {format(figure)}
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] leading-relaxed tracking-[0.12em] text-muted-foreground uppercase">
+                {figure.label}
+                {renderInfo?.(figure.label)}
+              </div>
             </div>
-            <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] leading-relaxed tracking-[0.12em] text-muted-foreground uppercase">
-              {figure.label}
-              {renderInfo?.(figure.label)}
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* MATRIX — all-time context. Smaller and quieter than the hero by

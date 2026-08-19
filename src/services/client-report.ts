@@ -599,6 +599,15 @@ export function buildClientReport(
       // own definition). A derived total that disagreed with the per-metric
       // panels below would discredit the whole document.
       { label: "Total interactions", value: sum(selected, (r) => r.interactions) },
+      // ⚠️ SUMMED OVER `selected`, NEVER OVER `selectedPlaceable`. "Total posts"
+      // two lines above is `selected.length`, so these two figures must describe
+      // the SAME population or they contradict each other beneath one period
+      // caption. `selectedPlaceable` is the narrower DATABLE set, and it exists
+      // for the CHARTS (`impressionsAverage`, `impressionsPostCount`) because a
+      // chart cannot plot a post it cannot place on a timeline — an undated
+      // post's impressions are still a real measurement, and dropping them here
+      // would understate the total against a count that included the post.
+      { label: "Total impressions", value: sum(selected, (r) => r.impressions) },
     ] satisfies ReportFigure[],
     // Two rows against three columns: posts · per-post rate · interaction
     // total. Same figures, same rounding, as the flat arrays this replaced —

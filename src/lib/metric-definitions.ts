@@ -179,7 +179,7 @@ export const METRIC_DEFINITIONS = {
   reportTotalPosts: {
     term: "Total posts",
     definition:
-      "How many posts fall inside the SELECTED period — the one named by the caption and the picker above. The three large figures are all scoped to that period; the two rows beneath them are all-time, which is why a number can repeat across them without anything being wrong.",
+      "How many posts fall inside the SELECTED period — the one named by the caption and the picker above. The four large figures are all scoped to that period; the two rows beneath them are all-time, which is why a number can repeat across them without anything being wrong.",
   },
   reportAvgInteractions: {
     term: "Avg interactions",
@@ -190,6 +190,17 @@ export const METRIC_DEFINITIONS = {
     term: "Total interactions",
     definition:
       "Total interactions across the posts in the selected period. It is the source’s own interactions figure summed — never likes, comments and shares added together, because the source may count things those three do not, and a derived total that disagreed with the panels below would discredit the report.",
+  },
+  // ⚠️ ITS OWN KEY, NOT A REUSE OF THE DASHBOARD'S `Impressions`. The dashboard
+  // sentence names "the selected window"; every report label names the REPORT'S
+  // spans, and the hero/matrix split above is the reason. It also has to say
+  // something the dashboard never has to: which POPULATION this total covers,
+  // because the charts further down the same page deliberately cover a smaller
+  // one.
+  reportTotalImpressions: {
+    term: "Total impressions",
+    definition:
+      "How many times the posts in the SELECTED period were seen, added together across those posts — a total for the period, not an average per post. It covers exactly the posts “Total posts” beside it counts, including any post whose publish date could not be worked out: such a post is left out of the charts below, which need a date to place it on a timeline, but the times it was seen are a real measurement and belong in this total.",
   },
   reportMonthlyAvg: {
     term: "Monthly avg",
@@ -420,6 +431,7 @@ export const REPORT_METRIC_KEYS: Record<string, MetricKey> = {
   "Total posts": "reportTotalPosts",
   "Avg interactions": "reportAvgInteractions",
   "Total interactions": "reportTotalInteractions",
+  "Total impressions": "reportTotalImpressions",
   // The matrix rows — ALL TIME. Keyed by ROW, not by cell: one sentence covering
   // a row's three figures reads better than six ⓘ crowded into numeric cells,
   // and it is the only place the em dash in the maxima row can be explained.

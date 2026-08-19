@@ -49,6 +49,11 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
         { label: "Total posts", value: 5 },
         { label: "Avg interactions", value: 12 },
         { label: "Total interactions", value: 60 },
+        // The FOURTH hero figure, and deliberately an order of magnitude wider
+        // than its neighbours: `keyPerformance.selected` is what both the hero
+        // and the print cover lay out, so a fixture that stopped at three would
+        // stop describing what a Client is actually handed.
+        { label: "Total impressions", value: 284391 },
       ],
       matrix: [],
       perThousandFollowers: { label: "x", value: null, approximate: true },
@@ -189,6 +194,24 @@ describe("PublicReportView — the client-facing wrapper (pure)", () => {
     render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
 
     expect(screen.getAllByRole("button", { name: /^What is / }).length).toBeGreaterThan(0);
+  });
+
+  it("shows the Client their Total impressions, in full, with its ⓘ", () => {
+    // ⚠️ THE SURFACE ASSERTION, NOT A REPEAT OF THE COMPONENT TEST.
+    // `key-performance.test.tsx` proves `KeyPerformance` renders a fourth hero
+    // figure; this proves the report a CLIENT holds actually receives one — the
+    // wrapper has to forward `keyPerformance` for either string to appear here.
+    //
+    // Printed in full on purpose: `format()` is exact everywhere on this
+    // document, and a compacted "284.4K" would be a precision claim the report
+    // cannot support. The ⓘ is asserted because impressions is the hero figure
+    // whose POPULATION differs from the charts below it, and a Client has no
+    // other way to learn that.
+    render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
+
+    expect(screen.getByText("Total impressions")).toBeInTheDocument();
+    expect(screen.getByText("284,391")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What is Total impressions?" })).toBeInTheDocument();
   });
 
   it("keeps the period picker", () => {
