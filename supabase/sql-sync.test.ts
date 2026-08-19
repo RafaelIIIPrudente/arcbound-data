@@ -29,6 +29,20 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // ⚠️ GOES IN AFTER THE TWO PAIRS BELOW IT, WHICH WERE STILL UNAPPLIED WHEN
+    // THIS WAS WRITTEN. Nothing here depends on them, but this pair adds the
+    // table the whole analytics cutover stands on (ADR 0010, S1) and it should
+    // land on a database whose state is known.
+    //
+    // It REPLACES `ingest_metrics` at the SAME five-argument signature, so unlike
+    // `uploads-connections-count` it must NOT drop the function first: a drop
+    // followed by a create is a window in which uploads fail, and there is no
+    // overload to remove.
+    name: "posts-ownership",
+    script: "posts-ownership.sql",
+    migration: "migrations/20260819120000_posts_ownership.sql",
+  },
+  {
     // ⚠️ APPLIED AFTER THE CODE DEPLOYS, UNLIKE EVERY OTHER PAIR HERE. It drops
     // a function whose last caller is removed in the same release, so applying
     // it with the registry swap below would take the function away while the
