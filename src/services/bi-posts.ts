@@ -50,7 +50,7 @@ export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
  * column someone happened to pick.
  */
 const POST_COLUMNS =
-  "client_id, linkedin_post_id, post_url, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, provided_engagement_rate, calculated_engagement_rate, scraped_at";
+  "client_id, linkedin_post_id, post_url, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, provided_engagement_rate, calculated_engagement_rate, post_format_type, scraped_at";
 
 /**
  * A row paired with its RESOLVED timestamp — the placeable subset. `ms` is the

@@ -11,7 +11,6 @@ import {
   withDates,
   type PlacedRow,
 } from "@/services/bi-posts";
-import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
 import { listUploads } from "@/services/uploads";
 import type {
   AssetBucket,
@@ -239,13 +238,15 @@ export function parseReportPeriod(
  * A post with no attribute record — or an unrecognised value — is UNKNOWN, which
  * is a real member of the vocabulary, not an error.
  */
-function groupByFormat(
-  rows: BiPostRow[],
-  formatMap: Map<string, string>,
-): Map<PostFormat, BiPostRow[]> {
+function groupByFormat(rows: BiPostRow[]): Map<PostFormat, BiPostRow[]> {
   const groups = new Map<PostFormat, BiPostRow[]>();
   for (const row of rows) {
-    const raw = formatMap.get(row.linkedin_post_id);
+    // ⚠️ THE FORMAT NOW RIDES THE ROW (ADR 0010, S3). It used to come from a
+    // second read of public.post_attributes joined in by id; `public.posts`
+    // carries it, so the join and the extra round-trip are gone. Nothing else
+    // about this function changed — an absent or unrecognised value is still
+    // UNKNOWN, which is a real member of the vocabulary rather than an error.
+    const raw = row.post_format_type ?? undefined;
     const format = toCanonicalFormat(raw) ?? "UNKNOWN";
     const bucket = groups.get(format);
     if (bucket) bucket.push(row);
@@ -406,7 +407,6 @@ export interface BuildOptions {
 
 export function buildClientReport(
   rows: BiPostRow[],
-  formatMap: Map<string, string>,
   { period, now, followers, connections, availablePeriods }: BuildOptions,
 ): ClientReport {
   const placeable = withDates(rows).filter((d): d is PlacedRow => d.ms !== null);
@@ -565,7 +565,7 @@ export function buildClientReport(
 
   // ── asset-type buckets (SELECTED PERIOD) ───────────────────────────────────
   // ONE `groups` feeds BOTH asset charts, so scoping it scopes both.
-  const groups = groupByFormat(selected, formatMap);
+  const groups = groupByFormat(selected);
   const interactionsByAsset: AssetBucket[] = [...groups.entries()]
     .map(([format, bucket]) => ({
       format,
@@ -757,7 +757,7 @@ export async function getClientReport({
   const now = new Date();
   const fallback = (): ClientReport => {
     const periods = availablePeriods([]);
-    return buildClientReport([], new Map(), {
+    return buildClientReport([], {
       period: parseReportPeriod(period, periods),
       now,
       availablePeriods: periods,
@@ -771,12 +771,10 @@ export async function getClientReport({
   const { rows, unavailable, truncated, total } = await readClientPostRows(clientId);
   if (unavailable) return { ...fallback(), unavailable: true };
 
-  // The asset type lives in the app-owned table; both reads degrade to empty
-  // rather than throwing, so a missing attribute shows as Unknown, not an error.
-  const [attributes, uploads] = await Promise.all([
-    listPostAttributes(rows.map((r) => r.linkedin_post_id)),
-    listUploads(clientId),
-  ]);
+  // ⚠️ ONE READ WHERE THERE WERE TWO. The asset type used to require a second
+  // query against public.post_attributes, joined back by post id; it is a column
+  // on public.posts now, so it arrives with the row (ADR 0010, S3).
+  const uploads = await listUploads(clientId);
 
   // Computed ONCE per render, then used for both resolving the period and as the
   // report's own `availablePeriods`.
@@ -793,7 +791,7 @@ export async function getClientReport({
   const periods = availablePeriods(rows);
 
   return {
-    ...buildClientReport(rows, toFormatMap(attributes), {
+    ...buildClientReport(rows, {
       period: parseReportPeriod(period, periods),
       now,
       availablePeriods: periods,

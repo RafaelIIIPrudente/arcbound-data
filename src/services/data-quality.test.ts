@@ -4,7 +4,7 @@ import type { BiPostRow } from "./analytics";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
 // One mock serves all four reads: `public.clients`, the paged `bi` view,
-// `public.uploads`, and `public.post_attributes`.
+// and `public.uploads`.
 const { state } = vi.hoisted(() => ({
   state: {
     clients: [] as unknown[],
@@ -229,17 +229,13 @@ describe("getDataQuality — undated and unknown-type posts", () => {
   });
 
   it("counts posts whose asset type resolves to UNKNOWN, collapsing raw casing", async () => {
+    // ⚠️ THE FORMAT RIDES THE ROW NOW (ADR 0010, S3). Storage is still RAW, so
+    // mixed casing is legitimate and must still resolve to a known format.
     state.biRows = [
-      post({ linkedin_post_id: "a", client_id: "c1" }),
-      post({ linkedin_post_id: "b", client_id: "c1" }),
-      post({ linkedin_post_id: "c", client_id: "c1" }),
-    ];
-    state.attributes = [
-      // ADR 0009: storage is raw, so mixed casing is legitimate and must still
-      // resolve to a known format.
-      { linkedin_post_id: "a", post_format_type: "  document ", recorded_at: "2026-07-10" },
-      // Unrecognised → UNKNOWN, same as having no record at all ("c").
-      { linkedin_post_id: "b", post_format_type: "CAROUSEL_V2", recorded_at: "2026-07-10" },
+      post({ linkedin_post_id: "a", client_id: "c1", post_format_type: "  document " }),
+      // Unrecognised → UNKNOWN, same as carrying no format at all ("c").
+      post({ linkedin_post_id: "b", client_id: "c1", post_format_type: "CAROUSEL_V2" }),
+      post({ linkedin_post_id: "c", client_id: "c1", post_format_type: null }),
     ];
 
     const { rows } = await getDataQuality({ now: NOW });

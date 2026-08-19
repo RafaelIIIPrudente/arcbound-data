@@ -184,6 +184,62 @@ is the tripwire that proves the copy actually changed.
 
 ---
 
+## D5a — The resolver, CALIBRATED AGAINST LIVE DATA (2026-08-20)
+
+⚠️ **Every rule below is measured, not reasoned.** The first version of
+`src/lib/post-date.ts` was written from five CSV rows in the repo and got the
+most common unit in the entire dataset backwards. These are the numbers that
+corrected it, kept here so nobody re-derives them from first principles.
+
+**The real distribution of `post_age` across all 272 staging rows:**
+
+| token | rows    | meaning      |
+| ----- | ------- | ------------ |
+| `m`   | **203** | months       |
+| `w`   | 33      | weeks        |
+| `y`   | 24      | years        |
+| `d`   | 11      | days         |
+| `h`   | 1       | hours → NULL |
+
+⚠️ **Bare `m` is MONTHS.** It was briefly read as MINUTES on the reasoning that
+the token is ambiguous and unsampled. 203 of 272 posts carry it against a single
+`h`; that is a posting history, not a burst of posts scraped within the hour.
+Reading it as minutes would have nulled the publish date of **75% of every future
+upload** — counted in totals, silently dropped from every dated chart.
+⚠️ Only the BARE token moved. `min`/`mins`/`minute`/`minutes` remain undatable.
+
+⚠️ **Months and years follow DIFFERENT rules. Do not unify them.**
+
+| unit  | rule                                             | evidence                                                                         |
+| ----- | ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| month | first of month, `scrape_month − (N−1)`, midnight | `4m`/`3m`/`2m` scraped `2026-08-19` → `2026-05-01` / `2026-06-01` / `2026-07-01` |
+| year  | same day of month, `N×12` months back            | `1y` scraped `2026-08-17` → `2025-08-17`                                         |
+
+Assuming years followed the month rule was tried and was wrong; the test now
+asserts the year branch does NOT produce the snapped value.
+
+⚠️ **The month rule carries a known forward bias, accepted deliberately.** A post
+"4 months old" on 19 August was published around 19 April; the rule returns
+1 May — systematically later than the post can be. Consistency with all 271
+already-loaded rows was chosen over accuracy against an unknowable true day.
+**Do not "fix" this in isolation** — it would require backfilling the whole
+table, not editing the resolver.
+
+### ⚠️ A consequence for an existing client-facing chart
+
+203 of 272 posts resolve to the **first of a month**. `impressionsByWeekday` —
+"Average impressions by day of week posted" — is therefore driven for most of its
+input by which weekday the 1st happened to fall on, not by posting rhythm. Only
+the `d` and `w` rows (44) carry a meaningful weekday.
+
+⚠️ **This is NOT introduced by ADR 0010.** The previous analytics layer resolved
+the same way and the chart has always been computed from those values. It is
+recorded here because the cutover made it visible and because a month-grained age
+cannot support a weekday claim at all. Deciding what to do about it is a
+reporting-honesty question, open, and out of scope for this workstream.
+
+---
+
 ## D4 — Four-state discipline survives typing, or the workstream has failed
 
 The single non-negotiable. Today's staging is all-text and `bi.*` does the

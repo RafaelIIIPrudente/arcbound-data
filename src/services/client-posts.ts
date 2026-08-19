@@ -2,7 +2,6 @@ import { FORMAT_LABELS, toCanonicalFormat } from "@/lib/post-format";
 import { effectiveMs, type BiPostRow } from "@/services/analytics";
 import { readClientPostRows, selectPeriodRows } from "@/services/bi-posts";
 import { availablePeriods, parseReportPeriod } from "@/services/client-report";
-import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
 import type { ClientPostRow, ClientPosts, PostFormat } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,10 +64,11 @@ function publishDate(row: BiPostRow): string | null {
   return Number.isNaN(Date.parse(row.estimated_post_date)) ? null : row.estimated_post_date;
 }
 
-function toPostRow(row: BiPostRow, formatMap: Map<string, string>): ClientPostRow {
-  // A missing attribute record — or an unrecognised raw value — is UNKNOWN,
-  // which is a real member of the vocabulary, not an error state.
-  const format: PostFormat = toCanonicalFormat(formatMap.get(row.linkedin_post_id)) ?? "UNKNOWN";
+function toPostRow(row: BiPostRow): ClientPostRow {
+  // ⚠️ THE FORMAT RIDES THE ROW (ADR 0010, S3) — it used to come from a second
+  // read of public.post_attributes. An absent or unrecognised raw value is still
+  // UNKNOWN, which is a real member of the vocabulary, not an error state.
+  const format: PostFormat = toCanonicalFormat(row.post_format_type ?? undefined) ?? "UNKNOWN";
 
   return {
     id: row.linkedin_post_id,
@@ -132,13 +132,11 @@ export async function getClientPosts({
 
   // Only the period's posts need an asset type; the read degrades to [] rather
   // than throwing, so a failed join shows Unknown instead of erroring the page.
-  const attributes = await listPostAttributes(selected.map((r) => r.linkedin_post_id));
-  const formatMap = toFormatMap(attributes);
 
   // Sorted BEFORE the cap, so a capped table keeps the top posts rather than an
   // arbitrary 2,000. This also sets the table's default order.
   const mapped = selected
-    .map((row) => toPostRow(row, formatMap))
+    .map((row) => toPostRow(row))
     .sort((a, b) => b.impressions - a.impressions);
 
   const capped = mapped.length > MAX_TABLE_ROWS;

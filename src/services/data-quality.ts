@@ -3,7 +3,6 @@ import { toCanonicalFormat } from "@/lib/post-format";
 import type { BiPostRow } from "@/services/analytics";
 import { readAllPostRows } from "@/services/bi-posts";
 import { listClientRegistry } from "@/services/clients";
-import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
 import { listAllUploads } from "@/services/uploads";
 import type {
   DataQuality,
@@ -184,10 +183,10 @@ interface PostTally {
   unknownFormat: number;
 }
 
-function tallyPosts(
-  rows: BiPostRow[],
-  formatMap: Map<string, string>,
-): { byClient: Map<string, PostTally>; unattributed: number } {
+function tallyPosts(rows: BiPostRow[]): {
+  byClient: Map<string, PostTally>;
+  unattributed: number;
+} {
   const byClient = new Map<string, PostTally>();
   let unattributed = 0;
 
@@ -214,9 +213,10 @@ function tallyPosts(
     // them. NOT `effectiveMs` — that falls back to `scraped_at` for windowing,
     // which would report these as dated when they are not.
     if (!row.estimated_post_date) tally.undated += 1;
-    // ADR 0009: canonicalise at READ time. A missing attribute record and an
-    // unrecognised raw value are both UNKNOWN — a real format, not an error.
-    if ((toCanonicalFormat(formatMap.get(row.linkedin_post_id)) ?? "UNKNOWN") === "UNKNOWN") {
+    // Canonicalise at READ time. An absent record and an unrecognised raw value
+    // are both UNKNOWN — a real format, not an error. ⚠️ The value now rides the
+    // row (ADR 0010, S3) rather than arriving from a second read.
+    if ((toCanonicalFormat(row.post_format_type ?? undefined) ?? "UNKNOWN") === "UNKNOWN") {
       tally.unknownFormat += 1;
     }
   }
@@ -269,10 +269,8 @@ export async function getDataQuality({
   // The asset type lives in the app-owned table and is joined by post id, so it
   // can only be read once the post ids are known. Already chunked by the
   // attributes seam — do not re-implement that here.
-  const attributes = await listPostAttributes(posts.rows.map((r) => r.linkedin_post_id));
-  const formatMap = toFormatMap(attributes);
 
-  const { byClient: postTallies, unattributed: nullIdPosts } = tallyPosts(posts.rows, formatMap);
+  const { byClient: postTallies, unattributed: nullIdPosts } = tallyPosts(posts.rows);
   const uploadTallies = uploads === null ? null : tallyUploads(uploads);
 
   const sources = {

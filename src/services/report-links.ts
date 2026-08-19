@@ -397,3 +397,61 @@ export async function readReportLinkSource(
     return null;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE DEPLOY-WINDOW SHIM (ADR 0010, S3). Delete both of these when
+// `report_link_read` stops emitting `attributes[]` — and not before.
+//
+// The SQL and the application deploy at different moments. For the window
+// between them the running app reads a bundle built by the OTHER version of
+// `report_link_read`, and BOTH combinations have to render correct formats,
+// because this surface is a document a Client downloads: a wrong asset type
+// there is visibly wrong, client-facing, and raises nothing.
+//
+//   SQL first, app after → the OLD app reads `attributes[]`. That is why the new
+//                          function still emits the key even though nothing in
+//                          the database needs it any more.
+//   App first, SQL after → the NEW app finds no `post_format_type` on the row
+//                          (the old function's rows came from a view that had no
+//                          such column) and falls back to `attributes[]`.
+//
+// Neither order is "the right one to use". Both are correct, which is the point.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pure: post id → its RAW recorded format. Rows with no recorded format are
+ * omitted, so a lookup miss and an unrecorded format read the same to callers.
+ *
+ * The values are RAW — canonicalise with `toCanonicalFormat` before grouping.
+ */
+export function toFormatMap(rows: PostAttributes[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.post_format_type != null) {
+      map.set(row.linkedin_post_id, row.post_format_type);
+    }
+  }
+  return map;
+}
+
+/**
+ * Settle each row's format: its own value if it has one, else the bundle's
+ * `attributes` map, else null.
+ *
+ * ⚠️ THE ROW WINS, AND NULL IS A REAL ANSWER. When neither source carries a
+ * format the result is null, which canonicalises to UNKNOWN — a real member of
+ * the vocabulary. Substituting any other format would put a claim on a
+ * client-facing document that nobody made.
+ *
+ * ⚠️ RAW CASING IS PRESERVED from whichever source supplied it, so
+ * `toCanonicalFormat` stays the only place normalisation happens.
+ *
+ * Returns new objects; the input rows are not mutated.
+ */
+export function withFormatFallback(rows: BiPostRow[], attributes: PostAttributes[]): BiPostRow[] {
+  const map = toFormatMap(attributes);
+  return rows.map((row) => ({
+    ...row,
+    post_format_type: row.post_format_type ?? map.get(row.linkedin_post_id) ?? null,
+  }));
+}

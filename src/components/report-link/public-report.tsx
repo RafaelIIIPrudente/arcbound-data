@@ -14,9 +14,9 @@ import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-
 import { REPORT_METRIC_KEYS } from "@/lib/metric-definitions";
 import { getGateReadGrant } from "@/lib/report-link-session";
 import { availablePeriods, buildClientReport, parseReportPeriod } from "@/services/client-report";
-import { toFormatMap } from "@/services/post-attributes";
 import {
   readReportLinkSource,
+  withFormatFallback,
   type ReportLinkOutreach,
   type ReportLinkSource,
 } from "@/services/report-links";
@@ -76,9 +76,13 @@ function buildReportFromSource(
   source: ReportLinkSource,
   periodParam: string | undefined,
 ): ClientReport {
-  const rows = source.posts;
+  // ⚠️ THE FALLBACK IS THE DEPLOY-WINDOW GUARD, NOT A CONVENIENCE. The bundle may
+  // have been built by EITHER version of `report_link_read` — the format rides
+  // the row under the new one and arrives in `attributes[]` under the old — and
+  // this document is the one a Client downloads. See `withFormatFallback`.
+  const rows = withFormatFallback(source.posts, source.attributes);
   const periods = availablePeriods(rows);
-  return buildClientReport(rows, toFormatMap(source.attributes), {
+  return buildClientReport(rows, {
     period: parseReportPeriod(periodParam, periods),
     now: new Date(),
     followers: latestCount(source.uploads, (u) => u.followerCount),

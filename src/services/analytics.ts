@@ -48,6 +48,22 @@ export interface BiPostRow {
   interactions: number | null;
   provided_engagement_rate: number | null;
   calculated_engagement_rate: number | null;
+  /**
+   * The format EXACTLY as the Scrape sent it — any casing, never rewritten.
+   *
+   * ⚠️ CANONICALISE BEFORE GROUPING (`toCanonicalFormat`). "DOCUMENT",
+   * "document" and " Document " are three distinct strings here and one format
+   * in the report; grouping on the raw value splits one format into several
+   * buckets. An unrecognised or absent value is UNKNOWN, which is a real member
+   * of the vocabulary rather than an error.
+   *
+   * ⚠️ OPTIONAL BECAUSE OF THE DEPLOY WINDOW, not because it is unimportant. The
+   * client-facing `/r/[token]` bundle may have been produced by the PREVIOUS
+   * `report_link_read`, which had no such column; those rows fall back to the
+   * bundle's `attributes[]` map (see `withFormatFallback`). Once the old function
+   * is gone this can become required.
+   */
+  post_format_type?: string | null;
   scraped_at: string | null;
   uploaded_at: string | null;
 }

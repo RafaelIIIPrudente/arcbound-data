@@ -29,6 +29,24 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // ⚠️ THE POINT OF NO RETURN FOR THIS WORKSTREAM. Every pair below it left the
+    // old source live and correct, so a code revert was a complete rollback. This
+    // one stops the staging write, after which `bi.*` goes stale and reverting
+    // yields a report silently missing every post uploaded since.
+    //
+    // ⚠️ IT SUPERSEDES TWO APPLIED PAIRS RATHER THAN EDITING THEM: the view from
+    // `posts-read-view` (adding `post_format_type`) and `ingest_metrics` from
+    // `posts-ownership`. Both of those are applied and are never edited.
+    //
+    // ⚠️ AND IT IS DEPLOY-ORDER-SAFE IN BOTH DIRECTIONS, deliberately —
+    // `report_link_read` keeps emitting `attributes[]` so the OLD app renders
+    // correct formats against the NEW SQL, and the new app falls back to that key
+    // so it renders correct formats against the OLD SQL.
+    name: "posts-sole-source",
+    script: "posts-sole-source.sql",
+    migration: "migrations/20260821120000_posts_sole_source.sql",
+  },
+  {
     // ⚠️ DEPLOY-ORDERED AGAINST THE APPLICATION, SQL FIRST — the code shipped with
     // it reads `public.client_posts` and nothing else, so deploying the code first
     // makes every read 404.

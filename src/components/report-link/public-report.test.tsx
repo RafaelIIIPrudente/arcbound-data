@@ -17,7 +17,14 @@ vi.mock("next/navigation", () => ({
 // the whole pipeline produces a rendered report from real rows.
 const { grantMock, sourceMock } = vi.hoisted(() => ({ grantMock: vi.fn(), sourceMock: vi.fn() }));
 vi.mock("@/lib/report-link-session", () => ({ getGateReadGrant: grantMock }));
-vi.mock("@/services/report-links", () => ({ readReportLinkSource: sourceMock }));
+vi.mock("@/services/report-links", async (importOriginal) => ({
+  // ⚠️ THE REAL `withFormatFallback` IS DELIBERATELY NOT MOCKED. It is the deploy
+  // -window guard that decides which source a Client-facing format comes from;
+  // stubbing it would make every assertion below pass against a shim rather than
+  // against the code that ships.
+  ...(await importOriginal<typeof import("@/services/report-links")>()),
+  readReportLinkSource: sourceMock,
+}));
 
 import { PublicReport, PublicReportView } from "./public-report";
 

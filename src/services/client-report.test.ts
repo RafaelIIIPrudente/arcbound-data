@@ -121,6 +121,21 @@ import {
   parseReportPeriod,
 } from "./client-report";
 
+/**
+ * Attach raw formats to rows.
+ *
+ * ⚠️ THE FORMAT RIDES THE ROW SINCE ADR 0010 S3 — `buildClientReport` no longer
+ * takes a separate map, because `public.posts` carries `post_format_type` and the
+ * second read that used to supply it is gone. These fixtures keep the map shape
+ * only because it reads well; this puts the value where the product finds it.
+ */
+function withFormats(rows: BiPostRow[], formats: Map<string, string>): BiPostRow[] {
+  return rows.map((r) => ({
+    ...r,
+    post_format_type: formats.get(r.linkedin_post_id) ?? null,
+  }));
+}
+
 function row(over: Partial<BiPostRow>): BiPostRow {
   return {
     client_id: "c1",
@@ -362,7 +377,7 @@ describe("period scoping — what the picker moves, and what it deliberately doe
   // "All time does nothing" should start here.
   const build = (rows: BiPostRow[], key: string | undefined) => {
     const periods = availablePeriods(rows);
-    return buildClientReport(rows, new Map(), {
+    return buildClientReport(rows, {
       period: parseReportPeriod(key, periods),
       now: NOW,
       followers: 1000,
@@ -465,7 +480,7 @@ describe("period scoping — what the picker moves, and what it deliberately doe
 // ─────────────────────────────────────────────────────────────────────────────
 describe("all-time figures are INVARIANT to the selected period", () => {
   const build = (period: ReportPeriod) =>
-    buildClientReport(HISTORY, new Map(), {
+    buildClientReport(HISTORY, {
       period,
       now: NOW,
       followers: 5000,
@@ -549,7 +564,7 @@ describe("all-time figures are INVARIANT to the selected period", () => {
 
 describe("the four charts follow the selected period", () => {
   const build = (period: ReportPeriod, rows = HISTORY, formats = new Map<string, string>()) =>
-    buildClientReport(rows, formats, {
+    buildClientReport(withFormats(rows, formats), {
       period,
       now: NOW,
       followers: null,
@@ -751,7 +766,7 @@ describe("the report weekday chart dates by publish date, never scrape date", ()
   ];
 
   const build = (rows = WEEKDAY_ROWS) =>
-    buildClientReport(rows, new Map<string, string>(), {
+    buildClientReport(rows, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -817,7 +832,7 @@ describe("buildClientReport (pure)", () => {
       ["c", "  Document  "],
     ]);
 
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -839,7 +854,7 @@ describe("buildClientReport (pure)", () => {
     ];
     const formats = new Map([["a", "VIDEO"]]); // "b" has no attribute row at all
 
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -858,7 +873,7 @@ describe("buildClientReport (pure)", () => {
     const rows = [row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })];
     const formats = new Map([["a", "CAROUSEL_V2"]]);
 
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -870,7 +885,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("computes prior-3-month and all-time figures from the FULL history", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -892,7 +907,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("scopes row 1 to the period but rows 2 and 3 to all time", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -913,7 +928,7 @@ describe("buildClientReport (pure)", () => {
     // THE RESHAPE GUARD. Moving nine figures from three flat arrays into a hero
     // plus a matrix is presentation only — this pins all nine so a value that
     // shifted during the move cannot pass as a layout change.
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -966,7 +981,7 @@ describe("buildClientReport (pure)", () => {
       ),
     ];
     const periods = availablePeriods(rows);
-    const { matrix } = buildClientReport(rows, new Map(), {
+    const { matrix } = buildClientReport(rows, {
       period: parseReportPeriod("all", periods),
       now: NOW,
       followers: null,
@@ -993,7 +1008,7 @@ describe("buildClientReport (pure)", () => {
       ),
     ];
     const periods = availablePeriods(rows);
-    const { matrix } = buildClientReport(rows, new Map(), {
+    const { matrix } = buildClientReport(rows, {
       period: parseReportPeriod("all", periods),
       now: NOW,
       followers: null,
@@ -1014,7 +1029,7 @@ describe("buildClientReport (pure)", () => {
     // ALL_TIME, not JULY: a month period now buckets by WEEK, so months with
     // gaps in them only exist for the wider periods. The rule under test — an
     // empty bucket is null, never 0 — is unchanged.
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -1031,7 +1046,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("averages impressions by weekday across all seven days", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1051,7 +1066,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("reports the follower ratio as null (an em dash) when no upload carries a count", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1065,7 +1080,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("leads the scoped row with Total posts, Avg interactions, Total interactions, Total impressions", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1108,7 +1123,7 @@ describe("buildClientReport (pure)", () => {
     });
     const rows = [dated, ghost];
 
-    const report = buildClientReport(rows, new Map(), {
+    const report = buildClientReport(rows, {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -1137,7 +1152,7 @@ describe("buildClientReport (pure)", () => {
       row({ linkedin_post_id: "b", estimated_post_date: "2026-07-11", impressions: null }),
     ];
 
-    const report = buildClientReport(rows, new Map(), {
+    const report = buildClientReport(rows, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1175,7 +1190,7 @@ describe("buildClientReport (pure)", () => {
       }),
     ];
 
-    const report = buildClientReport(divergent, new Map(), {
+    const report = buildClientReport(divergent, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1197,7 +1212,7 @@ describe("buildClientReport (pure)", () => {
       month: 1,
     } as const;
 
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: february,
       now: NOW,
       followers: null,
@@ -1211,7 +1226,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("produces an empty report for a client with zero posts, without throwing", () => {
-    const report = buildClientReport([], new Map(), {
+    const report = buildClientReport([], {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
@@ -1245,7 +1260,7 @@ describe("buildClientReport (pure)", () => {
       }),
     );
 
-    const report = buildClientReport(many, new Map(), {
+    const report = buildClientReport(many, {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
@@ -1267,7 +1282,7 @@ describe("buildClientReport (pure)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("posting cadence is carried on the report (period-scoped)", () => {
   const build = (period: ReportPeriod, rows = HISTORY) =>
-    buildClientReport(rows, new Map(), {
+    buildClientReport(rows, {
       period,
       now: NOW,
       followers: null,
@@ -1326,7 +1341,7 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("content composition is carried on the report (period-scoped)", () => {
   const build = (rows: BiPostRow[], period: ReportPeriod = JULY) =>
-    buildClientReport(rows, new Map(), {
+    buildClientReport(rows, {
       period,
       now: NOW,
       followers: null,
@@ -1428,11 +1443,18 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
     ]);
     expect(report.totalPostsAllTime).toBe(2500);
 
-    // Row ORDER, observed downstream rather than asserted on a shuffled count:
-    // the seam hands `listPostAttributes` the merged ids, and its chunk queries
-    // are built in that order. Concurrency that resolved out of order would
-    // scramble this while leaving the row COUNT correct.
-    expect(state.attributeIdChunks.flat()).toEqual(pages.flat().map((r) => r.linkedin_post_id));
+    // ⚠️ THE ORDER OBSERVATION MOVED, IT WAS NOT DROPPED. This used to watch the
+    // merged ids arrive at `listPostAttributes`, whose chunk queries were built
+    // in row order — a channel ADR 0010 S3 removed along with that second read,
+    // because the format now rides the row. Nothing in a REPORT can observe row
+    // order: every figure on it is an aggregate, and aggregates are
+    // order-independent by construction.
+    //
+    // The merge-order guarantee is asserted directly, on the seam that owns it,
+    // in `bi-posts.test.ts` → "pages past the PostgREST 1000-row cap and merges
+    // every page in order". What is still provable HERE is that every page was
+    // requested and every row reached the report.
+    expect(pages.flat()).toHaveLength(2500);
   });
 
   it("issues pages 1..n CONCURRENTLY, not one after another", async () => {
@@ -1525,12 +1547,20 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
     expect(state.schemaCalls).toEqual([]);
   });
 
-  it("joins the app-owned asset type onto the post rows", async () => {
+  it("reads the asset type OFF THE ROW — no second query joins it in", async () => {
+    // ⚠️ THIS USED TO SET `state.attributes` AND ASSERT A JOIN. ADR 0010 S3 folded
+    // `post_format_type` into `public.posts`, so the format arrives with the row
+    // and the second read of `public.post_attributes` is gone entirely. Raw
+    // casing still survives storage and is still canonicalised at read time.
     state.biPages = [
-      [row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", interactions: 5 })],
-    ];
-    state.attributes = [
-      { linkedin_post_id: "a", post_format_type: "video", recorded_at: "2026-07-01" },
+      [
+        row({
+          linkedin_post_id: "a",
+          estimated_post_date: "2026-07-01",
+          interactions: 5,
+          post_format_type: "video",
+        }),
+      ],
     ];
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
@@ -1558,7 +1588,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("comparisonRow — saves keeps its three states apart", () => {
   const build = (rows: BiPostRow[]) =>
-    buildClientReport(rows, new Map(), {
+    buildClientReport(rows, {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -1622,7 +1652,7 @@ describe("comparisonRow — saves keeps its three states apart", () => {
       row({ linkedin_post_id: "jul", estimated_post_date: "2026-07-10", saves: 5 }),
       row({ linkedin_post_id: "jan", estimated_post_date: "2026-01-10", saves: 100 }),
     ];
-    const report = buildClientReport(rows, new Map(), {
+    const report = buildClientReport(rows, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1646,7 +1676,7 @@ describe("comparisonRow — saves keeps its three states apart", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("buildClientReport — the raw connection count", () => {
   const build = (connections: number | null, followers: number | null = null) =>
-    buildClientReport(HISTORY, new Map(), {
+    buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers,
@@ -1715,7 +1745,7 @@ describe("buildClientReport — the raw connection count", () => {
   it("does not scale with the post volume — it is point-in-time, not per-period", () => {
     // A rate would move with the numerator; a captured count must not.
     const busy = build(5000).keyPerformance.connections.value;
-    const quiet = buildClientReport(HISTORY.slice(0, 1), new Map(), {
+    const quiet = buildClientReport(HISTORY.slice(0, 1), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1739,7 +1769,7 @@ describe("buildClientReport — a custom period", () => {
 
   const buildC = (rows: BiPostRow[], key: string | undefined) => {
     const periods = availablePeriods(rows);
-    return buildClientReport(rows, new Map(), {
+    return buildClientReport(rows, {
       period: parseReportPeriod(key, periods),
       now: NOW_C,
       followers: 1000,

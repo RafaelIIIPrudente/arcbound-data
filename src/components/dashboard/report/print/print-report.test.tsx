@@ -8,6 +8,21 @@ import type { ClientReport, ReportPeriod } from "@/services/types";
 import { PrintReport } from "./print-report";
 import { ReportCover } from "./report-cover";
 
+/**
+ * Attach raw formats to rows.
+ *
+ * ⚠️ THE FORMAT RIDES THE ROW SINCE ADR 0010 S3 — `buildClientReport` no longer
+ * takes a separate map, because `public.posts` carries `post_format_type` and the
+ * second read that used to supply it is gone. These fixtures keep the map shape
+ * only because it reads well; this puts the value where the product finds it.
+ */
+function withFormats(rows: BiPostRow[], formats: Map<string, string>): BiPostRow[] {
+  return rows.map((r) => ({
+    ...r,
+    post_format_type: formats.get(r.linkedin_post_id) ?? null,
+  }));
+}
+
 // Fixtures are built through the REAL seam rather than hand-written, so what the
 // document is tested against is exactly what the page will hand it — including
 // the empty shapes, which are the easy ones to get wrong by hand.
@@ -71,7 +86,7 @@ describe("the printable document", () => {
     const rows = [biRow({ linkedin_post_id: "p1" })];
     render(
       <PrintReport
-        report={buildClientReport(rows, new Map(), {
+        report={buildClientReport(rows, {
           period: ALL_TIME,
           now: NOW,
           followers: 1000,
@@ -85,7 +100,7 @@ describe("the printable document", () => {
   });
 
   it("renders the cover and every empty state for a client with no posts", () => {
-    const report = buildClientReport([], new Map(), {
+    const report = buildClientReport([], {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -121,7 +136,7 @@ describe("the printable document", () => {
       ["p1", "IMAGE"],
       ["p2", "document"],
     ]);
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: ALL_TIME,
       now: NOW,
       followers: 5000,
@@ -140,7 +155,7 @@ describe("the printable document", () => {
 
   it("names asset types in words, never as raw scraper tokens", () => {
     const rows = [biRow({ linkedin_post_id: "p1" })];
-    const report = buildClientReport(rows, new Map([["p1", "slide_show"]]), {
+    const report = buildClientReport(withFormats(rows, new Map([["p1", "slide_show"]])), {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -164,7 +179,7 @@ describe("the printable document", () => {
   it("prints a truncation notice — with BOTH numbers — when the read was partial", () => {
     const rows = [biRow({ linkedin_post_id: "p1" })];
     const report: ClientReport = {
-      ...buildClientReport(rows, new Map(), {
+      ...buildClientReport(rows, {
         period: ALL_TIME,
         now: NOW,
         followers: null,
@@ -187,7 +202,7 @@ describe("the printable document", () => {
     const rows = [biRow({ linkedin_post_id: "p1" })];
     // `buildClientReport` leaves truncation undefined — a complete read makes no
     // claim of incompleteness, and a notice that fires anyway cries wolf.
-    const report = buildClientReport(rows, new Map(), {
+    const report = buildClientReport(rows, {
       period: ALL_TIME,
       now: NOW,
       followers: null,

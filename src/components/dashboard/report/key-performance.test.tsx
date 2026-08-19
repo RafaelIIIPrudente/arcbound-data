@@ -438,7 +438,7 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
     // notice it going stale. It went stale once already: the sentence said
     // "three" on the day a fourth figure landed. Driven from the real service so
     // a fifth figure fails here rather than shipping a false count.
-    const report = buildClientReport([biRow({ linkedin_post_id: "p1" })], new Map(), {
+    const report = buildClientReport([biRow({ linkedin_post_id: "p1" })], {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: 1000,
@@ -463,7 +463,6 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
         biRow({ linkedin_post_id: "p1", estimated_post_date: "2026-07-10", interactions: 40 }),
         biRow({ linkedin_post_id: "p2", estimated_post_date: "2026-06-10", interactions: 20 }),
       ],
-      new Map(),
       {
         period: { kind: "all", key: "all", label: "All time" },
         now: NOW,

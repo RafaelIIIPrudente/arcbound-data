@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BiPostRow } from "./analytics";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
-// One mock serves all three reads: the paged `public.client_posts` view, `public.post_attributes`
+// One mock serves the reads this seam makes: the paged `public.client_posts` view
 // and `public.uploads` (the report seam reads the last one; this one does not).
 const { state } = vi.hoisted(() => ({
   state: {
@@ -357,9 +357,22 @@ describe("getClientPosts — row mapping", () => {
   it("resolves the asset type to a HUMAN label, collapsing raw casing", async () => {
     // Raw storage (ADR 0009) legitimately holds mixed-case variants of one
     // format; grouping on the raw string would split it across buckets.
-    state.attributes = [
-      { linkedin_post_id: "jul1", post_format_type: "document", recorded_at: "2026-07-10" },
-      { linkedin_post_id: "jul2", post_format_type: "  VIDEO  ", recorded_at: "2026-07-20" },
+    // ⚠️ THE FORMAT IS ON THE ROW NOW (ADR 0010, S3), not in a second read of
+    // public.post_attributes. Setting it here is what makes this test exercise
+    // the path the product actually takes.
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "jul1",
+          estimated_post_date: "2026-07-10",
+          post_format_type: "document",
+        }),
+        row({
+          linkedin_post_id: "jul2",
+          estimated_post_date: "2026-07-20",
+          post_format_type: "  VIDEO  ",
+        }),
+      ],
     ];
 
     const { rows } = await getClientPosts({ clientId: "c1", period: "2026-07" });
@@ -369,9 +382,20 @@ describe("getClientPosts — row mapping", () => {
     expect(rows.find((r) => r.id === "jul2")!.formatLabel).toBe("Video");
   });
 
-  it("shows a post with no attribute record as UNKNOWN — a real format, not an error", async () => {
-    state.attributes = [
-      { linkedin_post_id: "jul1", post_format_type: "VIDEO", recorded_at: "2026-07-10" },
+  it("shows a post with NO recorded format as UNKNOWN — a real format, not an error", async () => {
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "jul1",
+          estimated_post_date: "2026-07-10",
+          post_format_type: "VIDEO",
+        }),
+        row({
+          linkedin_post_id: "jul2",
+          estimated_post_date: "2026-07-20",
+          post_format_type: null,
+        }),
+      ],
     ];
 
     const { rows } = await getClientPosts({ clientId: "c1", period: "2026-07" });
@@ -382,8 +406,14 @@ describe("getClientPosts — row mapping", () => {
   });
 
   it("treats an unrecognised raw value as UNKNOWN rather than showing the token", async () => {
-    state.attributes = [
-      { linkedin_post_id: "jul1", post_format_type: "CAROUSEL_V2", recorded_at: "2026-07-10" },
+    state.biPages = [
+      [
+        row({
+          linkedin_post_id: "jul1",
+          estimated_post_date: "2026-07-10",
+          post_format_type: "CAROUSEL_V2",
+        }),
+      ],
     ];
 
     const { rows } = await getClientPosts({ clientId: "c1", period: "2026-07" });
@@ -600,9 +630,7 @@ describe("getClientPosts — degradation", () => {
     expect(result.availablePeriods.map((p) => p.key)).toEqual(["all"]);
   });
 
-  it("shows posts as Unknown rather than erroring when the attributes read fails", async () => {
-    state.attributes = [];
-
+  it("shows posts as Unknown when no row carries a format — never an error state", async () => {
     const { rows } = await getClientPosts({ clientId: "c1", period: "2026-07" });
 
     expect(rows.every((r) => r.formatLabel === "Unknown")).toBe(true);
