@@ -32,57 +32,62 @@ vi.mock("next/headers", () => ({ cookies: () => ({}) }));
  * 1..n CONCURRENTLY and a shared cursor would let one page overwrite another's
  * range — the real client builds a new query per call too.
  */
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => ({
+vi.mock("@/lib/supabase/server", () => {
+  const client: Record<string, unknown> = {
+    // ⚠️ STILL PRESENT, AND DELIBERATELY SO. ADR 0010 moved every read onto the
+    // app-owned `public.client_posts`, which lives in the DEFAULT schema — so the
+    // seam must never call `.schema()` again. Keeping the recorder here means a
+    // regression is caught as a non-empty `schemaCalls` instead of as a TypeError
+    // that could be mistaken for an unrelated mock problem.
     schema: (s: string) => {
       biState.schemaCalls.push(s);
-      return {
-        from: (t: string) => {
-          biState.fromCalls.push(t);
-          const chain: Record<string, unknown> = {};
-          let from = 0;
-          // The implicit window PostgREST applies when no range is asked for.
-          let to = PAGE_SIZE - 1;
-          let wantsCount = false;
-
-          chain.select = (_columns?: unknown, opts?: { count?: string }) => {
-            if (opts?.count === "exact") wantsCount = true;
-            return chain;
-          };
-          chain.eq = (...a: unknown[]) => {
-            biState.eqCalls.push(a);
-            return chain;
-          };
-          chain.or = (f: string) => {
-            biState.orCalls.push(f);
-            return chain;
-          };
-          chain.order = (...a: unknown[]) => {
-            biState.orderCalls.push(a);
-            return chain;
-          };
-          chain.range = (f: number, t2: number) => {
-            from = f;
-            to = t2;
-            return chain;
-          };
-          chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-            Promise.resolve()
-              .then(() => {
-                if (biState.error) return { data: null, error: biState.error, count: null };
-                return {
-                  data: biState.rows.slice(from, to + 1),
-                  error: null,
-                  count: wantsCount ? biState.rows.length : null,
-                };
-              })
-              .then(resolve, reject);
-          return chain;
-        },
-      };
+      return client;
     },
-  }),
-}));
+    from: (t: string) => {
+      biState.fromCalls.push(t);
+      const chain: Record<string, unknown> = {};
+      let from = 0;
+      // The implicit window PostgREST applies when no range is asked for.
+      let to = PAGE_SIZE - 1;
+      let wantsCount = false;
+
+      chain.select = (_columns?: unknown, opts?: { count?: string }) => {
+        if (opts?.count === "exact") wantsCount = true;
+        return chain;
+      };
+      chain.eq = (...a: unknown[]) => {
+        biState.eqCalls.push(a);
+        return chain;
+      };
+      chain.or = (f: string) => {
+        biState.orCalls.push(f);
+        return chain;
+      };
+      chain.order = (...a: unknown[]) => {
+        biState.orderCalls.push(a);
+        return chain;
+      };
+      chain.range = (f: number, t2: number) => {
+        from = f;
+        to = t2;
+        return chain;
+      };
+      chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+        Promise.resolve()
+          .then(() => {
+            if (biState.error) return { data: null, error: biState.error, count: null };
+            return {
+              data: biState.rows.slice(from, to + 1),
+              error: null,
+              count: wantsCount ? biState.rows.length : null,
+            };
+          })
+          .then(resolve, reject);
+      return chain;
+    },
+  };
+  return { createClient: () => client };
+});
 
 vi.mock("@/services/clients", () => ({
   listClientRegistry: () => {
@@ -731,7 +736,7 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
   });
 });
 
-describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
+describe("getDashboardAnalytics (seam → public.client_posts)", () => {
   beforeEach(() => {
     biState.rows = [];
     biState.error = null;
@@ -744,12 +749,18 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     biState.uploads = [];
   });
 
-  it("reads the bi view and returns a well-formed analytics", async () => {
+  it("reads the APP-OWNED view and returns a well-formed analytics", async () => {
     biState.rows = ROWS;
     const a = await getDashboardAnalytics({ range: R30 });
 
-    expect(biState.schemaCalls).toContain("bi");
-    expect(biState.fromCalls).toContain("linkedin_post_latest");
+    // ⚠️ ASSERTS THE APP-OWNED SOURCE BY NAME, AND THAT `bi` IS NEVER REACHED.
+    // This line read `expect(biState.schemaCalls).toContain("bi")` until ADR 0010
+    // repointed the seam — it pinned the source the app was supposed to stop
+    // using. The empty-schemaCalls half is the tripwire: `toContain` alone would
+    // still pass if some other read quietly went back to `bi`.
+    expect(biState.fromCalls).toContain("client_posts");
+    expect(biState.schemaCalls).toEqual([]);
+    expect(biState.fromCalls).toContain("client_posts");
     expect(a.hero.label).toBe("Impressions");
     expect(a.kpis.map((k) => k.label)).toEqual(["Posts", "Likes", "Comments", "Shares", "Saves"]);
     expect(Array.isArray(a.impressionsSeries)).toBe(true);
@@ -828,7 +839,7 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     }
   });
 
-  it("flags unavailable (does not throw) when the bi query errors", async () => {
+  it("flags unavailable (does not throw) when the posts query errors", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     biState.error = { message: "permission denied for schema bi" };
 

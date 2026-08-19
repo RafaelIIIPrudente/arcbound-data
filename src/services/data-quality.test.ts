@@ -52,8 +52,12 @@ vi.mock("@/lib/supabase/server", () => ({
     };
 
     return {
-      schema: () => ({ from: () => paged(state.biRows, state.biError, state.biCountOverride) }),
+      // ADR 0010: posts are read from the app-owned `public.client_posts` in the
+      // DEFAULT schema. `schema` is gone, so a seam that reached for `bi` again
+      // would throw rather than quietly resolving.
       from: (table: string) => {
+        if (table === "client_posts")
+          return paged(state.biRows, state.biError, state.biCountOverride);
         if (table === "uploads") return paged(state.uploads, state.uploadsError);
         if (table === "post_attributes") return paged(state.attributes, null);
         return paged(state.clients, state.clientsError);

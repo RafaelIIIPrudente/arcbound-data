@@ -34,61 +34,63 @@ const { state } = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
-    // bi.linkedin_post_latest — paged.
-    schema: (s: string) => {
-      state.schemaCalls.push(s);
-      return {
-        from: (t: string) => {
-          state.fromCalls.push(t);
-          const q: Record<string, unknown> = {};
-          // Captured per QUERY, not globally: concurrent pages are all built
-          // before any resolves, so a shared cursor would serve them all the
-          // same page and the merge would look correct while being wrong.
-          let page = 0;
-          let countOption: string | undefined;
-          q.select = (_columns: string, opts?: { count?: string }) => {
-            countOption = opts?.count;
-            state.countOptions.push(opts?.count);
-            return q;
-          };
-          q.eq = () => q;
-          q.or = () => q;
-          q.order = () => q;
-          q.range = (from: number, to: number) => {
-            state.ranges.push([from, to]);
-            // Derived from the request itself (`from / pageLength`) so the mock
-            // never has to know PAGE_SIZE and cannot drift from the module.
-            page = from / (to - from + 1);
-            return q;
-          };
-          q.then = (resolve: (v: unknown) => unknown) => {
-            state.inFlight += 1;
-            state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
-            // Settled on a LATER macrotask so overlap is observable. Resolving
-            // immediately would drain each page before the next was issued, and
-            // peak in-flight would read 1 even for a fully concurrent caller.
-            return new Promise((r) => setTimeout(r, 0))
-              .then(() => {
-                state.inFlight -= 1;
-                const error =
-                  state.biError ??
-                  (state.biErrorOnPage === page ? { message: `page ${page} exploded` } : null);
-                const total = state.biPages.reduce((n, p) => n + p.length, 0);
-                return {
-                  data: error ? null : (state.biPages[page] ?? []),
-                  error,
-                  count: countOption === "exact" ? (state.biCount ?? total) : null,
-                };
-              })
-              .then(resolve);
-          };
-          return q;
-        },
-      };
+    // public.client_posts — paged.
+    // ⚠️ RECORDER, NOT A ROUTE. ADR 0010 moved the read onto the app-owned
+    // `public.client_posts` in the DEFAULT schema, so `schemaCalls` must stay
+    // EMPTY; keeping the method here makes a regression show up as a recorded
+    // call rather than as a TypeError.
+    schema: function (this: unknown, sch: string) {
+      state.schemaCalls.push(sch);
+      return this as never;
     },
-    // public.* — post_attributes and uploads.
     from: (t: string) => {
       state.fromCalls.push(t);
+      if (t === "client_posts") {
+        const q: Record<string, unknown> = {};
+        // Captured per QUERY, not globally: concurrent pages are all built
+        // before any resolves, so a shared cursor would serve them all the
+        // same page and the merge would look correct while being wrong.
+        let page = 0;
+        let countOption: string | undefined;
+        q.select = (_columns: string, opts?: { count?: string }) => {
+          countOption = opts?.count;
+          state.countOptions.push(opts?.count);
+          return q;
+        };
+        q.eq = () => q;
+        q.or = () => q;
+        q.order = () => q;
+        q.range = (from: number, to: number) => {
+          state.ranges.push([from, to]);
+          // Derived from the request itself (`from / pageLength`) so the mock
+          // never has to know PAGE_SIZE and cannot drift from the module.
+          page = from / (to - from + 1);
+          return q;
+        };
+        q.then = (resolve: (v: unknown) => unknown) => {
+          state.inFlight += 1;
+          state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
+          // Settled on a LATER macrotask so overlap is observable. Resolving
+          // immediately would drain each page before the next was issued, and
+          // peak in-flight would read 1 even for a fully concurrent caller.
+          return new Promise((r) => setTimeout(r, 0))
+            .then(() => {
+              state.inFlight -= 1;
+              const error =
+                state.biError ??
+                (state.biErrorOnPage === page ? { message: `page ${page} exploded` } : null);
+              const total = state.biPages.reduce((n, p) => n + p.length, 0);
+              return {
+                data: error ? null : (state.biPages[page] ?? []),
+                error,
+                count: countOption === "exact" ? (state.biCount ?? total) : null,
+              };
+            })
+            .then(resolve);
+        };
+        return q;
+      }
+      // public.* — post_attributes and uploads.
       const q: Record<string, unknown> = {};
       q.select = () => q;
       q.eq = () => q;
@@ -1376,7 +1378,7 @@ describe("content composition is carried on the report (period-scoped)", () => {
   });
 });
 
-describe("getClientReport (seam → paged bi read)", () => {
+describe("getClientReport (seam → paged read of public.client_posts)", () => {
   it("pages past the PostgREST 1000-row cap and merges every page", async () => {
     // A FULL first page must trigger a second request — a silent truncation here
     // would look like working software and report wrong all-time figures.
@@ -1507,16 +1509,23 @@ describe("getClientReport (seam → paged bi read)", () => {
     expect(report.truncation ?? null).toBeNull();
   });
 
-  it("reads the externally-owned bi view", async () => {
+  it("reads the APP-OWNED view, and never reaches into the bi schema", async () => {
+    // ⚠️ THIS TEST USED TO PIN THE OLD SOURCE — it asserted
+    // `schemaCalls).toContain("bi")` and `fromCalls).toContain(
+    // "linkedin_post_latest")`, so it would have kept passing on exactly the
+    // read ADR 0010 exists to replace. The empty-schemaCalls half is the
+    // tripwire: naming the new table alone would still pass if some other read
+    // quietly went back to `bi`.
     state.biPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
 
     await getClientReport({ clientId: "c1", period: "all" });
 
-    expect(state.schemaCalls).toContain("bi");
-    expect(state.fromCalls).toContain("linkedin_post_latest");
+    expect(state.fromCalls).toContain("client_posts");
+    expect(state.fromCalls).not.toContain("linkedin_post_latest");
+    expect(state.schemaCalls).toEqual([]);
   });
 
-  it("joins the app-owned asset type onto the bi rows", async () => {
+  it("joins the app-owned asset type onto the post rows", async () => {
     state.biPages = [
       [row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", interactions: 5 })],
     ];

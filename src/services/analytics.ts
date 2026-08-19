@@ -18,11 +18,15 @@ import type {
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Analytics Service Seam (dashboard read-model), now LIVE. Reads the externally-
-// owned BI view `bi.linkedin_post_latest` (one row per client-matched post, latest
-// scrape) and aggregates it into DashboardAnalytics. The signature is unchanged
-// (ADR 0009). The pure `buildDashboardAnalytics` does all aggregation so it is
-// deterministically unit-testable with an injected `now`.
+// Analytics Service Seam (dashboard read-model), now LIVE. Reads the APP-OWNED
+// view `public.client_posts` — one row per post, attributed by the `client_id`
+// foreign key stamped at upload — and aggregates it into DashboardAnalytics.
+//
+// ⚠️ IT READ THE EXTERNALLY-OWNED `bi.linkedin_post_latest` UNTIL ADR 0010. The
+// row SHAPE did not change across that cutover, deliberately: `BiPostRow` is the
+// firewall, and repointing the source cost one clause here and nothing at all in
+// the aggregation below. The pure `buildDashboardAnalytics` still does every
+// aggregation so it is deterministically unit-testable with an injected `now`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** A row of the externally-owned view bi.linkedin_post_latest. */
@@ -118,9 +122,10 @@ export function estMs(row: BiPostRow): number | null {
 /**
  * When a post effectively happened, for WINDOWING and BUCKETING.
  *
- * Posts scraped with a relative age in hours ("23h") come back from
- * `bi.linkedin_post_latest` with a NULL estimated_post_date — Shay's resolver
- * only resolves day-granularity ages. Windowing on estimated_post_date alone
+ * Posts scraped with a relative age in hours ("23h") carry a NULL
+ * estimated_post_date — `src/lib/post-date.ts` resolves day-granularity ages and
+ * REFUSES sub-day ones, deliberately (ADR 0010 D5), exactly as the resolver it
+ * replaced did. Windowing on estimated_post_date alone
  * therefore dropped yesterday's posts out of every KPI, series bucket, and
  * totalPosts, even though they are the most recent posts the client has.
  *
@@ -612,7 +617,14 @@ const COMPARISON_UNAVAILABLE: ClientComparison = {
 const SELECT_COLUMNS =
   "client_id, linkedin_post_id, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, scraped_at";
 
-const BI_LABEL = "bi.linkedin_post_latest";
+/**
+ * ⚠️ USER-FACING, NOT A COMMENT. `readAllPages` prints this as the human noun in
+ * its truncation and failure warnings, so it must name the source ArcBase
+ * actually reads. It said `bi.linkedin_post_latest` until ADR 0010 moved the
+ * reads onto the app-owned view; leaving it would have named a source this file
+ * no longer touches.
+ */
+const POSTS_LABEL = "client_posts";
 
 /**
  * One page of the dashboard's window, built per request.
@@ -640,7 +652,7 @@ function dashboardPageReader(
   let supabase: ReturnType<typeof createClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createClient(cookies());
-    const base = supabase.schema("bi").from("linkedin_post_latest").select(SELECT_COLUMNS, opts);
+    const base = supabase.from("client_posts").select(SELECT_COLUMNS, opts);
     const scoped = clientId ? base.eq("client_id", clientId) : base;
     // ⚠️ A NULL BOUND IS "NO FLOOR", NOT "A FLOOR AT ZERO". All-time drops the
     // clause entirely rather than passing an epoch or a stringified -Infinity,
@@ -677,7 +689,7 @@ export async function getDashboardAnalytics({
 
   const { rows, unavailable, truncated, total } = await readAllPages(
     dashboardPageReader(clientId, boundIso),
-    BI_LABEL,
+    POSTS_LABEL,
   );
 
   if (unavailable) {

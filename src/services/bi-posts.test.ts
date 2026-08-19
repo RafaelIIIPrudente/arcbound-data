@@ -21,14 +21,19 @@ const { state } = vi.hoisted(() => ({
     rejectWith: null as string | null,
     /** The columns string each request selected. */
     selects: [] as string[],
+    /** The table each request read — ADR 0010 repointed this off `bi.*`. */
+    tables: [] as string[],
   },
 }));
 
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
-    schema: () => ({
-      from: () => {
+    // ADR 0010: reads come from the app-owned `public.client_posts` in the
+    // DEFAULT schema, so `from` sits on the client rather than behind `schema`.
+    from: (table: string) => {
+      state.tables.push(table);
+      {
         const q: Record<string, unknown> = {};
         // Captured per QUERY, not globally: concurrent pages are all built
         // before any resolves, so a shared cursor would serve them all the same
@@ -67,8 +72,8 @@ vi.mock("@/lib/supabase/server", () => ({
             })
             .then(resolve, reject);
         return q;
-      },
-    }),
+      }
+    },
   }),
 }));
 
@@ -279,7 +284,7 @@ describe("period bounds are half-open — [start, end)", () => {
   });
 });
 
-describe("readClientPostRows (paged bi read)", () => {
+describe("readClientPostRows (paged read of public.client_posts)", () => {
   it("selects post_url, so the drill-down can link out to each post", async () => {
     state.pages = [[row({ linkedin_post_id: "a" })]];
 

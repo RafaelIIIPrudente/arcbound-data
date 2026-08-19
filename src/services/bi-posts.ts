@@ -12,9 +12,14 @@ import type { ReportPeriod } from "@/services/types";
 export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The shared BI post-row seam: ONE paged read of `bi.linkedin_post_latest` and
-// ONE period-selection predicate, used by every screen that shows a client's
+// The shared post-row seam: ONE paged read of the app-owned `public.client_posts`
+// and ONE period-selection predicate, used by every screen that shows a client's
 // posts (the LinkedIn Report and the per-post drill-down).
+//
+// ⚠️ THE FILE NAME IS HISTORICAL. It read `bi.linkedin_post_latest` until ADR 0010
+// repointed it; the row shape (`BiPostRow`) is unchanged, which is why that
+// cutover touched one clause here and nothing downstream. Renaming the module is
+// deliberately left to slice S3, where the `bi.*` objects are retired together.
 //
 // ⚠️ THIS MODULE EXISTS TO MAKE TWO SCREENS STRUCTURALLY UNABLE TO DISAGREE.
 //
@@ -35,8 +40,8 @@ export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
  *
  * BOTH engagement-rate columns are selected, and that is deliberate:
  *   • `calculated_engagement_rate` — the VIEW's per-post figure, and the one
- *     ArcBase ships. Per ADR 0009 the BI views own the analytics contract, so
- *     ArcBase reads their number rather than deriving a rival one.
+ *     ArcBase ships. ArcBase now derives it itself at ingest (ADR 0010): it is
+ *     interactions / impressions, NULL when impressions is NULL or zero.
  *   • `provided_engagement_rate` — the SCRAPER's own figure. Never rendered.
  *     Read solely so the Data Quality panel can RECONCILE the two and report
  *     where they disagree.
@@ -134,11 +139,17 @@ export function selectPeriodRows(rows: BiPostRow[], period: ReportPeriod): BiPos
   return selectPeriodPlaceable(rows, period).map((d) => d.row);
 }
 
-/** The label every warning from this view carries. */
-const BI_LABEL = "bi.linkedin_post_latest";
+/**
+ * The label every warning from this view carries.
+ *
+ * ⚠️ USER-FACING, NOT A COMMENT — `readAllPages` prints it in truncation and
+ * failure warnings. It named `bi.linkedin_post_latest` until ADR 0010 repointed
+ * the reads onto the app-owned projection.
+ */
+const POSTS_LABEL = "client_posts";
 
 /**
- * A `PageReader` over the BI view, optionally filtered to one client.
+ * A `PageReader` over `public.client_posts`, optionally filtered to one client.
  *
  * The Supabase client is built on the FIRST page and reused, so it is created
  * once per read AND inside `readAllPages`'s try — meaning a throw from
@@ -153,7 +164,7 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
   let supabase: ReturnType<typeof createClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createClient(cookies());
-    const base = supabase.schema("bi").from("linkedin_post_latest").select(POST_COLUMNS, opts);
+    const base = supabase.from("client_posts").select(POST_COLUMNS, opts);
     const scoped = clientId === undefined ? base : base.eq("client_id", clientId);
     return asPage<BiPostRow>(
       scoped
@@ -166,7 +177,7 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
 }
 
 /**
- * A client's full post history from the externally-owned BI view.
+ * A client's full post history from the app-owned `public.client_posts`.
  *
  * `unavailable: true` means the read FAILED and is distinct from an empty
  * history — never collapse the two. Degrades rather than throwing so a page
@@ -181,7 +192,7 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
  * defines them.
  */
 export async function readClientPostRows(clientId: string): Promise<PagedRead<BiPostRow>> {
-  return readAllPages(postPageReader(clientId), BI_LABEL);
+  return readAllPages(postPageReader(clientId), POSTS_LABEL);
 }
 
 /**
@@ -192,5 +203,5 @@ export async function readClientPostRows(clientId: string): Promise<PagedRead<Bi
  * lower bound, and it has to be able to say so.
  */
 export async function readAllPostRows(): Promise<PagedRead<BiPostRow>> {
-  return readAllPages(postPageReader(), BI_LABEL);
+  return readAllPages(postPageReader(), POSTS_LABEL);
 }

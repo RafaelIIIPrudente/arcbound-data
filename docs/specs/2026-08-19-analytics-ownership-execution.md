@@ -38,9 +38,48 @@ feared, and every one of them is a one-line repoint:
 ⚠️ **The July plan's line numbers are all wrong now** (`analytics.ts:514`,
 `bi-posts.ts:143`, `clients.ts:63,118`). Use the table above.
 
-**`BiPostRow` — the firewall — is 18 fields** (`analytics.ts:29`), unchanged since
-July. It stays FROZEN. `POST_COLUMNS` (`bi-posts.ts:47`) is the 15-column read
-projection; `SELECT_COLUMNS` (`analytics.ts:612`) is a narrower 12.
+### ⚠️ A FIFTH READ SITE, FOUND 2026-08-19 AFTER S2 WAS BUILT — AND IT IS THE CLIENT-FACING ONE
+
+The table above is the complete list of `bi.*` reads **in TypeScript**. It is NOT
+the complete list of `bi.*` reads. `report_link_read` — the SECURITY DEFINER
+function behind `/r/[token]`, the report a **Client** downloads — reads
+`bi.linkedin_post_latest` directly in plpgsql, twice, plus `public.post_attributes`.
+
+⚠️ **My S2 acceptance criterion (`grep '.schema("bi")' src/` returns nothing) was
+true and incomplete.** A grep over TypeScript cannot see a read written in SQL. The
+criterion passed while a whole client-facing surface stayed on the old source.
+
+**Consequence if S2 deploys alone:** the staff report reads FK-attributed
+`public.client_posts` while the Client's own report reads name-matched
+`bi.linkedin_post_latest`. The two documents for the same Client can disagree, and
+the wrong one is the one the Client is holding. It is latent rather than immediate
+— the D1 staging repair means today's roster matches on both — but the first new
+Premium client whose scraped author is mangled reopens exactly the ADR-0010 bug on
+the client-facing surface only.
+
+⚠️ **`report_link_read` HAS BEEN REDEFINED FOUR TIMES**, the same trap as
+`ingest_metrics`. In order: `report-links.sql` → `outreach-report-link.sql` →
+`outreach-email-report-link.sql` → **`outreach-void.sql` (`20260814120000`), which
+is the LIVE definition.** Supersede that one; the other three are dead files.
+
+**Therefore: Part A of S3 is a prerequisite for S2's deployment, not a follow-up.**
+Either ship them together, or accept a knowingly divergent client report until S3
+lands.
+
+**`BiPostRow` — the firewall — is SEVENTEEN fields** (`analytics.ts:29`), unchanged
+since July. It stays FROZEN. `POST_COLUMNS` (`bi-posts.ts:47`) is the 15-column
+read projection; `SELECT_COLUMNS` (`analytics.ts:612`) is a narrower 12.
+
+⚠️ **CORRECTED 2026-08-19: this said "18 fields" and was WRONG.** The error was
+inherited from the July plan, which claims 18 and then lists 17, and I repeated it
+into both the S1 and S2 handoffs. The S2 executer counted the interface directly
+and flagged it rather than inventing an eighteenth column to satisfy the brief —
+which is exactly the right failure mode, and the reason the view is correct anyway.
+The count, verified: `client_id, client_name, linkedin_post_id, post_url,
+post_content, post_age, estimated_post_date, impressions, likes, comments, reposts,
+saves, interactions, provided_engagement_rate, calculated_engagement_rate,
+scraped_at, uploaded_at` = **17**, of which 16 come from `public.posts` and
+`client_name` from the join to `public.clients`.
 
 **The live `ingest_metrics` is NOT the one in `ingest-write.sql`.** It has been
 redefined three times; the live definition is the FIVE-argument version in

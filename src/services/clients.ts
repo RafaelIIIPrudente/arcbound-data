@@ -16,12 +16,16 @@ import { latestUploadByClient } from "@/services/uploads";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Clients seam (real). Reads/writes the externally-owned public.clients table and
-// derives postsCount from the BI view bi.linkedin_post_latest (ADR 0009).
+// derives postsCount from the app-owned view public.client_posts (ADR 0010).
 //
-// `clients.name` is the ATTRIBUTION KEY the BI name-match join depends on, so the
-// Add-Client form guides staff to the exact display name. This external schema has
-// no dedup constraint on clients — ArcBase does not fabricate one (a duplicate is
-// a UI concern, not a DB error).
+// ⚠️ `clients.name` IS NO LONGER AN ATTRIBUTION KEY, AND THAT IS A REAL CHANGE.
+// It was: `bi.linkedin_post_latest` INNER JOINed on it, so a rename silently
+// detached a client from their own history. Attribution is now the `client_id`
+// foreign key stamped at upload, and the name is a label. The Add-Client form
+// still guides staff to the exact display name — it is what the upload-time
+// wrong-file guard compares against — but a mismatch now costs a warning rather
+// than the posts. This external schema has no dedup constraint on clients —
+// ArcBase does not fabricate one (a duplicate is a UI concern, not a DB error).
 //
 // ⚠️ TWO COLUMNS ARE NOW MUTABLE, AND ONLY TWO. `industry_id` and `writer_id` are
 // admin-editable through `setClientIndustryWriter` below (S4) — so the older
@@ -106,7 +110,7 @@ function toClient(row: ClientRow, postsCount: number | null): Client {
 }
 
 /**
- * Per-client post counts from bi.linkedin_post_latest.
+ * Per-client post counts from the app-owned public.client_posts.
  *
  * ⚠️ Returns `null` when the read FAILS — never an empty map. An empty map is a
  * real answer ("the view attributes no posts to anyone"); returning it for a
@@ -128,15 +132,15 @@ async function fetchPostCounts(supabase: SupabaseClient): Promise<Map<string, nu
     (from, to, opts) =>
       asPage<{ client_id: string | null }>(
         supabase
-          .schema("bi")
-          .from("linkedin_post_latest")
+          .from("client_posts")
           .select("client_id", opts)
           // Stable ordering — CONCURRENT ranges can otherwise overlap or skip
           // rows. Ordering by a column that is not selected is fine.
           .order("linkedin_post_id", { ascending: true })
           .range(from, to),
       ),
-    "bi.linkedin_post_latest",
+    // ⚠️ USER-FACING: `readAllPages` prints this in its warnings.
+    "client_posts",
   );
   if (unavailable || truncated) return null;
 
@@ -183,8 +187,7 @@ export async function listClientRegistry(): Promise<{ id: string; name: string }
 async function countForClient(supabase: SupabaseClient, clientId: string): Promise<number | null> {
   try {
     const { count, error } = await supabase
-      .schema("bi")
-      .from("linkedin_post_latest")
+      .from("client_posts")
       .select("*", { count: "exact", head: true })
       .eq("client_id", clientId);
     if (error || count == null) {
@@ -337,7 +340,7 @@ export const getClient = cache(async (id: string): Promise<Client | null> => {
   // Two independent reads, issued together. The count reads nothing out of the
   // select, so it did not need to wait: it filters on the id ARGUMENT
   // (`clients.id` is a uuid, so the row's id and `id` are the same value, and
-  // `getClientReport` already filters this same BI view on the raw route param).
+  // `getClientReport` already filters this same view on the raw route param).
   //
   // ⚠️ ERROR PRECEDENCE IS UNCHANGED, AND HERE THAT IS A SAFETY PROPERTY RATHER
   // THAN TIDINESS. `countForClient` swallows its own failures, so it cannot

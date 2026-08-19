@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BiPostRow } from "./analytics";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
-// One mock serves all three reads: the paged `bi` view, `public.post_attributes`
+// One mock serves all three reads: the paged `public.client_posts` view, `public.post_attributes`
 // and `public.uploads` (the report seam reads the last one; this one does not).
 const { state } = vi.hoisted(() => ({
   state: {
@@ -20,8 +20,10 @@ const { state } = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
-    schema: () => ({
-      from: () => {
+    // ADR 0010: the post read is `public.client_posts`, in the DEFAULT schema —
+    // so ONE `from` serves it and every other public table.
+    from: (table: string) => {
+      if (table === "client_posts") {
         const q: Record<string, unknown> = {};
         // Captured per QUERY: concurrent pages are all built before any
         // resolves, so a shared cursor would serve them all the same page.
@@ -47,9 +49,8 @@ vi.mock("@/lib/supabase/server", () => ({
                 : null,
           }).then(resolve);
         return q;
-      },
-    }),
-    from: (t: string) => {
+      }
+      // Everything else is a plain public table.
       const q: Record<string, unknown> = {};
       q.select = () => q;
       q.eq = () => q;
@@ -57,7 +58,7 @@ vi.mock("@/lib/supabase/server", () => ({
       q.order = () => q;
       q.then = (resolve: (v: unknown) => unknown) =>
         Promise.resolve({
-          data: t === "uploads" ? state.uploads : state.attributes,
+          data: table === "uploads" ? state.uploads : state.attributes,
           error: null,
         }).then(resolve);
       return q;

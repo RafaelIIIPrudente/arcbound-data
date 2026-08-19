@@ -110,7 +110,7 @@ export interface PagedRead<T> {
  *                     PREFIX, so any total computed from it is short.
  *   • neither       — `rows` is the complete table.
  *
- * `label` is the human noun used in warnings, e.g. "bi.linkedin_post_latest".
+ * `label` is the human noun used in warnings, e.g. "client_posts".
  */
 export async function readAllPages<T>(read: PageReader<T>, label: string): Promise<PagedRead<T>> {
   let rows: T[] = [];

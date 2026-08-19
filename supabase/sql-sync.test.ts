@@ -29,6 +29,19 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // ⚠️ DEPLOY-ORDERED AGAINST THE APPLICATION, SQL FIRST — the code shipped with
+    // it reads `public.client_posts` and nothing else, so deploying the code first
+    // makes every read 404.
+    //
+    // ⚠️ AND GATED ON A ROW COUNT, not just on the pair below being applied: this
+    // view is only as populated as `public.posts`, so that pair's BACKFILL must
+    // have run. An empty posts table yields an empty view, which renders as "no
+    // posts yet" rather than as an error — a blank report that raises nothing.
+    name: "posts-read-view",
+    script: "posts-read-view.sql",
+    migration: "migrations/20260820120000_posts_read_view.sql",
+  },
+  {
     // ⚠️ GOES IN AFTER THE TWO PAIRS BELOW IT, WHICH WERE STILL UNAPPLIED WHEN
     // THIS WAS WRITTEN. Nothing here depends on them, but this pair adds the
     // table the whole analytics cutover stands on (ADR 0010, S1) and it should
