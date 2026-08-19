@@ -11,7 +11,12 @@
 
 An internal web dashboard for Arcbound staff to (1) register clients, (2) upload scraped LinkedIn post metrics into a Supabase table, and (3) view the resulting analytics. It is the middle of a pipeline:
 
-`Scraper (external)` → **`this app: ingest + view`** → `Supabase (staging → views, Shay)` → `Power BI (Shay)`
+`Scraper (external)` → **`this app: ingest + store + view`**
+
+⚠️ **This diagram used to end in two more stages** — external Supabase views and a
+downstream BI tool. Both are retired: ArcBase stores the scrape in its own
+`public.posts` and computes every figure it shows. It is the terminal, not the
+middle. See [ADR 0010](../adr/0010-arcbase-owns-analytics-end-to-end.md).
 
 Only this app is in scope. See §11 for what is explicitly out of scope.
 
@@ -39,17 +44,24 @@ Only this app is in scope. See §11 for what is explicitly out of scope.
 ```
 NEXT_PUBLIC_SUPABASE_URL=            # client + server
 NEXT_PUBLIC_SUPABASE_ANON_KEY=       # client + server (RLS-scoped)
-SUPABASE_SERVICE_ROLE_KEY=           # SERVER ONLY — never prefix NEXT_PUBLIC
-SUPABASE_STAGING_TABLE=              # exact identifier of Shay's staging table (see [OPEN] in §11)
 ```
 
-Expose the staging table name via config (not hardcoded), because its exact identifier is owned by Shay and unconfirmed.
+⚠️ **Two variables this section used to list no longer exist, and neither is
+coming back.** `SUPABASE_STAGING_TABLE` made the posts table's identifier
+configurable because an external owner controlled it; ArcBase owns `public.posts`
+outright, so the name is a fixed part of the schema. `SUPABASE_SERVICE_ROLE_KEY`
+is not used anywhere — privileged writes go through `SECURITY DEFINER` RPCs
+called by the authenticated session, which is a narrower boundary than a
+service-role key and cannot be leaked into the browser by accident.
 
 ---
 
 ## 4. Data model
 
-Two tables are app-owned (`clients`, `uploads`); the staging/posts table is **owned by Shay** — the app only writes into it. Coordinate the `uploads` table creation with Shay since he owns the Supabase schema.
+⚠️ **Every table ArcBase reads or writes is app-owned** (`clients`, `uploads`,
+`posts`, and the registries). The posts table was once external and write-only to
+this app; ADR 0010 moved it in-house, so there is no schema owner to coordinate
+with and no read this app does not control.
 
 ### 4.1 SQL (Postgres / Supabase)
 
@@ -79,7 +91,8 @@ create table if not exists public.uploads (
 create index if not exists uploads_client_recent_idx
   on public.uploads (client_id, uploaded_at desc);
 
--- Owned by Shay — reference shape only; confirm exact identifier -------
+-- ⚠️ SUPERSEDED — reference shape only. The live, app-owned definition is
+-- supabase/posts-ownership.sql (public.posts), read through public.client_posts.
 -- The app UPSERTS into this table keyed on linkedin_post_id.
 -- Expected columns:
 --   linkedin_post_id text primary key        -- dedup/update key
@@ -278,7 +291,9 @@ Server action `ingestMetrics({ clientId, sourceType, payload, followerCount, res
 ## 9. Data-access / security notes
 
 - App tables (`clients`, `uploads`): enable RLS; allow authenticated users to read/insert; **no update/delete policies** (enforces immutability at the DB layer too).
-- Staging table writes: use whichever credential Shay's RLS requires; if the service role is needed, keep it strictly server-side.
+- Post writes: through the `ingest_metrics` SECURITY DEFINER RPC, called by the
+  authenticated session. ⚠️ **No service-role key is used anywhere** — the RPC is
+  the privilege boundary, and `public.posts` has no insert/update/delete policy.
 - Validate and sanitize all user input server-side; never trust client-provided counts (recompute on the server).
 
 ---
@@ -287,7 +302,7 @@ Server action `ingestMetrics({ clientId, sourceType, payload, followerCount, res
 
 1. Scaffold Next.js + TypeScript + Tailwind; add Supabase clients (`@supabase/ssr`); wire env vars (§3).
 2. Auth: `/login`, session handling, `middleware.ts` route protection (UC-01).
-3. Migrations: `clients`, `uploads` (+ index), RLS policies; confirm staging identifier with Shay.
+3. Migrations: `clients`, `uploads` (+ index), `posts`, RLS policies.
 4. Global shell: sidebar nav, top bar, light/dark toggle (per design brief).
 5. Clients: list + Add-Client modal (UC-03, UC-02).
 6. **Ingestion (core):** `/upload` form + `ingestMetrics` RPC/server action + result summary (UC-04, §7).
@@ -302,17 +317,21 @@ Server action `ingestMetrics({ clientId, sourceType, payload, followerCount, res
 
 Each has a provisional default so you can proceed unblocked; treat defaults as assumptions to confirm, and note where you relied on one.
 
-| Ref   | Decision                                               | Provisional default                                                    |
-| ----- | ------------------------------------------------------ | ---------------------------------------------------------------------- |
-| OI-01 | Duplicate client handling                              | Block on exact `linkedin_url` match; inline error.                     |
-| OI-02 | When the format-type review step fires                 | Only for new posts with empty/invalid `post_format_type`.              |
-| OI-04 | Analytics read source                                  | Read the staging table directly.                                       |
-| OI-05 | Resource data model                                    | `{ id, title, url, created_at }`; global; view + add.                  |
-| OI-06 | Uploader identity (`By`)                               | Capture `auth.uid()` from the session; store on `uploads.uploaded_by`. |
-| —     | Exact staging table identifier + who creates `uploads` | Coordinate with Shay (owns the Supabase schema).                       |
-| —     | RLS policies / service-role usage                      | Per §9; confirm with Shay.                                             |
-| —     | Hosting / deploy target                                | TBD.                                                                   |
+| Ref   | Decision                                             | Provisional default                                                    |
+| ----- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| OI-01 | Duplicate client handling                            | Block on exact `linkedin_url` match; inline error.                     |
+| OI-02 | When the format-type review step fires               | Only for new posts with empty/invalid `post_format_type`.              |
+| OI-04 | Analytics read source                                | Read the staging table directly.                                       |
+| OI-05 | Resource data model                                  | `{ id, title, url, created_at }`; global; view + add.                  |
+| OI-06 | Uploader identity (`By`)                             | Capture `auth.uid()` from the session; store on `uploads.uploaded_by`. |
+| —     | Exact posts table identifier + who creates `uploads` | ⚠️ CLOSED — both are app-owned (ADR 0010); see supabase/.              |
+| —     | RLS policies / service-role usage                    | ⚠️ CLOSED — per §9; no service-role key is used.                       |
+| —     | Hosting / deploy target                              | TBD.                                                                   |
 
 ## 12. Out of scope
 
-Do not build UI or logic for these — they are external systems (per the SRS): the LinkedIn scraper/bookmarklet (upstream), Supabase views (Shay), Power BI (downstream), and credential/VPN provisioning (Sid). Final CSS polish is Anton's; prioritize functional correctness.
+Do not build UI or logic for these — they are external systems (per the SRS): the
+LinkedIn scraper/bookmarklet (upstream) and credential/VPN provisioning (Sid).
+⚠️ **The downstream analytics layer is no longer out of scope — it no longer
+exists.** ArcBase computes and displays every figure itself (ADR 0010). Final CSS
+polish is Anton's; prioritize functional correctness.

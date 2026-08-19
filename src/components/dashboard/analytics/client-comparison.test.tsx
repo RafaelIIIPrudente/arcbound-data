@@ -196,7 +196,16 @@ describe("ClientComparisonTable — unattributed posts are surfaced", () => {
   it("names no raw database column when it does so", () => {
     render(<ClientComparisonTable comparison={comparison({ unattributedPosts: 7 })} />);
 
-    for (const token of ["client_id", "linkedin_post_latest", "bi.", "unattributedPosts"]) {
+    // ⚠️ `client_posts` JOINED THIS LIST WITH THE RENAME. The retired names stay
+    // — they cost nothing and must never appear — but the guard has to name the
+    // identifier that exists today or it stops guarding anything.
+    for (const token of [
+      "client_id",
+      "linkedin_post_latest",
+      "bi.",
+      "client_posts",
+      "unattributedPosts",
+    ]) {
       expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
     }
   });

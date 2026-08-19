@@ -33,10 +33,15 @@ import { setClientIndustryWriter } from "@/services/clients";
 //
 // ⚠️ THIS ACTION CANNOT REACH `clients.name` OR `clients.linkedin_url`, and that
 // is the point. It calls one function that names exactly two columns; the table
-// has no UPDATE policy, so there is no other route. `name` is the key
-// `bi.linkedin_post_latest` joins scraped posts on — editing it silently
-// re-attributes or strands every post a Client has, which cost fourteen posts on
-// 2026-08-18.
+// has no UPDATE policy, so there is no other route.
+//
+// ⚠️ WHY `name` IS FENCED OFF — AND WHY THE REASON IS NOT THE ONE IT WAS. Editing
+// it used to silently re-attribute or strand every post a Client had, because an
+// externally-owned view joined scraped posts on that exact string; that cost
+// fourteen posts on 2026-08-18. Attribution is a foreign key now (ADR 0010), so
+// a rename moves no posts. `name` is still the label on every Client-facing
+// report and the value the upload-time wrong-file guard compares against, which
+// is reason enough for this action not to reach it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** ⚠️ AN ALIAS — see `lib/server-actions.ts`, which now owns this union. */

@@ -203,7 +203,8 @@ describe("typedMetrics (pure) — ⚠️ NULL and 0 are different facts (ADR 001
 describe("attachTypedMetrics (pure) — dual-write payload", () => {
   it("adds typed siblings WITHOUT altering a single raw key", () => {
     // ⚠️ The staging write must stay byte-for-byte what it is today, because
-    // bi.* keeps serving every read until S2. The typed keys ride alongside.
+    // the staging write stayed byte-identical through the cutover. The typed
+    // keys rode alongside it, and are all that is written now.
     const row = makeRow("a", { post_date: "4d", saves: null });
     const [out] = attachTypedMetrics([row]);
 

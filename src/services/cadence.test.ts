@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import { buildCadence } from "./cadence";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ import { buildCadence } from "./cadence";
 // over the active span (first→last dated post) rather than up to today.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -43,7 +43,7 @@ const dayMs = (iso: string) => Date.parse(iso);
 //   • active span 24 days (Jan 1 → Jan 25)
 // NOW is Feb 14 — 20 whole days after the last post, and well past the span, so a
 // rate measured "to today" would differ from the active-span rate.
-const DATED: BiPostRow[] = [
+const DATED: PostMetricsRow[] = [
   row({ linkedin_post_id: "a", estimated_post_date: "2026-01-01" }),
   row({ linkedin_post_id: "b", estimated_post_date: "2026-01-03" }),
   row({ linkedin_post_id: "c", estimated_post_date: "2026-01-05" }),
@@ -96,7 +96,7 @@ describe("buildCadence — dated by estimated_post_date ALONE", () => {
   // An undated post carries a scrape date; `effectiveMs` would fall back to it
   // and drop the post onto scrape day, fabricating a mark and a gap. Cadence must
   // not: the post is counted in the total and omitted from everything temporal.
-  const withUndated: BiPostRow[] = [
+  const withUndated: PostMetricsRow[] = [
     ...DATED,
     row({ linkedin_post_id: "ghost", estimated_post_date: null, scraped_at: "2026-06-01" }),
   ];

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 
 import { MetricInfo } from "@/components/dashboard/metric-info";
 import { METRIC_DEFINITIONS, REPORT_METRIC_KEYS, metricDefinition } from "@/lib/metric-definitions";
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import { buildClientReport } from "@/services/client-report";
 import type { ClientReport } from "@/services/types";
 
@@ -28,7 +28,7 @@ const renderInfo = (label: string) => {
 };
 
 /** A minimal BI row for the coverage test, which drives the REAL service. */
-function biRow(over: Partial<BiPostRow> & { linkedin_post_id: string }): BiPostRow {
+function metricsRow(over: Partial<PostMetricsRow> & { linkedin_post_id: string }): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -438,7 +438,7 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
     // notice it going stale. It went stale once already: the sentence said
     // "three" on the day a fourth figure landed. Driven from the real service so
     // a fifth figure fails here rather than shipping a false count.
-    const report = buildClientReport([biRow({ linkedin_post_id: "p1" })], {
+    const report = buildClientReport([metricsRow({ linkedin_post_id: "p1" })], {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: 1000,
@@ -460,8 +460,8 @@ describe("KeyPerformance — the ⓘ, and the two surfaces that must not have on
     // its ⓘ. This is what fails instead.
     const report = buildClientReport(
       [
-        biRow({ linkedin_post_id: "p1", estimated_post_date: "2026-07-10", interactions: 40 }),
-        biRow({ linkedin_post_id: "p2", estimated_post_date: "2026-06-10", interactions: 20 }),
+        metricsRow({ linkedin_post_id: "p1", estimated_post_date: "2026-07-10", interactions: 40 }),
+        metricsRow({ linkedin_post_id: "p2", estimated_post_date: "2026-06-10", interactions: 20 }),
       ],
       {
         period: { kind: "all", key: "all", label: "All time" },

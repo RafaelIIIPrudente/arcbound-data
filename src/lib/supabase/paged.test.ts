@@ -142,7 +142,7 @@ describe("readAllPages", () => {
 
   it("caps at MAX_PAGES and reports TRUNCATED — a successful but incomplete read", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await readAllPages(reader(MAX_PAGES * PAGE_SIZE + 1), "bi.linkedin_post_latest");
+    const result = await readAllPages(reader(MAX_PAGES * PAGE_SIZE + 1), "client_posts");
 
     expect(calls).toHaveLength(MAX_PAGES);
     expect(result.rows).toHaveLength(MAX_PAGES * PAGE_SIZE);
@@ -155,7 +155,7 @@ describe("readAllPages", () => {
     // it is incomplete. A warning alone was the old behaviour, and it meant a
     // truncated read still rendered as a complete one.
     const message = warn.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(message).toContain("bi.linkedin_post_latest");
+    expect(message).toContain("client_posts");
     expect(message).toContain(String(MAX_PAGES * PAGE_SIZE));
     warn.mockRestore();
   });
@@ -198,7 +198,7 @@ describe("readAllPages", () => {
 describe("readAllPages reports how much it read, and out of how much", () => {
   it("reports the EXACT matching count on a truncated read — not what it managed to read", async () => {
     const matching = MAX_PAGES * PAGE_SIZE + 412;
-    const result = await readAllPages(reader(matching), "bi.linkedin_post_latest");
+    const result = await readAllPages(reader(matching), "client_posts");
 
     // ⚠️ THE TWO NUMBERS MUST DIFFER, or this test proves nothing. The gap
     // between them IS the fact the banner exists to state.

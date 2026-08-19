@@ -83,7 +83,7 @@ export default async function DashboardPage({
   // joins post counts and latest-upload timestamps the dropdown never shows — and
   // hands the SAME in-flight read to `getDashboardAnalytics`, whose all-clients
   // comparison reuses it instead of reading `public.clients` a second time. The
-  // shared promise still overlaps the analytics bi read under `Promise.all`.
+  // shared promise still overlaps the analytics posts read under `Promise.all`.
   const registry = listClientRegistry();
   const [analytics, clientList] = await Promise.all([
     getDashboardAnalytics({ clientId, range, registry }),

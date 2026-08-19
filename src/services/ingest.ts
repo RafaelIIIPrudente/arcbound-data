@@ -7,23 +7,20 @@ import { createClient } from "@/lib/supabase/server";
 import type { IngestResult, PostRow, ReviewPost, SourceType } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ingest seam (real). ONE call to the atomic `ingest_metrics` RPC writes BOTH
-// stores in a single transaction (ADR 0010, S1 — the dual-write):
+// Ingest seam (real). ONE call to the atomic `ingest_metrics` RPC writes ONE
+// store: the app-owned, TYPED `public.posts`, attributed by a real `client_id`
+// foreign key stamped from the operator's own selection (ADR 0010).
 //
-//   • public.linkedin_posts_staging — all-text, RAW, byte-for-byte what it has
-//     always been. Shay's `bi.*` views read it and still serve every screen.
-//   • public.posts — app-owned and TYPED, attributed by a real client_id foreign
-//     key stamped from the operator's own selection. Populated but not yet read.
+// ⚠️ IT USED TO WRITE TWO. Through the cutover this same RPC also upserted the
+// all-text `public.linkedin_posts_staging`, so that an external view layer could
+// keep serving reads while `public.posts` filled up. That dual-write is gone;
+// the staging table still exists and is no longer written by anything.
 //
-// ⚠️ NOTHING READS `posts` YET. That is deliberate: this slice can be left in
-// place indefinitely, and reverting it means ceasing to use a table nobody
-// queries. The read repoint is S2.
-//
-// ⚠️ THE TYPING HAPPENS HERE, IN TYPESCRIPT, NOT IN THE DATABASE. `bi.*` does
-// the coercion today; when ArcBase types the columns it inherits that
-// responsibility, and the four-state discipline is inheritable only if it is
-// testable. Every rule below is a unit test in ingest.test.ts, and the RPC
-// receives values that are already typed and already resolved.
+// ⚠️ THE TYPING HAPPENS HERE, IN TYPESCRIPT, NOT IN THE DATABASE, and it is
+// ArcBase's own responsibility now rather than an external view's. The
+// four-state discipline is inheritable only if it is testable: every rule below
+// is a unit test in ingest.test.ts, and the RPC receives values that are already
+// typed and already date-resolved.
 //
 // The all-or-nothing FORMAT REVIEW gate stays here: when a row's format is
 // unknown and neither resolved nor skipped, we return `review` WITHOUT calling

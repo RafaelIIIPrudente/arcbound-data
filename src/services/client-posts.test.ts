@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
 // One mock serves the reads this seam makes: the paged `public.client_posts` view
@@ -8,10 +8,10 @@ import type { BiPostRow } from "./analytics";
 const { state } = vi.hoisted(() => ({
   state: {
     /** One entry per bi page, served BY PAGE INDEX (not by call order). */
-    biPages: [] as unknown[][],
-    biError: null as { message: string } | null,
-    /** What `count: "exact"` reports. Defaults to the total rows in `biPages`. */
-    biCount: null as number | null,
+    metricsPages: [] as unknown[][],
+    metricsError: null as { message: string } | null,
+    /** What `count: "exact"` reports. Defaults to the total rows in `metricsPages`. */
+    metricsCount: null as number | null,
     attributes: [] as unknown[],
     uploads: [] as unknown[],
   },
@@ -41,11 +41,11 @@ vi.mock("@/lib/supabase/server", () => ({
         };
         q.then = (resolve: (v: unknown) => unknown) =>
           Promise.resolve({
-            data: state.biError ? null : (state.biPages[page] ?? []),
-            error: state.biError,
+            data: state.metricsError ? null : (state.metricsPages[page] ?? []),
+            error: state.metricsError,
             count:
               countOption === "exact"
-                ? (state.biCount ?? state.biPages.reduce((n, p) => n + p.length, 0))
+                ? (state.metricsCount ?? state.metricsPages.reduce((n, p) => n + p.length, 0))
                 : null,
           }).then(resolve);
         return q;
@@ -66,11 +66,11 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { PAGE_SIZE } from "./bi-posts";
+import { PAGE_SIZE } from "./post-metrics";
 import { getClientPosts, MAX_TABLE_ROWS } from "./client-posts";
 import { getClientReport } from "./client-report";
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -99,7 +99,7 @@ function row(over: Partial<BiPostRow>): BiPostRow {
  * an hour-age post with NO scrape timestamp, so the all-time case exercises the
  * divergence between datable and undatable rows rather than passing by luck.
  */
-const FIXTURE: BiPostRow[] = [
+const FIXTURE: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jul1",
     post_url: "https://www.linkedin.com/feed/update/jul1",
@@ -159,9 +159,9 @@ const FIXTURE: BiPostRow[] = [
 ];
 
 beforeEach(() => {
-  state.biPages = [FIXTURE];
-  state.biError = null;
-  state.biCount = null;
+  state.metricsPages = [FIXTURE];
+  state.metricsError = null;
+  state.metricsCount = null;
   state.attributes = [];
   state.uploads = [];
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -175,7 +175,7 @@ beforeEach(() => {
 // that contradicts the figure above it discredits both screens at once.
 //
 // They agree BY CONSTRUCTION: both call `selectPeriodRows` from
-// `@/services/bi-posts`. This test is what stops someone reintroducing a second
+// `@/services/post-metrics`. This test is what stops someone reintroducing a second
 // copy of the predicate, so it runs over every period KIND, because each takes a
 // different branch (all-time short-circuits; the other three go through the
 // half-open bounds).
@@ -327,7 +327,7 @@ describe("getClientPosts — row mapping", () => {
     // `effectiveMs` falls back to `scraped_at` for WINDOWING, and that fallback
     // must not leak into the displayed date — the scrape date is not the date
     // the post was published on.
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "hourAge",
@@ -360,7 +360,7 @@ describe("getClientPosts — row mapping", () => {
     // ⚠️ THE FORMAT IS ON THE ROW NOW (ADR 0010, S3), not in a second read of
     // public.post_attributes. Setting it here is what makes this test exercise
     // the path the product actually takes.
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "jul1",
@@ -383,7 +383,7 @@ describe("getClientPosts — row mapping", () => {
   });
 
   it("shows a post with NO recorded format as UNKNOWN — a real format, not an error", async () => {
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "jul1",
@@ -406,7 +406,7 @@ describe("getClientPosts — row mapping", () => {
   });
 
   it("treats an unrecognised raw value as UNKNOWN rather than showing the token", async () => {
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "jul1",
@@ -425,7 +425,7 @@ describe("getClientPosts — row mapping", () => {
 
 describe("engagement rate comes from the VIEW, not from ArcBase", () => {
   it("passes the view's calculated rate through untouched", async () => {
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "a",
@@ -444,7 +444,7 @@ describe("engagement rate comes from the VIEW, not from ArcBase", () => {
     // ⚠️ THE ROW HAS EVERYTHING NEEDED: 1000 impressions and 62 interactions
     // would give 6.2%. ArcBase must not compute it — that would be a third rate
     // definition wearing the view's name, which is the defect this slice closes.
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "a",
@@ -462,7 +462,7 @@ describe("engagement rate comes from the VIEW, not from ArcBase", () => {
   });
 
   it("ignores the SCRAPER's rate entirely — only the view's is shipped", async () => {
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "a",
@@ -480,7 +480,7 @@ describe("engagement rate comes from the VIEW, not from ArcBase", () => {
   });
 
   it("keeps a measured zero rate as 0, distinct from an absent one", async () => {
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "zero",
@@ -523,7 +523,7 @@ describe("getClientPosts — the display cap", () => {
         impressions: i,
       }),
     );
-    state.biPages = [many];
+    state.metricsPages = [many];
 
     const { rows, totalInPeriod, cappedTo } = await getClientPosts({
       clientId: "c1",
@@ -539,7 +539,7 @@ describe("getClientPosts — the display cap", () => {
   });
 
   it("does not cap at exactly the limit — the notice must mean something", async () => {
-    state.biPages = [
+    state.metricsPages = [
       Array.from({ length: MAX_TABLE_ROWS }, (_, i) =>
         row({ linkedin_post_id: `p${i}`, estimated_post_date: "2026-07-01", impressions: i }),
       ),
@@ -558,12 +558,12 @@ describe("getClientPosts — the READ cap (a different fact from the display cap
   // `totalInPeriod` is a lower bound. Collapsing the two would let a partial read
   // pass as a complete-but-trimmed one — the reader would trust a short number.
   it("surfaces a truncated read as read + total", async () => {
-    state.biPages = [
+    state.metricsPages = [
       Array.from({ length: PAGE_SIZE }, (_, i) =>
         row({ linkedin_post_id: `p${i}`, estimated_post_date: "2026-07-01", impressions: i }),
       ),
     ]; // page 0 full; pages 1..49 serve []
-    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
+    state.metricsCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
 
     const { truncation } = await getClientPosts({ clientId: "c1", period: "all" });
 
@@ -581,8 +581,8 @@ describe("getClientPosts — the READ cap (a different fact from the display cap
 });
 
 describe("getClientPosts — degradation", () => {
-  it("flags UNAVAILABLE when the bi read fails, never an empty table", async () => {
-    state.biError = { message: "permission denied for schema bi" };
+  it("flags UNAVAILABLE when the posts read fails, never an empty table", async () => {
+    state.metricsError = { message: "permission denied for schema bi" };
 
     const result = await getClientPosts({ clientId: "c1", period: "all" });
 
@@ -596,7 +596,7 @@ describe("getClientPosts — degradation", () => {
   it("returns an EMPTY result — with no unavailable flag — for a client with no posts", async () => {
     // The read SUCCEEDED and found nothing. That is an empty state, and it must
     // not borrow the unavailable banner.
-    state.biPages = [[]];
+    state.metricsPages = [[]];
 
     const result = await getClientPosts({ clientId: "c1", period: "all" });
 
@@ -622,7 +622,7 @@ describe("getClientPosts — degradation", () => {
   });
 
   it("still resolves a period when the read failed, so the picker keeps working", async () => {
-    state.biError = { message: "permission denied for schema bi" };
+    state.metricsError = { message: "permission denied for schema bi" };
 
     const result = await getClientPosts({ clientId: "c1", period: "all" });
 

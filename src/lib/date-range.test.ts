@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { BiPostRow } from "@/services/analytics";
-import { periodRange } from "@/services/bi-posts";
+import type { PostMetricsRow } from "@/services/analytics";
+import { periodRange } from "@/services/post-metrics";
 import { CUSTOM_PREFIX, availablePeriods, parseReportPeriod } from "@/services/client-report";
 
 import {
@@ -24,7 +24,7 @@ const DAY_MS = 86_400_000;
 const PRESETS = [7, 30, 90] as const;
 
 /** A row that exists only to put its month into `availablePeriods`. */
-function postOn(day: string): BiPostRow {
+function postOn(day: string): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Client One",

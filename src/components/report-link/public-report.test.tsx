@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import type { ClientReport, PostingCadence } from "@/services/types";
 
 // The reused period picker calls next/navigation; stub it so the wrapper renders
@@ -268,7 +268,7 @@ describe("PublicReportView — the client-facing wrapper (pure)", () => {
 });
 
 // ── PublicReport (async — fetches through the grant) ─────────────────────────
-function post(over: Partial<BiPostRow> = {}): BiPostRow {
+function post(over: Partial<PostMetricsRow> = {}): PostMetricsRow {
   return {
     client_id: CLIENT,
     client_name: "Acme Corp",

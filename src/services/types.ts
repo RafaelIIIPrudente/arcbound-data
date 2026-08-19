@@ -25,7 +25,7 @@ export interface Client {
   /** ISO 8601 date string. */
   createdAt: string;
   /**
-   * Posts attributed to this Client in `bi.linkedin_post_latest`.
+   * Posts attributed to this Client in `public.client_posts`.
    *
    * ⚠️ `null` means the count could NOT BE READ — it is not a zero. A real `0`
    * (the read succeeded and found nothing) and a failed read used to collapse
@@ -562,9 +562,18 @@ export type IngestResult =
   | { status: "error"; errors: Record<string, string[]> }
   | { status: "review"; posts: ReviewPost[] }
   /**
-   * The scraped authors will not match the selected Client, so the posts would
-   * be written and then never appear. NOTHING HAS BEEN WRITTEN when this is
-   * returned — it is a question, asked before the irreversible act.
+   * The scraped authors do not match the selected Client. NOTHING HAS BEEN
+   * WRITTEN when this is returned — it is a question, asked before the
+   * irreversible act.
+   *
+   * ⚠️ THE CONSEQUENCE FLIPPED WITH ADR 0010, AND THIS DOC ONCE STATED THE OLD
+   * ONE. It read "the posts would be written and then never appear", which was
+   * true while attribution was a downstream name match. Attribution is now the
+   * `client_id` stamped from the operator's selection, so the posts ARE written
+   * and DO appear — under the Client that was picked. The danger is
+   * MISATTRIBUTION, not loss, and its remedy is changing the selection rather
+   * than aligning names. The on-screen copy was corrected with the read repoint;
+   * this type doc was out of that slice's scope and kept the old claim.
    *
    * ⚠️ A FOURTH STATUS, NOT A FLAG ON `ok`. Bolted onto the success case it
    * would be optional, every existing consumer would still compile, and the
@@ -679,10 +688,17 @@ export type ResolveReportLink =
   { ok: true; clientId: string; readGrant: string } | { ok: false; reason: "invalid" | "locked" };
 
 // ── Post attributes ──────────────────────────────────────────────────────────
-// App-owned per-post facts that the externally-owned `bi.linkedin_post_latest`
-// does not expose. Today that is just the Format Type (Asset Type): ArcBase
-// already resolves it during upload review, so it records it here and joins it
-// to the BI rows at read time. Column names are the raw table columns.
+// ⚠️ A DEPLOY-WINDOW SHIM, NOT A DATA SOURCE — AND IT IS ON ITS WAY OUT. This
+// once described app-owned per-post facts an externally-owned view did not
+// expose: ArcBase resolved the Format Type during upload review, recorded it in
+// its own table, and joined it back at read time.
+//
+// `public.posts` carries `post_format_type` itself now, so nothing reads that
+// table. The shape survives only because the client-facing `/r/[token]` bundle
+// still emits an `attributes[]` key, which lets the SQL and the application
+// deploy in either order without a Client's report rendering every post as an
+// UNKNOWN format in between. It retires with that key.
+// Column names are the raw table columns.
 
 export interface PostAttributes {
   linkedin_post_id: string;
@@ -1050,10 +1066,10 @@ export interface ClientReport {
 // ── Client posts (the per-post drill-down) ───────────────────────────────────
 // Read-model for `/clients/[id]/posts`: the individual posts behind the report's
 // figures, for the same selected ReportPeriod. No new data source — every field
-// comes from `bi.linkedin_post_latest`, plus the app-owned asset type.
+// comes from `public.client_posts`, asset type included.
 //
 // ⚠️ `ClientPosts.totalInPeriod` and `ClientReport.assetPostCount` are THE SAME
-// NUMBER, and both are computed by `selectPeriodRows` in `@/services/bi-posts`.
+// NUMBER, and both are computed by `selectPeriodRows` in `@/services/post-metrics`.
 // A table that contradicts the count printed above it discredits both screens,
 // so neither may grow its own period predicate.
 
@@ -1104,12 +1120,21 @@ export interface ClientPostRow {
 // Read-model for `/data-quality`: across the whole client book, is the pipeline
 // actually delivering?
 //
-// ⚠️ THE FRAME THIS SCREEN REPORTS IN. Attribution happens DOWNSTREAM of ArcBase,
-// as a name match (ADR 0009). ArcBase submits Posts to staging and can only
-// observe, afterwards, whether they came back attributed in `bi.*`. So this
-// model states TWO NUMBERS — submitted and attributed — and never a verdict. A
-// name mismatch, a client who genuinely stopped posting, and a downstream outage
-// are indistinguishable from here, and the read-model must not pretend otherwise.
+// ⚠️ THE FRAME THIS SCREEN REPORTS IN, AND IT NARROWED WITH ADR 0010. Attribution
+// used to happen DOWNSTREAM as a name match: ArcBase submitted Posts to a staging
+// table and could only observe, afterwards, whether they came back attributed —
+// so submitted and attributed diverging was routine and unexplainable from here.
+//
+// Attribution is now a foreign key stamped at upload, so nothing ArcBase ingests
+// can fail to be attributed. What can still show a gap is HISTORY: rows the
+// one-time migration could not place, whose scraped author matched no registered
+// client.
+//
+// ⚠️ THE DISCIPLINE STAYS EVEN THOUGH THE MECHANISM CHANGED. This model states
+// NUMBERS and never a verdict, because the other signals it carries — undated
+// posts, unknown formats — remain observations. A client who genuinely stopped
+// posting and one whose data is not arriving still look alike from here, and the
+// read-model must not pretend otherwise.
 
 /** One registered Client's delivery picture. */
 export interface DataQualityRow {

@@ -7,7 +7,7 @@
 // that are quietly short, which is the worst failure this codebase can produce.
 //
 // This module exists because that defect had already been fixed once, in the
-// report's bi read, and then reappeared twice in reads written afterwards
+// report's posts read, and then reappeared twice in reads written afterwards
 // (`fetchPostCounts` and `latestUploadByClient`). One implementation cannot
 // regress in one place and not another.
 //
@@ -62,8 +62,8 @@ export type PageReader<T> = (
  * It cannot be avoided today. The envelope is fine — `PostgrestResponse` really
  * does carry `{ data, error, count }`, and its error really does have a
  * `message` — but the ROW TYPE cannot be inferred: this repo has no generated
- * database types for the `bi` schema, and every reader passes its column list as
- * a RUNTIME STRING, so the builder's element type is unknowable at compile time.
+ * database types at all, and every reader passes its column list as a RUNTIME
+ * STRING, so the builder's element type is unknowable at compile time.
  *
  * ⚠️ WHAT THIS COSTS, STATED PLAINLY: `T` is asserted, not checked. Change a
  * reader's `.select()` column list and nothing here will complain — the shape
@@ -71,8 +71,10 @@ export type PageReader<T> = (
  * this lives in one documented place instead of being copy-pasted at each
  * reader, where three copies would drift apart silently.
  *
- * The fix that would remove it entirely is generated types covering `bi.*`
- * (`pnpm db:types` does not reach that schema today). Until then, treat each
+ * The fix that would remove it entirely is generated types. ⚠️ That fix got
+ * NEARER and nobody has taken it: every read now targets app-owned objects in
+ * `public` (`client_posts`, `uploads`, `clients`), so generation no longer has to
+ * reach a schema this repo does not own. Until the types exist, treat each
  * reader's column list and its row type as a pair that must be edited together.
  */
 export function asPage<T>(builder: PromiseLike<unknown>): PromiseLike<PageResult<T>> {

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import { availablePeriods, buildClientReport } from "@/services/client-report";
 import type { ClientReport, ReportPeriod } from "@/services/types";
 
@@ -16,7 +16,7 @@ import { ReportCover } from "./report-cover";
  * second read that used to supply it is gone. These fixtures keep the map shape
  * only because it reads well; this puts the value where the product finds it.
  */
-function withFormats(rows: BiPostRow[], formats: Map<string, string>): BiPostRow[] {
+function withFormats(rows: PostMetricsRow[], formats: Map<string, string>): PostMetricsRow[] {
   return rows.map((r) => ({
     ...r,
     post_format_type: formats.get(r.linkedin_post_id) ?? null,
@@ -30,7 +30,9 @@ function withFormats(rows: BiPostRow[], formats: Map<string, string>): BiPostRow
 const ALL_TIME: ReportPeriod = { kind: "all", key: "all", label: "All time" };
 const NOW = new Date("2026-07-22T09:00:00.000Z");
 
-function biRow(overrides: Partial<BiPostRow> & { linkedin_post_id: string }): BiPostRow {
+function metricsRow(
+  overrides: Partial<PostMetricsRow> & { linkedin_post_id: string },
+): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Dana Whitfield",
@@ -83,7 +85,7 @@ describe("the printable document", () => {
     // offers a click-to-open definition. This document is printed, so a trigger
     // here would render as an inert icon in the margin of a PDF a client keeps.
     // The prop defaults to false and this caller does not set it.
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     render(
       <PrintReport
         report={buildClientReport(rows, {
@@ -129,8 +131,8 @@ describe("the printable document", () => {
     // the same failure that makes recharts print at zero width. These charts
     // take an explicit pixel size, so they draw regardless.
     const rows = [
-      biRow({ linkedin_post_id: "p1", estimated_post_date: "2026-06-02T10:00:00.000Z" }),
-      biRow({ linkedin_post_id: "p2", estimated_post_date: "2026-07-05T10:00:00.000Z" }),
+      metricsRow({ linkedin_post_id: "p1", estimated_post_date: "2026-06-02T10:00:00.000Z" }),
+      metricsRow({ linkedin_post_id: "p2", estimated_post_date: "2026-07-05T10:00:00.000Z" }),
     ];
     const formats = new Map([
       ["p1", "IMAGE"],
@@ -154,7 +156,7 @@ describe("the printable document", () => {
   });
 
   it("names asset types in words, never as raw scraper tokens", () => {
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     const report = buildClientReport(withFormats(rows, new Map([["p1", "slide_show"]])), {
       period: ALL_TIME,
       now: NOW,
@@ -177,7 +179,7 @@ describe("the printable document", () => {
   // leaves the building. A partial read whose figures print as totals, with
   // nothing saying so, is the worst thing this document can do.
   it("prints a truncation notice — with BOTH numbers — when the read was partial", () => {
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     const report: ClientReport = {
       ...buildClientReport(rows, {
         period: ALL_TIME,
@@ -199,7 +201,7 @@ describe("the printable document", () => {
   });
 
   it("prints NO truncation notice when the read was complete", () => {
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     // `buildClientReport` leaves truncation undefined — a complete read makes no
     // claim of incompleteness, and a notice that fires anyway cries wolf.
     const report = buildClientReport(rows, {

@@ -369,13 +369,13 @@ describe("clients service (real seam)", () => {
   // reported 1000; it must report all 1500.
   // ───────────────────────────────────────────────────────────────────────────
   it("counts EVERY post past the 1000-row response cap, not just the first page", async () => {
-    const biRows = [
+    const metricsRows = [
       ...Array.from({ length: PAGE_SIZE + 200 }, () => ({ client_id: "c1" })),
       ...Array.from({ length: 300 }, () => ({ client_id: "c2" })),
     ];
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish"), ROW("c2", "Priya Nadella")], error: null },
-      { data: biRows, error: null },
+      { data: metricsRows, error: null },
     );
 
     const { items } = await listClients();

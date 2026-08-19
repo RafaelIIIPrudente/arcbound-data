@@ -1,5 +1,7 @@
 # ArcBase Full Analytics Ownership — Implementation Plan
 
+> ⚠️ **SUPERSEDED** by [`2026-08-19-analytics-ownership-execution.md`](2026-08-19-analytics-ownership-execution.md), which is the plan that was executed. This document is kept as the record of the July shaping; its detail is stale.
+
 > **Status:** DRAFT for review. Sequencing (features-first vs migration-first) is
 > the open decision this plan exists to inform. Each slice below becomes its OWN
 > keystroke-level `/handoff` (RISEN, RED-first, mutation-verified) when we drive

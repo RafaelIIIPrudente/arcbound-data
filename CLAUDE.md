@@ -3,10 +3,12 @@
 This repository **is ArcBase** — the product, not a generic starter template.
 ArcBase is an internal, auth-gated, **single-tenant** web app for Arcbound staff
 to register **Clients** (individual LinkedIn profiles), ingest weekly scraped
-LinkedIn post metrics, and view analytics. It is the middle of a pipeline —
-`external scraper → ArcBase → Supabase views + Power BI` — with the deep
-analytics living downstream in Power BI. Internal-only and single-tenant: see
-[ADR 0007](docs/adr/0007-arcbase-single-tenant.md).
+LinkedIn post metrics, and view analytics. ArcBase is the **analytics terminal**:
+the weekly scrape is uploaded through ArcBase, stored in ArcBase's own
+`public.posts`, and every figure is computed and displayed here. There is no
+downstream consumer — see
+[ADR 0010](docs/adr/0010-arcbase-owns-analytics-end-to-end.md). Internal-only and
+single-tenant: see [ADR 0007](docs/adr/0007-arcbase-single-tenant.md).
 
 How Claude works in this repo. Stack and architecture rules live in
 [`AGENTS.md`](AGENTS.md) — read it first. Domain terms are in

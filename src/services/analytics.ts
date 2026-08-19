@@ -23,14 +23,23 @@ import type {
 // foreign key stamped at upload — and aggregates it into DashboardAnalytics.
 //
 // ⚠️ IT READ THE EXTERNALLY-OWNED `bi.linkedin_post_latest` UNTIL ADR 0010. The
-// row SHAPE did not change across that cutover, deliberately: `BiPostRow` is the
+// row SHAPE did not change across that cutover, deliberately: `PostMetricsRow` is the
 // firewall, and repointing the source cost one clause here and nothing at all in
 // the aggregation below. The pure `buildDashboardAnalytics` still does every
 // aggregation so it is deterministically unit-testable with an injected `now`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** A row of the externally-owned view bi.linkedin_post_latest. */
-export interface BiPostRow {
+/**
+ * A row of the app-owned view `public.client_posts`, which projects
+ * `public.posts` — one row per post, attributed by the `client_id` foreign key
+ * stamped at upload.
+ *
+ * ⚠️ THIS IS THE FIREWALL. Every reporting surface consumes this shape and
+ * nothing else, which is why moving the underlying source cost one clause per
+ * read site and nothing downstream. Keep it in step with `POST_COLUMNS`
+ * (`post-metrics.ts`) — `asPage` ASSERTS the row type rather than checking it.
+ */
+export interface PostMetricsRow {
   client_id: string;
   client_name: string | null;
   linkedin_post_id: string;
@@ -38,7 +47,13 @@ export interface BiPostRow {
   post_content: string | null;
   /** Raw relative age, e.g. "23h"/"4d". */
   post_age: string | null;
-  /** Resolved date (NULL for hour-age posts — Shay's resolver skips those). */
+  /**
+   * Resolved publish instant, or NULL when none can be established.
+   *
+   * NULL for hour- and minute-grained ages ON PURPOSE — `src/lib/post-date.ts`
+   * refuses to date them, because bucketing a weekly scrape's freshest posts onto
+   * the scrape's own weekday fabricates a rhythm in a client-facing chart.
+   */
   estimated_post_date: string | null;
   impressions: number | null;
   likes: number | null;
@@ -90,7 +105,7 @@ export interface DashboardOptions {
    * table — the Dashboard's most-hit route otherwise reads `public.clients` twice.
    *
    * ⚠️ A PROMISE, NOT A VALUE, so the caller can hand in the read still in flight
-   * and it overlaps the bi read here rather than serialising ahead of it. Omit it
+   * and it overlaps the posts read here rather than serialising ahead of it. Omit it
    * and this falls back to its own `listClientRegistry()`, so every other caller
    * and test is unaffected. `null` (a resolved failed read) is honoured as failed
    * — the comparison goes unavailable rather than silently re-reading.
@@ -129,7 +144,7 @@ function mean(values: number[]): number {
  * (the windowing helper) deliberately does not. Reused rather than re-copied so
  * the two seams cannot drift on what "the post's date" means.
  */
-export function estMs(row: BiPostRow): number | null {
+export function estMs(row: PostMetricsRow): number | null {
   if (!row.estimated_post_date) return null;
   const t = Date.parse(row.estimated_post_date);
   return Number.isNaN(t) ? null : t;
@@ -150,18 +165,18 @@ export function estMs(row: BiPostRow): number | null {
  * recent-posts list keeps showing `post_age`, because the scrape date is not
  * the date the post was published on.
  */
-export function effectiveMs(row: BiPostRow): number | null {
+export function effectiveMs(row: PostMetricsRow): number | null {
   const est = estMs(row);
   if (est !== null) return est;
   const s = row.scraped_at ? Date.parse(row.scraped_at) : NaN;
   return Number.isNaN(s) ? null : s;
 }
 
-function recencyMs(row: BiPostRow): number {
+function recencyMs(row: PostMetricsRow): number {
   return effectiveMs(row) ?? 0;
 }
 
-function sumOf(rows: BiPostRow[], pick: (r: BiPostRow) => number | null): number {
+function sumOf(rows: PostMetricsRow[], pick: (r: PostMetricsRow) => number | null): number {
   return rows.reduce((s, r) => s + num(pick(r)), 0);
 }
 
@@ -209,7 +224,7 @@ function toKpi(label: string, current: number, prior: number | null): Kpi {
  * some other basis, this aggregate and that column would be quietly measuring
  * two different things under one word.
  */
-function weightedRate(rows: BiPostRow[]): number {
+function weightedRate(rows: PostMetricsRow[]): number {
   const impressions = sumOf(rows, (r) => r.impressions);
   return impressions > 0 ? (sumOf(rows, (r) => r.interactions) / impressions) * 100 : 0;
 }
@@ -255,9 +270,9 @@ function formatSync(ms: number): string {
  * table comes to disagree with the rows in it.
  */
 export function currentWindow(
-  rows: BiPostRow[],
+  rows: PostMetricsRow[],
   { range, now }: { range: RangeSelection; now: Date },
-): BiPostRow[] {
+): PostMetricsRow[] {
   // `startMs` is -Infinity for all time, which needs no special case here: every
   // datable row is `>= -Infinity`. `endMs` is INCLUSIVE.
   const { startMs, endMs } = resolveWindow(range, now);
@@ -268,7 +283,7 @@ export function currentWindow(
 }
 
 export function buildDashboardAnalytics(
-  rows: BiPostRow[],
+  rows: PostMetricsRow[],
   { range, now }: { range: RangeSelection; now: Date },
 ): DashboardAnalytics {
   const nowMs = now.getTime();
@@ -295,7 +310,7 @@ export function buildDashboardAnalytics(
         });
 
   /** Sum a column over the baseline, or `null` when there is no baseline. */
-  const priorSum = (pick: (r: BiPostRow) => number | null): number | null =>
+  const priorSum = (pick: (r: PostMetricsRow) => number | null): number | null =>
     prior === null ? null : sumOf(prior, pick);
 
   const empty = current.length === 0;
@@ -536,12 +551,12 @@ function perThousand(
  * sample size, and the table plus a median is honest at any N.
  */
 export function buildClientComparison(
-  current: BiPostRow[],
+  current: PostMetricsRow[],
   registry: { id: string; name: string }[],
   uploads: Upload[] | null,
 ): ClientComparison {
   const registered = new Set(registry.map((c) => c.id));
-  const byClient = new Map<string, BiPostRow[]>();
+  const byClient = new Map<string, PostMetricsRow[]>();
   let unattributedPosts = 0;
 
   for (const row of current) {
@@ -658,13 +673,13 @@ const POSTS_LABEL = "client_posts";
  * `linkedin_post_id` is the view's per-post identity and is unique, so it totally
  * orders the result.
  *
- * ⚠️ `SELECT_COLUMNS` AND `BiPostRow` ARE A PAIR — `asPage` asserts the row type
+ * ⚠️ `SELECT_COLUMNS` AND `PostMetricsRow` ARE A PAIR — `asPage` asserts the row type
  * rather than checking it. Edit the two together.
  */
 function dashboardPageReader(
   clientId: string | undefined,
   boundIso: string | null,
-): PageReader<BiPostRow> {
+): PageReader<PostMetricsRow> {
   let supabase: ReturnType<typeof createClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createClient(cookies());
@@ -678,7 +693,7 @@ function dashboardPageReader(
         ? scoped
         : // Keeps null-dated hour-age posts so they can still appear in "recent posts".
           scoped.or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`);
-    return asPage<BiPostRow>(
+    return asPage<PostMetricsRow>(
       bounded.order("linkedin_post_id", { ascending: true }).range(from, to),
     );
   };

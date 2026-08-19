@@ -309,7 +309,11 @@ describe("RateReconciliationPanel — the ⓘ on each figure", () => {
       "matchesOverallFormula",
     ] as const) {
       const d = METRIC_DEFINITIONS[key].definition;
-      expect(d, key).not.toMatch(/provided_engagement_rate|calculated_engagement_rate|bi\./);
+      // ⚠️ `client_posts` ADDED WITH THE RENAME — the retired `bi.` stays because
+      // it must never appear and costs nothing to keep asserting.
+      expect(d, key).not.toMatch(
+        /provided_engagement_rate|calculated_engagement_rate|bi\.|client_posts/,
+      );
     }
   });
 });

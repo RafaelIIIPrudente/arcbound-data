@@ -1,5 +1,5 @@
 import { median } from "@/lib/median";
-import { estMs, type BiPostRow } from "@/services/analytics";
+import { estMs, type PostMetricsRow } from "@/services/analytics";
 import type { CadenceBucket, PostingCadence } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ function postsByMonth(timeline: number[]): CadenceBucket[] {
   return out;
 }
 
-export function buildCadence(rows: BiPostRow[], now: Date): PostingCadence {
+export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence {
   const totalPosts = rows.length;
 
   // Dated by the PUBLISH date alone. `estMs` returns null for an hour-age post,

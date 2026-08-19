@@ -1,6 +1,6 @@
 import { bucketLabel, bucketPlan, decodeRange } from "@/lib/date-range";
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
-import { estMs, type BiPostRow } from "@/services/analytics";
+import { estMs, type PostMetricsRow } from "@/services/analytics";
 import { buildCadence } from "@/services/cadence";
 import { buildContentComposition } from "@/services/content-composition";
 import {
@@ -10,7 +10,7 @@ import {
   selectPeriodRows,
   withDates,
   type PlacedRow,
-} from "@/services/bi-posts";
+} from "@/services/post-metrics";
 import { listUploads } from "@/services/uploads";
 import type {
   AssetBucket,
@@ -25,10 +25,13 @@ import type {
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Client LinkedIn Report seam. Joins two reads by linkedin_post_id:
-//   • bi.linkedin_post_latest — the externally-owned view (metrics + dates)
-//   • public.post_attributes  — app-owned; the ONLY source of a post's asset
-//                               type, because the BI view doesn't expose it
+// Client LinkedIn Report seam. ONE read: `public.client_posts`, the app-owned
+// projection carrying the metrics, the resolved dates AND the asset type.
+//
+// ⚠️ IT USED TO JOIN TWO. The metrics came from an externally-owned view that did
+// not expose a post's asset type, so the type was kept in a second app-owned
+// table and joined back by `linkedin_post_id` on every read. `public.posts`
+// carries it, so the join and its round-trip are gone (ADR 0010).
 //
 // All aggregation lives in the pure `buildClientReport` (injected `now`), so the
 // whole report is deterministically unit-testable without touching a database.
@@ -104,7 +107,7 @@ function monthKey(year: number, month: number): string {
  * first within each kind, with all-time first. Grouped in exactly the order the
  * picker renders them.
  */
-export function availablePeriods(rows: BiPostRow[]): ReportPeriod[] {
+export function availablePeriods(rows: PostMetricsRow[]): ReportPeriod[] {
   const months = new Set<string>();
   for (const { ms } of withDates(rows)) {
     if (ms === null) continue;
@@ -238,8 +241,8 @@ export function parseReportPeriod(
  * A post with no attribute record — or an unrecognised value — is UNKNOWN, which
  * is a real member of the vocabulary, not an error.
  */
-function groupByFormat(rows: BiPostRow[]): Map<PostFormat, BiPostRow[]> {
-  const groups = new Map<PostFormat, BiPostRow[]>();
+function groupByFormat(rows: PostMetricsRow[]): Map<PostFormat, PostMetricsRow[]> {
+  const groups = new Map<PostFormat, PostMetricsRow[]>();
   for (const row of rows) {
     // ⚠️ THE FORMAT NOW RIDES THE ROW (ADR 0010, S3). It used to come from a
     // second read of public.post_attributes joined in by id; `public.posts`
@@ -406,12 +409,12 @@ export interface BuildOptions {
 }
 
 export function buildClientReport(
-  rows: BiPostRow[],
+  rows: PostMetricsRow[],
   { period, now, followers, connections, availablePeriods }: BuildOptions,
 ): ClientReport {
   const placeable = withDates(rows).filter((d): d is PlacedRow => d.ms !== null);
 
-  // Both selections come from `bi-posts`, which is also what the per-post
+  // Both selections come from `post-metrics`, which is also what the per-post
   // drill-down reads. That shared implementation is the ONLY reason the count
   // this report prints and the rows that screen lists cannot disagree.
   const selected = selectPeriodRows(rows, period);
@@ -429,7 +432,7 @@ export function buildClientReport(
   const p3Start = Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - 3, 1);
   const prior3 = placeable.filter((d) => d.ms >= p3Start && d.ms < p3End).map((d) => d.row);
 
-  const sum = (rs: BiPostRow[], pick: (r: BiPostRow) => number | null): number =>
+  const sum = (rs: PostMetricsRow[], pick: (r: PostMetricsRow) => number | null): number =>
     rs.reduce((s, r) => s + num(pick(r)), 0);
 
   // ── all-time monthly statistics (Key Performance ONLY) ─────────────────────
@@ -448,7 +451,7 @@ export function buildClientReport(
   // after it. `Math.min(...times)` spread every timestamp into a single call,
   // which throws RangeError past the engine's argument limit (~100k–125k on
   // current V8) — a hard crash on a large client's history, not a slowdown.
-  const monthly = new Map<string, BiPostRow[]>();
+  const monthly = new Map<string, PostMetricsRow[]>();
   let firstMs = Infinity;
   let lastMs = -Infinity;
   for (const { row, ms } of placeable) {
@@ -672,7 +675,7 @@ export function buildClientReport(
   const comparisonRow = (
     scope: InteractionsRow["scope"],
     label: string,
-    rs: BiPostRow[],
+    rs: PostMetricsRow[],
   ): InteractionsRow => {
     // ⚠️ SAVES IS COUNTED, NOT SUMMED THROUGH `num()`. The other three metrics
     // can safely coerce an absent value to 0; saves cannot, because the scrape
@@ -742,7 +745,7 @@ export function buildClientReport(
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
 //
-// The paged `bi` read lives in `@/services/bi-posts`, which the per-post
+// The paged `bi` read lives in `@/services/post-metrics`, which the per-post
 // drill-down reads too. Do not re-implement it here.
 
 export interface ClientReportOptions {

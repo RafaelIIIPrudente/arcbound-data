@@ -43,7 +43,7 @@ export default async function ReportLinkRoutePage({
       ) : (
         // The gate cookie proves the token; PublicReport fetches THIS client's
         // report source through the token + read grant (no service-role key, no
-        // authenticated bi.* read). The clientId decision above only gates
+        // authenticated table read of any kind). The clientId decision above only gates
         // view-vs-gate; the data read re-checks the grant server-side.
         <PublicReport token={token} period={period} />
       )}

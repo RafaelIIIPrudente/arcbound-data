@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
 // One mock serves all four reads: `public.clients`, the paged `bi` view,
@@ -9,10 +9,10 @@ const { state } = vi.hoisted(() => ({
   state: {
     clients: [] as unknown[],
     clientsError: null as { message: string } | null,
-    biRows: [] as unknown[],
-    biError: null as { message: string } | null,
+    metricsRows: [] as unknown[],
+    metricsError: null as { message: string } | null,
     /** Overrides the count page 0 reports, to fake a table past the page cap. */
-    biCountOverride: null as number | null,
+    metricsCountOverride: null as number | null,
     uploads: [] as unknown[],
     uploadsError: null as { message: string } | null,
     attributes: [] as unknown[],
@@ -57,7 +57,7 @@ vi.mock("@/lib/supabase/server", () => ({
       // would throw rather than quietly resolving.
       from: (table: string) => {
         if (table === "client_posts")
-          return paged(state.biRows, state.biError, state.biCountOverride);
+          return paged(state.metricsRows, state.metricsError, state.metricsCountOverride);
         if (table === "uploads") return paged(state.uploads, state.uploadsError);
         if (table === "post_attributes") return paged(state.attributes, null);
         return paged(state.clients, state.clientsError);
@@ -78,7 +78,7 @@ import {
 
 const NOW = new Date("2026-07-24T12:00:00.000Z");
 
-function post(over: Partial<BiPostRow>): BiPostRow {
+function post(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -124,9 +124,9 @@ beforeEach(() => {
     { id: "c2", name: "Priya Nadella" },
   ];
   state.clientsError = null;
-  state.biRows = [];
-  state.biError = null;
-  state.biCountOverride = null;
+  state.metricsRows = [];
+  state.metricsError = null;
+  state.metricsCountOverride = null;
   state.uploads = [];
   state.uploadsError = null;
   state.attributes = [];
@@ -151,7 +151,7 @@ describe("getDataQuality — submitted vs attributed", () => {
   });
 
   it("counts what actually came back attributed, per client", async () => {
-    state.biRows = [
+    state.metricsRows = [
       post({ linkedin_post_id: "a", client_id: "c1" }),
       post({ linkedin_post_id: "b", client_id: "c1" }),
       post({ linkedin_post_id: "c", client_id: "c2" }),
@@ -168,7 +168,7 @@ describe("getDataQuality — submitted vs attributed", () => {
     // a client whose ArcBase name does not match the scrape submits posts that
     // never return — and nothing else in the product says so.
     state.uploads = [upload("c2", "2026-07-20T09:00:00.000Z", 40)];
-    state.biRows = [post({ linkedin_post_id: "a", client_id: "c1" })];
+    state.metricsRows = [post({ linkedin_post_id: "a", client_id: "c1" })];
 
     const { rows } = await getDataQuality({ now: NOW });
     const priya = rows.find((r) => r.clientId === "c2")!;
@@ -191,7 +191,7 @@ describe("getDataQuality — submitted vs attributed", () => {
 
 describe("getDataQuality — undated and unknown-type posts", () => {
   it("counts posts with no resolved publish date", async () => {
-    state.biRows = [
+    state.metricsRows = [
       post({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: "2026-07-10" }),
       // Hour-age: invisible to every BOUNDED reporting period, which is exactly
       // why it is worth surfacing here.
@@ -214,7 +214,7 @@ describe("getDataQuality — undated and unknown-type posts", () => {
     // `effectiveMs` falls back to `scraped_at` so a post can still be windowed.
     // That fallback must not make this figure read zero — the publish date is
     // genuinely absent, whatever the windowing does about it.
-    state.biRows = [
+    state.metricsRows = [
       post({
         linkedin_post_id: "a",
         client_id: "c1",
@@ -231,7 +231,7 @@ describe("getDataQuality — undated and unknown-type posts", () => {
   it("counts posts whose asset type resolves to UNKNOWN, collapsing raw casing", async () => {
     // ⚠️ THE FORMAT RIDES THE ROW NOW (ADR 0010, S3). Storage is still RAW, so
     // mixed casing is legitimate and must still resolve to a known format.
-    state.biRows = [
+    state.metricsRows = [
       post({ linkedin_post_id: "a", client_id: "c1", post_format_type: "  document " }),
       // Unrecognised → UNKNOWN, same as carrying no format at all ("c").
       post({ linkedin_post_id: "b", client_id: "c1", post_format_type: "CAROUSEL_V2" }),
@@ -246,7 +246,7 @@ describe("getDataQuality — undated and unknown-type posts", () => {
 
 describe("getDataQuality — unattributed posts", () => {
   it("counts posts whose client_id matches no registered client", async () => {
-    state.biRows = [
+    state.metricsRows = [
       post({ linkedin_post_id: "a", client_id: "c1" }),
       post({ linkedin_post_id: "b", client_id: "ghost-client" }),
       post({ linkedin_post_id: "c", client_id: "ghost-client" }),
@@ -258,7 +258,7 @@ describe("getDataQuality — unattributed posts", () => {
   });
 
   it("also counts posts carrying a NULL client_id", async () => {
-    // ⚠️ `BiPostRow` types `client_id` as non-nullable, but `fetchPostCounts` has
+    // ⚠️ `PostMetricsRow` types `client_id` as non-nullable, but `fetchPostCounts` has
     // always guarded for null — the codebase disagrees with itself about the
     // externally-owned view, so this case is handled defensively.
     //
@@ -267,7 +267,7 @@ describe("getDataQuality — unattributed posts", () => {
     // the orphan sweep (a null map key matches no registered client either) — so
     // removing the guard does not move this number. What it does catch is a null
     // row being dropped entirely, or bucketed under a registered client.
-    state.biRows = [
+    state.metricsRows = [
       post({ linkedin_post_id: "a", client_id: null as unknown as string }),
       post({ linkedin_post_id: "b", client_id: "c1" }),
     ];
@@ -280,7 +280,7 @@ describe("getDataQuality — unattributed posts", () => {
   });
 
   it("reports a real 0 when every post is attributed to a registered client", async () => {
-    state.biRows = [post({ linkedin_post_id: "a", client_id: "c1" })];
+    state.metricsRows = [post({ linkedin_post_id: "a", client_id: "c1" })];
 
     const { unattributedPosts } = await getDataQuality({ now: NOW });
 
@@ -290,8 +290,8 @@ describe("getDataQuality — unattributed posts", () => {
 });
 
 describe("getDataQuality — the three source states stay apart", () => {
-  it("marks posts UNAVAILABLE, and unattributed unknown, when the bi read fails", async () => {
-    state.biError = { message: "permission denied for schema bi" };
+  it("marks posts UNAVAILABLE, and unattributed unknown, when the posts read fails", async () => {
+    state.metricsError = { message: "permission denied for schema bi" };
 
     const { sources, unattributedPosts, rows } = await getDataQuality({ now: NOW });
 
@@ -304,10 +304,10 @@ describe("getDataQuality — the three source states stay apart", () => {
   });
 
   it("marks posts TRUNCATED — available, real, but a lower bound", async () => {
-    state.biRows = Array.from({ length: PAGE_SIZE }, (_, i) =>
+    state.metricsRows = Array.from({ length: PAGE_SIZE }, (_, i) =>
       post({ linkedin_post_id: `p${i}`, client_id: "c1" }),
     );
-    state.biCountOverride = MAX_PAGES * PAGE_SIZE + 1;
+    state.metricsCountOverride = MAX_PAGES * PAGE_SIZE + 1;
 
     const { sources } = await getDataQuality({ now: NOW });
 
@@ -342,7 +342,7 @@ describe("getDataQuality — the three source states stay apart", () => {
   });
 
   it("reports every source healthy for a clean read", async () => {
-    state.biRows = [post({ linkedin_post_id: "a", client_id: "c1" })];
+    state.metricsRows = [post({ linkedin_post_id: "a", client_id: "c1" })];
     state.uploads = [upload("c1", "2026-07-20T09:00:00.000Z", 1)];
 
     const { sources } = await getDataQuality({ now: NOW });
@@ -355,12 +355,12 @@ describe("getDataQuality — the three source states stay apart", () => {
     });
   });
 
-  it("does NOT read post counts a second time — every figure comes from ONE bi read", async () => {
+  it("does NOT read post counts a second time — every figure comes from ONE posts read", async () => {
     // ⚠️ Guarding the rule, not the wiring: `listClients` would join a SECOND,
     // independent bi count, and two counts of the same thing on one screen is
     // how a page comes to contradict itself. If this row's `attributed` ever
-    // stops matching the bi fixture, a second source crept in.
-    state.biRows = [
+    // stops matching the posts fixture, a second source crept in.
+    state.metricsRows = [
       post({ linkedin_post_id: "a", client_id: "c1" }),
       post({ linkedin_post_id: "b", client_id: "c1" }),
     ];
@@ -427,7 +427,7 @@ describe("severity ordering — worst first", () => {
       upload("silent", "2026-07-20T09:00:00.000Z", 40),
       upload("healthy", "2026-07-20T09:00:00.000Z", 1),
     ];
-    state.biRows = [post({ linkedin_post_id: "a", client_id: "healthy" })];
+    state.metricsRows = [post({ linkedin_post_id: "a", client_id: "healthy" })];
 
     const { rows } = await getDataQuality({ now: NOW });
 
@@ -450,7 +450,7 @@ describe("severity ordering — worst first", () => {
 // two rates or picks a winner.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("reconcileRates", () => {
-  const rated = (over: Partial<BiPostRow>) =>
+  const rated = (over: Partial<PostMetricsRow>) =>
     post({ impressions: 1000, interactions: 62, ...over });
 
   it("counts posts the view carries NO rate for — distinct from a rate of 0", () => {
@@ -794,7 +794,7 @@ describe("reconcileRates", () => {
   });
 
   it("is reachable from getDataQuality over every post read", async () => {
-    state.biRows = [
+    state.metricsRows = [
       post({
         linkedin_post_id: "a",
         client_id: "c1",

@@ -3,9 +3,9 @@
 // the scrape instant is always passed in, so this is fully unit-testable and
 // never depends on when it runs.
 //
-// It replaces the resolution that `bi.linkedin_post_latest` performs today. The
-// scrape does not carry a publish date; it carries an AGE relative to the moment
-// it was taken ("4d", "1w", "23h"), and `scraped_at` is the anchor.
+// It replaces the resolution an externally-owned view performed until ADR 0010.
+// The scrape does not carry a publish date; it carries an AGE relative to the
+// moment it was taken ("4d", "1w", "23h"), and `scraped_at` is the anchor.
 //
 // ⚠️ THIS RESOLVES IN TYPESCRIPT, NOT plpgsql, AND THAT IS THE POINT. Vitest can
 // exercise every branch here; a plpgsql resolver could only be checked by running

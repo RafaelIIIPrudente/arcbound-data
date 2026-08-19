@@ -30,7 +30,7 @@ import { ReportStatus, type ReportFreshness } from "./report-status";
 //
 // `PublicReport` (async) is the DATA path: it reads the short-lived read grant
 // from the signed gate cookie and fetches THIS client's report source through the
-// token+grant definer read (no service-role key, no direct bi.* access). A URL
+// token+grant definer read (no service-role key, no direct table access). A URL
 // holder WITHOUT a valid grant, or an expired one, reads nothing → the neutral
 // "not available" state. `PublicReportView` (pure) is the RENDER: the SAME report
 // sections the staff page uses, with ALL staff chrome stripped.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import type { ReportPeriod } from "./types";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
@@ -8,15 +8,15 @@ import type { ReportPeriod } from "./types";
 // `public.post_attributes` (via the post-attributes seam), and `public.uploads`.
 const { state } = vi.hoisted(() => ({
   state: {
-    /** [from, to] of each `.range()` call on the bi view, in order. */
+    /** [from, to] of each `.range()` call on the posts view, in order. */
     ranges: [] as number[][],
     /** One entry per bi page, served BY PAGE INDEX (not by call order). */
-    biPages: [] as unknown[][],
-    biError: null as { message: string } | null,
+    metricsPages: [] as unknown[][],
+    metricsError: null as { message: string } | null,
     /** Fail exactly one page, to prove a LATE failure still fails the whole read. */
-    biErrorOnPage: null as number | null,
-    /** What `count: "exact"` reports. Defaults to the total rows in `biPages`. */
-    biCount: null as number | null,
+    metricsErrorOnPage: null as number | null,
+    /** What `count: "exact"` reports. Defaults to the total rows in `metricsPages`. */
+    metricsCount: null as number | null,
     /** The `count` option each bi request carried — `undefined` when it asked for none. */
     countOptions: [] as (string | undefined)[],
     /** Ids per `.in()` on post_attributes, in call order — observes merged ROW order. */
@@ -77,13 +77,13 @@ vi.mock("@/lib/supabase/server", () => ({
             .then(() => {
               state.inFlight -= 1;
               const error =
-                state.biError ??
-                (state.biErrorOnPage === page ? { message: `page ${page} exploded` } : null);
-              const total = state.biPages.reduce((n, p) => n + p.length, 0);
+                state.metricsError ??
+                (state.metricsErrorOnPage === page ? { message: `page ${page} exploded` } : null);
+              const total = state.metricsPages.reduce((n, p) => n + p.length, 0);
               return {
-                data: error ? null : (state.biPages[page] ?? []),
+                data: error ? null : (state.metricsPages[page] ?? []),
                 error,
-                count: countOption === "exact" ? (state.biCount ?? total) : null,
+                count: countOption === "exact" ? (state.metricsCount ?? total) : null,
               };
             })
             .then(resolve);
@@ -109,11 +109,11 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-// PAGE_SIZE / MAX_PAGES now live in the shared `bi-posts` seam — the paging they
+// PAGE_SIZE / MAX_PAGES now live in the shared `post-metrics` seam — the paging they
 // govern is read by the report AND the per-post drill-down. Import paths only:
 // every assertion below is unchanged, which is what makes this file the guard
 // proving that extraction was behaviour-preserving.
-import { MAX_PAGES, PAGE_SIZE } from "./bi-posts";
+import { MAX_PAGES, PAGE_SIZE } from "./post-metrics";
 import {
   availablePeriods,
   buildClientReport,
@@ -129,14 +129,14 @@ import {
  * second read that used to supply it is gone. These fixtures keep the map shape
  * only because it reads well; this puts the value where the product finds it.
  */
-function withFormats(rows: BiPostRow[], formats: Map<string, string>): BiPostRow[] {
+function withFormats(rows: PostMetricsRow[], formats: Map<string, string>): PostMetricsRow[] {
   return rows.map((r) => ({
     ...r,
     post_format_type: formats.get(r.linkedin_post_id) ?? null,
   }));
 }
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -163,7 +163,7 @@ function row(over: Partial<BiPostRow>): BiPostRow {
  * Pages of the given sizes. Ids encode `page-offset`, so the merged order is
  * observable rather than inferred from a row count that any ordering satisfies.
  */
-function pagesOf(sizes: number[]): BiPostRow[][] {
+function pagesOf(sizes: number[]): PostMetricsRow[][] {
   return sizes.map((size, page) =>
     Array.from({ length: size }, (_, i) =>
       row({
@@ -179,7 +179,7 @@ const NOW = new Date("2026-07-16T12:00:00.000Z");
 
 // Jan (1) · May (1) · Jun (2) · Jul (1). Feb–Apr are deliberately empty so the
 // by-month chart has real gaps to render.
-const HISTORY: BiPostRow[] = [
+const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jul1",
     estimated_post_date: "2026-07-10",
@@ -234,10 +234,10 @@ const YEAR_2026 = { kind: "year", key: "2026", label: "2026", year: 2026 } as co
 
 beforeEach(() => {
   state.ranges = [];
-  state.biPages = [];
-  state.biError = null;
-  state.biErrorOnPage = null;
-  state.biCount = null;
+  state.metricsPages = [];
+  state.metricsError = null;
+  state.metricsErrorOnPage = null;
+  state.metricsCount = null;
   state.countOptions = [];
   state.attributeIdChunks = [];
   state.attributes = [];
@@ -375,7 +375,7 @@ describe("period scoping — what the picker moves, and what it deliberately doe
   // hero is identical too and literally nothing changes but the caption. That
   // reads as a broken picker and is correct behaviour. Anyone re-investigating
   // "All time does nothing" should start here.
-  const build = (rows: BiPostRow[], key: string | undefined) => {
+  const build = (rows: PostMetricsRow[], key: string | undefined) => {
     const periods = availablePeriods(rows);
     return buildClientReport(rows, {
       period: parseReportPeriod(key, periods),
@@ -751,7 +751,7 @@ describe("the report weekday chart dates by publish date, never scrape date", ()
   // one by its July scrape. Weekdays (UTC):
   //   d1 Wed 2026-07-01 · 100    d2 Wed 2026-07-08 · 300    d3 Fri 2026-07-10 · 500
   //   z1 Mon 2026-07-13 · 0      u1 UNDATED, scraped Thu 2026-07-16 · 999
-  const WEEKDAY_ROWS: BiPostRow[] = [
+  const WEEKDAY_ROWS: PostMetricsRow[] = [
     row({ linkedin_post_id: "d1", estimated_post_date: "2026-07-01", impressions: 100 }),
     row({ linkedin_post_id: "d2", estimated_post_date: "2026-07-08", impressions: 300 }),
     row({ linkedin_post_id: "d3", estimated_post_date: "2026-07-10", impressions: 500 }),
@@ -1088,8 +1088,10 @@ describe("buildClientReport (pure)", () => {
       availablePeriods: availablePeriods(HISTORY),
     });
 
-    // Order matters: this row reproduces a page of the analytics engineer's
-    // Power BI report, and a reader compares them side by side.
+    // Order matters: this row reproduces a page of the BI report ArcBase's own
+    // report was designed against. That report is retired, so nobody compares
+    // them side by side any more — but the ORDER it fixed is what Arcbound's
+    // readers learned, and changing it now would move figures under them.
     expect(report.keyPerformance.selected.map((f) => f.label)).toEqual([
       "Total posts",
       "Avg interactions",
@@ -1171,7 +1173,7 @@ describe("buildClientReport (pure)", () => {
     // clicks, or apply a definition of its own. These rows make the two
     // readings disagree on purpose: summing the field gives 150, deriving it
     // from likes + comments + reposts gives 20.
-    const divergent: BiPostRow[] = [
+    const divergent: PostMetricsRow[] = [
       row({
         linkedin_post_id: "jul-a",
         estimated_post_date: "2026-07-04",
@@ -1340,7 +1342,7 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
 // rule for textless posts end to end.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("content composition is carried on the report (period-scoped)", () => {
-  const build = (rows: BiPostRow[], period: ReportPeriod = JULY) =>
+  const build = (rows: PostMetricsRow[], period: ReportPeriod = JULY) =>
     buildClientReport(rows, {
       period,
       now: NOW,
@@ -1401,7 +1403,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
       row({ linkedin_post_id: `p${i}`, estimated_post_date: "2026-07-01", impressions: 1 }),
     );
     const tail = [row({ linkedin_post_id: "last", estimated_post_date: "2026-07-02" })];
-    state.biPages = [full, tail];
+    state.metricsPages = [full, tail];
 
     const report = await getClientReport({ clientId: "c1", period: "2026-07" });
 
@@ -1412,7 +1414,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
   });
 
   it("issues exactly ONE request when the count fits in a single page", async () => {
-    state.biPages = pagesOf([1]);
+    state.metricsPages = pagesOf([1]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1420,7 +1422,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
   });
 
   it("asks for an EXACT count, on the first page only", async () => {
-    state.biPages = pagesOf([PAGE_SIZE, 500]);
+    state.metricsPages = pagesOf([PAGE_SIZE, 500]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1433,7 +1435,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
   it("issues exactly one request per page and merges them in PAGE ORDER", async () => {
     const pages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]); // count defaults to 2500
 
-    state.biPages = pages;
+    state.metricsPages = pages;
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
     expect(state.ranges).toEqual([
@@ -1451,14 +1453,14 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
     // order-independent by construction.
     //
     // The merge-order guarantee is asserted directly, on the seam that owns it,
-    // in `bi-posts.test.ts` → "pages past the PostgREST 1000-row cap and merges
+    // in `post-metrics.test.ts` → "pages past the PostgREST 1000-row cap and merges
     // every page in order". What is still provable HERE is that every page was
     // requested and every row reached the report.
     expect(pages.flat()).toHaveLength(2500);
   });
 
   it("issues pages 1..n CONCURRENTLY, not one after another", async () => {
-    state.biPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
+    state.metricsPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1475,8 +1477,8 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
   });
 
   it("fails the WHOLE read when a LATER page errors, never a partial result", async () => {
-    state.biPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
-    state.biErrorOnPage = 2;
+    state.metricsPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
+    state.metricsErrorOnPage = 2;
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1490,8 +1492,8 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
 
   it("warns and caps the read when the count exceeds the page cap", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    state.biPages = pagesOf([PAGE_SIZE]); // pages 1..49 serve []
-    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE
+    state.metricsPages = pagesOf([PAGE_SIZE]); // pages 1..49 serve []
+    state.metricsCount = 60_000; // > MAX_PAGES * PAGE_SIZE
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1507,8 +1509,8 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
 
   it("surfaces the truncated read to the report as read + total", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    state.biPages = pagesOf([PAGE_SIZE]); // page 0 full; pages 1..49 serve []
-    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
+    state.metricsPages = pagesOf([PAGE_SIZE]); // page 0 full; pages 1..49 serve []
+    state.metricsCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1523,7 +1525,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
   });
 
   it("leaves truncation null on a complete read", async () => {
-    state.biPages = pagesOf([500]);
+    state.metricsPages = pagesOf([500]);
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1538,7 +1540,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
     // read ADR 0010 exists to replace. The empty-schemaCalls half is the
     // tripwire: naming the new table alone would still pass if some other read
     // quietly went back to `bi`.
-    state.biPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
+    state.metricsPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1552,7 +1554,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
     // `post_format_type` into `public.posts`, so the format arrives with the row
     // and the second read of `public.post_attributes` is gone entirely. Raw
     // casing still survives storage and is still canonicalised at read time.
-    state.biPages = [
+    state.metricsPages = [
       [
         row({
           linkedin_post_id: "a",
@@ -1568,8 +1570,8 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
     expect(report.postTypeDistribution.map((b) => b.format)).toEqual(["VIDEO"]);
   });
 
-  it("flags unavailable (does not throw) when the bi read fails", async () => {
-    state.biError = { message: "permission denied for schema bi" };
+  it("flags unavailable (does not throw) when the posts read fails", async () => {
+    state.metricsError = { message: "permission denied for schema bi" };
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1587,7 +1589,7 @@ describe("getClientReport (seam → paged read of public.client_posts)", () => {
 // a total is the same lie in a subtler form.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("comparisonRow — saves keeps its three states apart", () => {
-  const build = (rows: BiPostRow[]) =>
+  const build = (rows: PostMetricsRow[]) =>
     buildClientReport(rows, {
       period: ALL_TIME,
       now: NOW,
@@ -1595,7 +1597,7 @@ describe("comparisonRow — saves keeps its three states apart", () => {
       connections: null,
       availablePeriods: availablePeriods(rows),
     });
-  const allTimeRow = (rows: BiPostRow[]) =>
+  const allTimeRow = (rows: PostMetricsRow[]) =>
     build(rows).interactionsComparison.find((r) => r.scope === "allTime")!;
 
   it("sums saves and marks the scope complete when EVERY post reported them", () => {
@@ -1767,7 +1769,7 @@ describe("buildClientReport — the raw connection count", () => {
 describe("buildClientReport — a custom period", () => {
   const NOW_C = new Date("2026-07-29T12:00:00.000Z");
 
-  const buildC = (rows: BiPostRow[], key: string | undefined) => {
+  const buildC = (rows: PostMetricsRow[], key: string | undefined) => {
     const periods = availablePeriods(rows);
     return buildClientReport(rows, {
       period: parseReportPeriod(key, periods),

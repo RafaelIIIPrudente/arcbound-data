@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import { buildContentComposition } from "./content-composition";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ import { buildContentComposition } from "./content-composition";
 // text CANNOT be analysed and is counted-but-omitted, never a zero of everything.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",

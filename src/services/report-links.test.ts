@@ -38,7 +38,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import type { ReportLinkOutreach, ReportLinkSource } from "./report-links";
 import {
   getReportLink,
@@ -703,7 +703,7 @@ describe("readReportLinkSource — the EMAIL block, parsed as OPTIONAL (S4, D9)"
 // downloads — a wrong format there is visibly wrong and completely silent.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("withFormatFallback — both deploy orders render correct formats", () => {
-  const POST: BiPostRow = {
+  const POST: PostMetricsRow = {
     client_id: "c1",
     client_name: null,
     linkedin_post_id: "p1",

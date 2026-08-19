@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { env } from "@/env";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { paths } from "@/paths";
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import type {
   IssuedReportLink,
   PostAttributes,
@@ -153,7 +153,7 @@ export async function resolveReportLink(token: string, code: string): Promise<Re
 export interface ReportLinkSource {
   clientId: string;
   clientName: string | null;
-  posts: BiPostRow[];
+  posts: PostMetricsRow[];
   uploads: ReportLinkUpload[];
   attributes: PostAttributes[];
   /** This Client's outreach — see `ReportLinkOutreach`'s own comment for its three states. */
@@ -365,7 +365,7 @@ export async function readReportLinkSource(
     const bundle = data as {
       client_id?: string;
       client_name?: string | null;
-      posts?: BiPostRow[];
+      posts?: PostMetricsRow[];
       // ⚠️ THE DEFINER READ SENDS WHOLE `public.uploads` ROWS (`to_jsonb(u)`), so
       // a new column arrives here with NO SQL change — but only the fields named
       // below are mapped, so each one still has to be added deliberately.
@@ -448,7 +448,10 @@ export function toFormatMap(rows: PostAttributes[]): Map<string, string> {
  *
  * Returns new objects; the input rows are not mutated.
  */
-export function withFormatFallback(rows: BiPostRow[], attributes: PostAttributes[]): BiPostRow[] {
+export function withFormatFallback(
+  rows: PostMetricsRow[],
+  attributes: PostAttributes[],
+): PostMetricsRow[] {
   const map = toFormatMap(attributes);
   return rows.map((row) => ({
     ...row,

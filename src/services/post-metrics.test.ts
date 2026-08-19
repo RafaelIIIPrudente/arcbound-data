@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import type { ReportPeriod } from "./types";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
@@ -84,9 +84,9 @@ import {
   readClientPostRows,
   selectPeriodPlaceable,
   selectPeriodRows,
-} from "./bi-posts";
+} from "./post-metrics";
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -109,7 +109,7 @@ function row(over: Partial<BiPostRow>): BiPostRow {
   };
 }
 
-const ids = (rows: BiPostRow[]) => rows.map((r) => r.linkedin_post_id);
+const ids = (rows: PostMetricsRow[]) => rows.map((r) => r.linkedin_post_id);
 
 const JULY: ReportPeriod = {
   kind: "month",
@@ -511,7 +511,7 @@ describe("a custom period is a REAL WINDOW, not a second all-time", () => {
   });
 
   it("DROPS an undatable row, unlike all-time which keeps every row", () => {
-    // ⚠️ All-time is every row, datable or not (bi-posts.ts:113). A custom period
+    // ⚠️ All-time is every row, datable or not (post-metrics.ts). A custom period
     // must NOT inherit that short-circuit: it is a bounded window, and a row that
     // cannot be placed on a time axis cannot be shown to fall inside one.
     expect(ids(selectPeriodRows([DATED, GHOST], ALL))).toEqual(["dated", "ghost"]);

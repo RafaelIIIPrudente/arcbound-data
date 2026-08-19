@@ -1,7 +1,7 @@
 import { median } from "@/lib/median";
 import { toCanonicalFormat } from "@/lib/post-format";
-import type { BiPostRow } from "@/services/analytics";
-import { readAllPostRows } from "@/services/bi-posts";
+import type { PostMetricsRow } from "@/services/analytics";
+import { readAllPostRows } from "@/services/post-metrics";
 import { listClientRegistry } from "@/services/clients";
 import { listAllUploads } from "@/services/uploads";
 import type {
@@ -74,7 +74,7 @@ function finite(v: number | null | undefined): number | null {
  *
  * ⚠️ AND IT REPORTS, IT DOES NOT RESOLVE. No averaging, no picking a winner.
  */
-export function reconcileRates(rows: BiPostRow[]): RateReconciliation {
+export function reconcileRates(rows: PostMetricsRow[]): RateReconciliation {
   let postsMissingRate = 0;
   let rateDisagreements = 0;
   let rateComparablePosts = 0;
@@ -183,7 +183,7 @@ interface PostTally {
   unknownFormat: number;
 }
 
-function tallyPosts(rows: BiPostRow[]): {
+function tallyPosts(rows: PostMetricsRow[]): {
   byClient: Map<string, PostTally>;
   unattributed: number;
 } {
@@ -191,7 +191,7 @@ function tallyPosts(rows: BiPostRow[]): {
   let unattributed = 0;
 
   for (const row of rows) {
-    // ⚠️ `client_id` IS TYPED NON-NULLABLE BUT GUARDED ANYWAY. `BiPostRow`
+    // ⚠️ `client_id` IS TYPED NON-NULLABLE BUT GUARDED ANYWAY. `PostMetricsRow`
     // declares it `string`, while `fetchPostCounts` has always tested it for
     // null — the codebase disagrees with itself about the externally-owned
     // view's true shape. Until the view is authoritative here, trust the guard

@@ -366,3 +366,87 @@ agent.
 | 2026-07-25 → 2026-08-19 | —       | Not implemented. Four reporting workstreams shipped on top of `bi.*` in the meantime.                                                                                                                                |
 | 2026-08-19              | Bryan   | _"Execute ADR 0010 in full … and let's drop all of Power BI and Shay in this system."_ Sequencing decided: S1 → S2 → S3.                                                                                             |
 | 2026-08-19              | Planner | Re-measured against live code: seam line numbers corrected, dead `ingest-write.sql` identified, "unmatched surface" task deleted as void, name-mismatch-gate copy hazard (D3) added, unapplied-SQL blocker surfaced. |
+
+---
+
+## S4 — OUTCOME, INDEPENDENTLY VERIFIED (2026-08-20)
+
+S4 (the D7 documentation purge + the `bi` identifier rename) is **built, uncommitted,
+and verified by the planner rather than accepted on report.**
+
+### The gate, re-run by the planner on an idle machine
+
+    LINT:0  TSC:0  TEST:0  BUILD:0
+    Test Files  151 passed (151)
+         Tests  2599 passed (2599)      0 skipped, 34.72s
+
+Identical to the pre-S4 baseline of 2,599, which was the point: a prose-and-identifiers
+slice that changed the count would have changed behaviour.
+
+⚠️ A STALE FAILING RUN NEARLY CAUSED A FALSE REPORT. A background gate from
+`2026-08-19 22:45` read `152 files / 2601 tests / 55 skipped / 4 failed` and was still
+sitting in the session. It predated S4 entirely. The 55 "skipped" is the tell: Vitest
+abandons the remainder of a file it times out on, so a load-degraded run inflates the
+file count and invents skips. **A test count is only comparable between runs of the same
+tree on a comparably loaded machine.**
+
+### "No behaviour change" was PROVEN, not asserted
+
+Method: for every modified non-test source file, take the pre-image at `HEAD`, apply the
+same identifier substitutions the slice applied (`BiPostRow`→`PostMetricsRow`,
+`biRow`/`biRows`/`biPages`/`biError`/`biCount`→`metrics*`, `bi-posts`→`post-metrics`),
+and diff against the working tree. Whatever survives is a change the rename does not
+explain.
+
+Result: **every surviving line is a comment, in every file but one.** Four service
+modules — `report-links.ts`, `data-quality.ts`, `content-composition.ts`, `cadence.ts` —
+survived byte-identical: pure renames. The renamed module `bi-posts.ts` →
+`post-metrics.ts` differs only by a four-line comment replaced with a corrected
+four-line comment.
+
+The single exception is `src/lib/metric-definitions.ts`, where two string literals
+changed. Those are the ⓘ tooltips on the Client List, and the change was disclosed.
+
+### ⚠️ FINDING — the replacement tooltip OVERCLAIMS, and a test locks it in
+
+The old Posts tooltip was false about the mechanism going forward and was correctly
+rewritten. The replacement went one step too far:
+
+> "A post belongs to whichever client was chosen on the upload form — a recorded link,
+> not a guess from the author name on the row — so a client whose name is written
+> differently in the scrape is still counted correctly here."
+
+True for every upload from here on. **False for the migrated history**, and
+`supabase/posts-ownership.sql` says so itself at line 517 and in its own `comment on
+function`: the backfill "attributes by the SAME exact name match `bi.linkedin_post_latest`
+uses — the last legitimate use of it". The live backfill returned
+`skipped_unmatched: 1`. A spelling difference did lose a post — once, permanently.
+
+The tooltip does mention migration-loaded posts, but only to excuse a blank upload date,
+never as a population attributed by a different and lossier rule.
+
+⚠️ THE TEST MAKES THE HONEST VERSION FAIL. `metric-definitions.test.ts` asserts
+`expect(posts).not.toMatch(/name match/i)` under a comment reading "a spelling difference
+cannot lose a post." Adding the qualifier would go RED. The pin must be narrowed before
+the copy can be corrected.
+
+This is the Eitan Hoenig failure shape (see the name-match attribution gate): a Premium
+scrape name failed this exact join and stranded 14 posts. The hazard is historical now,
+not growing — but it is not zero, and the tooltip currently reads as though it is.
+
+Not a deploy blocker. It is a one-sentence copy fix plus a narrowed assertion.
+
+### Guardrails held
+
+- `docs/adr/`, `docs/handoffs/`, `docs/decisions/` — untouched.
+- `docs/specs/2026-07-25-full-analytics-ownership.md` — +2 lines, the superseded pointer
+  and a blank. Body untouched.
+- No `.sql` file written or modified. Nothing dropped.
+- `grep -rn "Power BI" docs/adr/` → **7**. The record was preserved, not swept.
+
+### Flagged, not fixed
+
+`src/graphify-out/cache/stat-index.json` still indexes `bi-posts.ts` by its old path.
+It is **untracked** (0 files tracked under `src/graphify-out/`; the real graph is the 61
+tracked files at the repo root), so it cannot reach anyone through git. It regenerates
+with `graphify update`, which executers are forbidden to run.
