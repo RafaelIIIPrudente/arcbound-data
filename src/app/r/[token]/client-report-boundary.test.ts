@@ -27,11 +27,19 @@ import { describe, expect, it } from "vitest";
 const SRC = join(process.cwd(), "src");
 const ROUTE = join(SRC, "app", "r", "[token]");
 
-/** The route's own entry points, plus the layout every page renders inside. */
+/**
+ * The route's own entry points, plus EVERY layout a page renders inside.
+ *
+ * ⚠️ THERE ARE TWO LAYOUTS, NOT ONE, SINCE THE REPORT WAS FORCED DARK. The route
+ * gained its own `layout.tsx`, and a layout is as capable of pulling a staff
+ * module into a Client's browser as a page is. Listing only the root one would
+ * have left a real entry point unwalked while this file still read green.
+ */
 const ENTRIES = [
   join(ROUTE, "page.tsx"),
   join(ROUTE, "gate.tsx"),
   join(ROUTE, "actions.ts"),
+  join(ROUTE, "layout.tsx"),
   join(SRC, "app", "layout.tsx"),
 ];
 

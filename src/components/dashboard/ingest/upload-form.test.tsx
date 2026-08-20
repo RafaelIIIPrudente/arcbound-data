@@ -236,20 +236,24 @@ describe("an over-limit payload is refused before dispatch", () => {
 
 const EITAN = "Eitan Hoenig Eitan Hoenig • You Premium • You";
 
+/**
+ * ⚠️ THE GATING FIXTURE MOVED OFF EITAN ON 2026-08-20. This screen only ever
+ * appears for a GENUINE mismatch, and EITAN is no longer one — LinkedIn's author
+ * block around this Client's own name is now tolerated and merely noted
+ * (docs/decisions/2026-08-20-badge-decorated-author-names.md). Driving these
+ * tests with EITAN would have exercised the form against an answer the action
+ * can no longer return. `Charlene Li • You` is what they always meant.
+ */
+const WRONG = "Charlene Li • You";
+
 const MISMATCH = {
   status: "name-mismatch" as const,
   report: {
     clientName: "Eitan Hoenig",
-    authors: [
-      {
-        postName: EITAN,
-        cleaned: "Eitan Hoenig Eitan Hoenig • You Premium",
-        count: 14,
-        matches: false,
-      },
-    ],
+    authors: [{ postName: WRONG, residue: "Charlene Li", count: 14, verdict: "mismatch" as const }],
     total: 14,
     mismatched: 14,
+    decorated: 0,
   },
 };
 
@@ -278,7 +282,7 @@ describe("UploadForm — the name-mismatch confirmation", () => {
     const user = userEvent.setup();
     await submitIntoMismatch(user);
 
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /upload metrics/i })).toBeNull();
   });
 
@@ -329,7 +333,59 @@ describe("UploadForm — the name-mismatch confirmation", () => {
     await user.click(await screen.findByRole("button", { name: /go back/i }));
     await user.click(screen.getByRole("button", { name: /upload metrics/i }));
 
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
+  });
+});
+
+// ── A decorated author block: the SUMMARY, not a gate ────────────────────────
+// The action answers `ok` with a warning for `{Name} {Name} • You {Badge} • You`
+// (2026-08-20). From the form's side that is one dispatch and no interstitial —
+// the note has to survive onto the screen staff actually keep.
+
+describe("UploadForm — the decorated-author note lands on the summary", () => {
+  /** What `ingestMetricsAction` really returns for an all-EITAN upload. */
+  const DECORATED_NOTE = `On 14 posts the scraped author carried more than Eitan Hoenig's name — ${EITAN}. ArcBase read them as Eitan Hoenig and filed them under that client. The repeated name and the badge come from the scraper, not from ArcBase.`;
+
+  it("⚠️ shows the note WITHOUT ever rendering the confirmation screen", async () => {
+    // ⚠️ BOTH HALVES ARE THE TEST. A note that arrived alongside the gate would
+    // have fixed nothing — the whole complaint was the extra click on data that
+    // was already correct.
+    const user = userEvent.setup();
+    actionMock.mockImplementation(async () => ({
+      status: "ok" as const,
+      summary: { inserted: 14, updated: 0, unchanged: 0 },
+      warning: DECORATED_NOTE,
+    }));
+    render(<UploadForm clientId={CLIENT} />);
+
+    await startUpload(user);
+
+    expect(await screen.findByText(/upload complete/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /upload anyway/i })).toBeNull();
+    expect(actionMock).toHaveBeenCalledTimes(1);
+    expect(lastSubmission().get("confirmNameMismatch")).toBeNull();
+  });
+
+  it("⚠️ renders it in the NEUTRAL status slot, carrying the raw scraped string", async () => {
+    // `role="status"` on a muted background — the register that says "recorded",
+    // not "something went wrong". Nothing did.
+    const user = userEvent.setup();
+    actionMock.mockImplementation(async () => ({
+      status: "ok" as const,
+      summary: { inserted: 14, updated: 0, unchanged: 0 },
+      warning: DECORATED_NOTE,
+    }));
+    render(<UploadForm clientId={CLIENT} />);
+
+    await startUpload(user);
+
+    const note = await screen.findByRole("status");
+    // ⚠️ A STRAIGHT APOSTROPHE, BECAUSE THAT IS WHAT THE NOTE CONTAINS. The note
+    // is built in author-match.ts as a plain template literal, not JSX, so it
+    // carries `'` — not the `’` this screen's own prose uses.
+    expect(note).toHaveTextContent("carried more than Eitan Hoenig's name");
+    expect(note).toHaveTextContent("come from the scraper, not from ArcBase");
+    expect(note.textContent).toContain(EITAN);
   });
 });
 
@@ -353,9 +409,12 @@ function MISMATCH_ANSWER() {
     status: "name-mismatch" as const,
     report: {
       clientName: "Eitan Hoenig",
-      authors: [{ postName: EITAN, cleaned: "x", count: 1, matches: false }],
+      authors: [
+        { postName: WRONG, residue: "Charlene Li", count: 1, verdict: "mismatch" as const },
+      ],
       total: 1,
       mismatched: 1,
+      decorated: 0,
     },
   };
 }
@@ -465,7 +524,7 @@ describe("UploadForm — a confirmation does NOT leak to a different upload", ()
 
     expect(lastSubmission().get("rawText")).toBe("scraped rows AND MORE");
     expect(lastSubmission().get("confirmNameMismatch")).toBeNull();
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
   });
 
   it("⚠️ THE SAME FOR THE CLIENT: a different client re-fires the gate", async () => {
@@ -488,7 +547,7 @@ describe("UploadForm — a confirmation does NOT leak to a different upload", ()
 
     expect(lastSubmission().get("clientId")).toBe("a-different-client");
     expect(lastSubmission().get("confirmNameMismatch")).toBeNull();
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
   });
 
   it("⚠️ 'Go back' does not grant the confirmation — resubmitting re-gates", async () => {
@@ -501,7 +560,7 @@ describe("UploadForm — a confirmation does NOT leak to a different upload", ()
     await user.click(screen.getByRole("button", { name: /upload metrics/i }));
 
     expect(lastSubmission().get("confirmNameMismatch")).toBeNull();
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
   });
 
   it("⚠️ 'Upload another' re-gates the next upload", async () => {
@@ -518,7 +577,7 @@ describe("UploadForm — a confirmation does NOT leak to a different upload", ()
     await startUpload(user);
 
     expect(lastSubmission().get("confirmNameMismatch")).toBeNull();
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
   });
 
   it("⚠️ AND FOR THE SOURCE: identical text read as CSV is a different upload", async () => {
@@ -556,7 +615,7 @@ describe("UploadForm — a confirmation does NOT leak to a different upload", ()
     expect(lastSubmission().get("sourceType")).toBe("csv");
     expect(lastSubmission().get("rawText")).toBe(SHARED_BYTES);
     expect(lastSubmission().get("confirmNameMismatch")).toBeNull();
-    expect(await screen.findByText(EITAN)).toBeInTheDocument();
+    expect(await screen.findByText(WRONG)).toBeInTheDocument();
   });
 
   it("a clean upload is unchanged — no confirmation screen, one dispatch", async () => {

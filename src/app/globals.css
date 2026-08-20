@@ -148,6 +148,32 @@
   }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE CLIENT REPORT LINK IS DARK, ALWAYS — THE DOCUMENT GROUND HALF OF IT.
+
+   `/r/[token]` renders inside `.dark .report-root` (see that route's layout.tsx),
+   which re-declares the dark tokens for its own subtree. That covers everything
+   a Client actually looks at, but not the page BEHIND it: `<body>` still holds
+   the `:root` warm-paper background, which rubber-band overscroll uncovers as a
+   pale strip on macOS and iOS.
+
+   ⚠️ THE GROUND IS CLAIMED FROM THE WRAPPER BECAUSE IT CANNOT BE SET DIRECTLY.
+   Only the root layout renders <html>/<body>, so a nested route cannot put a
+   class on either one server-side — print.css records the same constraint from
+   the other direction. `:has()` lets the ground follow the wrapper instead, with
+   no client JS and no flash.
+
+   ⚠️ THE VALUE IS DUPLICATED FROM `.dark` AND PINNED RATHER THAN TRUSTED.
+   `:root:has()` cannot read a custom property that only `.dark` declares, so it
+   is repeated here; `src/app/r/[token]/layout.test.tsx` asserts the two stay
+   equal, so a palette change fails a test instead of leaving one pale strip
+   behind on a client's screen. Same discipline as print-tokens.test.ts.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root:has(.report-root) {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+}
+
 /* Respect users who prefer reduced motion: neutralise the skeleton pulse,
    dialog/sheet animations, and all transitions (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {
