@@ -125,13 +125,21 @@ export const METRIC_DEFINITIONS = {
   // ── the Client List's two adjacent columns, which are two PIPELINES ────────
   //
   // ⚠️ THESE TWO SENTENCES EXIST BECAUSE THE COLUMNS ARE ADJACENT. Nothing on
-  // that screen is wrong: `Last ArcBase upload` reads `public.uploads` (this
-  // app's own `/upload`) and `Posts` reads `bi.linkedin_post_latest` (the
-  // external pipeline). Side by side under two bare labels, "Never" beside a
-  // real post count reads as a contradiction, and a reviewer filed it as one —
-  // correctly, because the screen was saying the wrong thing with true numbers.
-  // The fix is entirely in the words: each sentence names its OWN source and
-  // states that the other column is not measuring it.
+  // that screen is wrong: `Last ArcBase upload` reads `public.uploads` and
+  // `Posts` counts `public.client_posts`. Side by side under two bare labels,
+  // "Never" beside a real post count reads as a contradiction, and a reviewer
+  // filed it as one — correctly, because the screen was saying the wrong thing
+  // with true numbers. The fix is entirely in the words: each sentence names its
+  // OWN source and states that the other column is not measuring it.
+  //
+  // ⚠️ THE RECONCILIATION CHANGED WITH ADR 0010 AND THESE SENTENCES CHANGED WITH
+  // IT. `Posts` used to come from an externally-owned view fed by a separate
+  // pipeline and attributed by NAME MATCH, so the definition disclosed an
+  // under-count risk. One `/upload` now writes the audit row and the posts in a
+  // single transaction, and attribution is a foreign key — so the two columns can
+  // only disagree for history loaded by the one-time migration, and the
+  // under-count it warned about cannot happen. Leaving that warning up would
+  // send staff hunting a failure mode that no longer exists.
   //
   // ⚠️ STAFF VOCABULARY IS CORRECT HERE AND MUST STAY. "Upload", "ingest" and
   // "pipeline" are the words the people who perform uploads use, and naming the
@@ -140,12 +148,12 @@ export const METRIC_DEFINITIONS = {
   clientListLastArcbaseUpload: {
     term: "Last ArcBase upload",
     definition:
-      "When a file was last ingested for this client through ArcBase's own upload page. It measures nothing else — posts reach the reporting data through a separate external pipeline, so a client can read “Never” here and still have a Posts count beside it. The two columns describe two different pipelines and neither one contradicts the other. “Never” is a known fact, not missing data: nobody has ever uploaded a file for this client here. A dash is a third case again — the upload history could not be read at all.",
+      "When a file was last ingested for this client through ArcBase's own upload page. It measures nothing else. Every upload records this date and the posts together, so for anything uploaded here the two columns move as one — but a client can still read “Never” with a Posts count beside it, because posts loaded by the one-time migration of older history arrived with no upload to record. Neither column contradicts the other. “Never” is a known fact, not missing data: nobody has ever uploaded a file for this client here. A dash is a third case again — the upload history could not be read at all.",
   },
   clientListPosts: {
     term: "Posts",
     definition:
-      "How many posts the reporting data attributes to this client. It arrives from the external pipeline rather than from ArcBase's uploads, so it is independent of the column beside it and the two are expected to disagree. Attribution is by name match, so a client whose name is recorded differently upstream than it is registered here will be under-counted — and an under-counted client looks exactly like one who posted less. A dash means the count could not be read, which is never a zero.",
+      "How many posts ArcBase holds for this client. For anything uploaded here, a post belongs to whichever client was chosen on the upload form — a recorded link, not a guess from the author name on the row — so a spelling difference in the scrape cannot lose it. Older history arrived by a one-time migration that did match on the author name, so a post whose name did not match was left behind and is missing from this count. That migration is also why this can show a count for a client with no upload date beside it. A dash means the count could not be read, which is never a zero.",
   },
 
   // ⚠️ TWO STATES, AND IT USED TO BE FOUR. The Writer cell could say "assigned
@@ -179,7 +187,7 @@ export const METRIC_DEFINITIONS = {
   reportTotalPosts: {
     term: "Total posts",
     definition:
-      "How many posts fall inside the SELECTED period — the one named by the caption and the picker above. The three large figures are all scoped to that period; the two rows beneath them are all-time, which is why a number can repeat across them without anything being wrong.",
+      "How many posts fall inside the SELECTED period — the one named by the caption and the picker above. The four large figures are all scoped to that period; the two rows beneath them are all-time, which is why a number can repeat across them without anything being wrong.",
   },
   reportAvgInteractions: {
     term: "Avg interactions",
@@ -190,6 +198,17 @@ export const METRIC_DEFINITIONS = {
     term: "Total interactions",
     definition:
       "Total interactions across the posts in the selected period. It is the source’s own interactions figure summed — never likes, comments and shares added together, because the source may count things those three do not, and a derived total that disagreed with the panels below would discredit the report.",
+  },
+  // ⚠️ ITS OWN KEY, NOT A REUSE OF THE DASHBOARD'S `Impressions`. The dashboard
+  // sentence names "the selected window"; every report label names the REPORT'S
+  // spans, and the hero/matrix split above is the reason. It also has to say
+  // something the dashboard never has to: which POPULATION this total covers,
+  // because the charts further down the same page deliberately cover a smaller
+  // one.
+  reportTotalImpressions: {
+    term: "Total impressions",
+    definition:
+      "How many times the posts in the SELECTED period were seen, added together across those posts — a total for the period, not an average per post. It covers exactly the posts “Total posts” beside it counts, including any post whose publish date could not be worked out: such a post is left out of the charts below, which need a date to place it on a timeline, but the times it was seen are a real measurement and belong in this total.",
   },
   reportMonthlyAvg: {
     term: "Monthly avg",
@@ -420,6 +439,7 @@ export const REPORT_METRIC_KEYS: Record<string, MetricKey> = {
   "Total posts": "reportTotalPosts",
   "Avg interactions": "reportAvgInteractions",
   "Total interactions": "reportTotalInteractions",
+  "Total impressions": "reportTotalImpressions",
   // The matrix rows — ALL TIME. Keyed by ROW, not by cell: one sentence covering
   // a row's three figures reads better than six ⓘ crowded into numeric cells,
   // and it is the only place the em dash in the maxima row can be explained.

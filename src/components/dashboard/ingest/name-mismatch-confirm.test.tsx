@@ -72,12 +72,24 @@ describe("NameMismatchConfirm — evidence, not a verdict", () => {
     expect(screen.getByText(/nothing has been uploaded/i)).toBeInTheDocument();
   });
 
-  it("names the consequence — the posts upload and then do not appear", async () => {
+  it("⚠️ names the TRUE consequence — filed under the selected client, not lost", async () => {
+    // ⚠️ THE CONSEQUENCE FLIPPED WITH ADR 0010. Attribution is now the
+    // `client_id` stamped from the operator's own selection, so nothing vanishes:
+    // these posts WILL be filed under this client. The danger became
+    // MISATTRIBUTION, and its remedy is changing the selection — not aligning
+    // names, which no longer affects anything.
+    //
+    // ⚠️ THE PREVIOUS VERSION OF THIS TEST PINNED THE LIE. It asserted
+    // `/won't appear|never appear/i`, which is satisfied by exactly the sentence
+    // that ADR 0010 makes false — so the copy could have stayed wrong forever
+    // with this test green. The negative below is the tripwire.
     renderIt();
 
-    // Said twice on purpose: once as prose ("never appear anywhere") and once as
-    // a per-author badge. Both are the consequence, so both count.
-    expect(screen.getAllByText(/won't appear|never appear/i).length).toBeGreaterThan(0);
+    const text = document.body.textContent ?? "";
+    expect(text).toMatch(/files posts by the client you selected/i);
+    expect(text).toMatch(/filed under Eitan Hoenig anyway/i);
+    expect(text).toMatch(/go back and change the client/i);
+    expect(text).not.toMatch(/won't appear|never appear|will not appear/i);
   });
 
   it("lets staff proceed deliberately", async () => {
@@ -106,8 +118,11 @@ describe("NameMismatchConfirm — evidence, not a verdict", () => {
     expect(screen.getByRole("button", { name: /go back/i })).toBeDisabled();
   });
 
-  it("distinguishes the authors that WILL match in a mixed upload", async () => {
-    // Partial mismatches are the confusing case: some posts appear, some vanish.
+  it("distinguishes the authors that DO match in a mixed upload", async () => {
+    // ⚠️ Partial mismatches are the confusing case, but no longer because some
+    // posts vanish — all five are filed under the selected client. What differs
+    // is only whether the scrape agrees about who wrote them, so the badge names
+    // the AUTHOR, not an outcome.
     renderIt({
       report: {
         clientName: "Eitan Hoenig",
@@ -122,8 +137,9 @@ describe("NameMismatchConfirm — evidence, not a verdict", () => {
 
     expect(screen.getByText(/2 of 5/)).toBeInTheDocument();
     // The matching author is labelled, and the prose accounts for the remainder.
-    expect(screen.getByText("will appear")).toBeInTheDocument();
-    expect(screen.getByText(/other 3 will appear/i)).toBeInTheDocument();
+    expect(screen.getByText("author matches")).toBeInTheDocument();
+    expect(screen.getByText("author differs")).toBeInTheDocument();
+    expect(document.body.textContent).toMatch(/other 3 carry a matching author name/i);
   });
 
   it("renders a missing author name legibly rather than as a blank row", async () => {

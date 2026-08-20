@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { utcDayBounds } from "@/lib/date-range";
 import { asPage, readAllPages, type PagedRead, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
-import { effectiveMs, type BiPostRow } from "@/services/analytics";
+import { effectiveMs, type PostMetricsRow } from "@/services/analytics";
 import type { ReportPeriod } from "@/services/types";
 
 // The paging itself lives in `@/lib/supabase/paged` — the ONE implementation
@@ -12,9 +12,14 @@ import type { ReportPeriod } from "@/services/types";
 export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The shared BI post-row seam: ONE paged read of `bi.linkedin_post_latest` and
-// ONE period-selection predicate, used by every screen that shows a client's
+// The shared post-row seam: ONE paged read of the app-owned `public.client_posts`
+// and ONE period-selection predicate, used by every screen that shows a client's
 // posts (the LinkedIn Report and the per-post drill-down).
+//
+// ⚠️ IT READ AN EXTERNALLY-OWNED VIEW UNTIL ADR 0010, and the row shape
+// (`PostMetricsRow`) did not change across that cutover — which is why repointing
+// the source touched one clause here and nothing downstream at all. The module
+// and the type were named for that external layer and have been renamed with it.
 //
 // ⚠️ THIS MODULE EXISTS TO MAKE TWO SCREENS STRUCTURALLY UNABLE TO DISAGREE.
 //
@@ -35,8 +40,8 @@ export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
  *
  * BOTH engagement-rate columns are selected, and that is deliberate:
  *   • `calculated_engagement_rate` — the VIEW's per-post figure, and the one
- *     ArcBase ships. Per ADR 0009 the BI views own the analytics contract, so
- *     ArcBase reads their number rather than deriving a rival one.
+ *     ArcBase ships. ArcBase now derives it itself at ingest (ADR 0010): it is
+ *     interactions / impressions, NULL when impressions is NULL or zero.
  *   • `provided_engagement_rate` — the SCRAPER's own figure. Never rendered.
  *     Read solely so the Data Quality panel can RECONCILE the two and report
  *     where they disagree.
@@ -45,24 +50,24 @@ export { PAGE_SIZE, MAX_PAGES } from "@/lib/supabase/paged";
  * column someone happened to pick.
  */
 const POST_COLUMNS =
-  "client_id, linkedin_post_id, post_url, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, provided_engagement_rate, calculated_engagement_rate, scraped_at";
+  "client_id, linkedin_post_id, post_url, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, provided_engagement_rate, calculated_engagement_rate, post_format_type, scraped_at";
 
 /**
  * A row paired with its RESOLVED timestamp — the placeable subset. `ms` is the
  * WINDOWING key (`effectiveMs`), never a publish date for display.
  */
 export interface PlacedRow {
-  row: BiPostRow;
+  row: PostMetricsRow;
   ms: number;
 }
 
 /** A row paired with its resolved timestamp; `ms` is null when undatable. */
 interface DatedRow {
-  row: BiPostRow;
+  row: PostMetricsRow;
   ms: number | null;
 }
 
-export function withDates(rows: BiPostRow[]): DatedRow[] {
+export function withDates(rows: PostMetricsRow[]): DatedRow[] {
   return rows.map((row) => ({ row, ms: effectiveMs(row) }));
 }
 
@@ -113,7 +118,7 @@ export function periodRange(period: ReportPeriod): { start: number; end: number 
  * `selectPeriodRows` — which for all-time is every row, including rows that
  * could not be dated at all.
  */
-export function selectPeriodPlaceable(rows: BiPostRow[], period: ReportPeriod): PlacedRow[] {
+export function selectPeriodPlaceable(rows: PostMetricsRow[], period: ReportPeriod): PlacedRow[] {
   const placeable = withDates(rows).filter((d): d is PlacedRow => d.ms !== null);
   if (period.kind === "all") return placeable;
   const { start, end } = periodRange(period);
@@ -129,33 +134,39 @@ export function selectPeriodPlaceable(rows: BiPostRow[], period: ReportPeriod): 
  * bounds would silently drop those rows, and the count above the table would
  * stop matching the rows in it.
  */
-export function selectPeriodRows(rows: BiPostRow[], period: ReportPeriod): BiPostRow[] {
+export function selectPeriodRows(rows: PostMetricsRow[], period: ReportPeriod): PostMetricsRow[] {
   if (period.kind === "all") return rows;
   return selectPeriodPlaceable(rows, period).map((d) => d.row);
 }
 
-/** The label every warning from this view carries. */
-const BI_LABEL = "bi.linkedin_post_latest";
+/**
+ * The label every warning from this view carries.
+ *
+ * ⚠️ USER-FACING, NOT A COMMENT — `readAllPages` prints it in truncation and
+ * failure warnings. It named `bi.linkedin_post_latest` until ADR 0010 repointed
+ * the reads onto the app-owned projection.
+ */
+const POSTS_LABEL = "client_posts";
 
 /**
- * A `PageReader` over the BI view, optionally filtered to one client.
+ * A `PageReader` over `public.client_posts`, optionally filtered to one client.
  *
  * The Supabase client is built on the FIRST page and reused, so it is created
  * once per read AND inside `readAllPages`'s try — meaning a throw from
  * `createClient` still degrades to `unavailable` rather than escaping.
  *
- * ⚠️ `POST_COLUMNS` AND `BiPostRow` ARE A PAIR. `asPage` asserts the row type
+ * ⚠️ `POST_COLUMNS` AND `PostMetricsRow` ARE A PAIR. `asPage` asserts the row type
  * rather than checking it (see its doc comment), so adding a column here without
  * adding the field there — or vice versa — compiles cleanly and misleads at
  * runtime. Edit the two together.
  */
-function postPageReader(clientId?: string): PageReader<BiPostRow> {
+function postPageReader(clientId?: string): PageReader<PostMetricsRow> {
   let supabase: ReturnType<typeof createClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createClient(cookies());
-    const base = supabase.schema("bi").from("linkedin_post_latest").select(POST_COLUMNS, opts);
+    const base = supabase.from("client_posts").select(POST_COLUMNS, opts);
     const scoped = clientId === undefined ? base : base.eq("client_id", clientId);
-    return asPage<BiPostRow>(
+    return asPage<PostMetricsRow>(
       scoped
         // Stable ordering — without it, CONCURRENT ranges can overlap or skip
         // rows. Required on every page, not just the first.
@@ -166,7 +177,7 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
 }
 
 /**
- * A client's full post history from the externally-owned BI view.
+ * A client's full post history from the app-owned `public.client_posts`.
  *
  * `unavailable: true` means the read FAILED and is distinct from an empty
  * history — never collapse the two. Degrades rather than throwing so a page
@@ -180,8 +191,8 @@ function postPageReader(clientId?: string): PageReader<BiPostRow> {
  * later. Callers must keep the three outcomes apart, exactly as `PagedRead`
  * defines them.
  */
-export async function readClientPostRows(clientId: string): Promise<PagedRead<BiPostRow>> {
-  return readAllPages(postPageReader(clientId), BI_LABEL);
+export async function readClientPostRows(clientId: string): Promise<PagedRead<PostMetricsRow>> {
+  return readAllPages(postPageReader(clientId), POSTS_LABEL);
 }
 
 /**
@@ -191,6 +202,6 @@ export async function readClientPostRows(clientId: string): Promise<PagedRead<Bi
  * across the entire client book, so a capped read makes every figure on it a
  * lower bound, and it has to be able to say so.
  */
-export async function readAllPostRows(): Promise<PagedRead<BiPostRow>> {
-  return readAllPages(postPageReader(), BI_LABEL);
+export async function readAllPostRows(): Promise<PagedRead<PostMetricsRow>> {
+  return readAllPages(postPageReader(), POSTS_LABEL);
 }

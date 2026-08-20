@@ -1,6 +1,6 @@
 # ArcBase Dashboard
 
-Internal web app for Arcbound staff to register clients, upload scraped LinkedIn post metrics into Supabase, and view the resulting analytics. It is one stage of a pipeline: an external scraper feeds this app, which writes to Supabase; Shay builds views + Power BI downstream.
+Internal web app for Arcbound staff to register clients, upload scraped LinkedIn post metrics, and view the resulting analytics. An external scraper feeds this app; ArcBase stores the scrape in its own `public.posts` and computes every figure it shows. ⚠️ **It is the terminal of that pipeline — there is no downstream consumer** (ADR 0010).
 
 **Full build spec:** see `SPEC.md` — data model, per-feature acceptance criteria, ingestion algorithm, build order, and open decisions. Read it before implementing. It derives from _SRS v0.2_. Visual design lives in the ArcBase design brief.
 
@@ -22,7 +22,7 @@ Internal web app for Arcbound staff to register clients, upload scraped LinkedIn
 
 - `clients` (app-owned) — id, name, linkedin_url
 - `uploads` (app-owned) — one row per scrape: counts, source_type, follower_count, uploaded_by
-- staging/posts table — **owned by Shay**; the app only upserts into it, keyed on `linkedin_post_id`
+- `posts` (app-owned) — one row per post, keyed on `linkedin_post_id`, attributed by a real `client_id` foreign key stamped at upload
 
 ## Routes
 
@@ -30,4 +30,4 @@ Internal web app for Arcbound staff to register clients, upload scraped LinkedIn
 
 ## Out of scope
 
-The scraper, Supabase views, Power BI, and credential provisioning are external systems — do not build them.
+The scraper and credential provisioning are external systems — do not build them. ⚠️ **The downstream analytics layer is not "out of scope"; it no longer exists** (ADR 0010).

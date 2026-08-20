@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import type { ReportPeriod } from "./types";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
@@ -21,14 +21,19 @@ const { state } = vi.hoisted(() => ({
     rejectWith: null as string | null,
     /** The columns string each request selected. */
     selects: [] as string[],
+    /** The table each request read — ADR 0010 repointed this off `bi.*`. */
+    tables: [] as string[],
   },
 }));
 
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
-    schema: () => ({
-      from: () => {
+    // ADR 0010: reads come from the app-owned `public.client_posts` in the
+    // DEFAULT schema, so `from` sits on the client rather than behind `schema`.
+    from: (table: string) => {
+      state.tables.push(table);
+      {
         const q: Record<string, unknown> = {};
         // Captured per QUERY, not globally: concurrent pages are all built
         // before any resolves, so a shared cursor would serve them all the same
@@ -67,8 +72,8 @@ vi.mock("@/lib/supabase/server", () => ({
             })
             .then(resolve, reject);
         return q;
-      },
-    }),
+      }
+    },
   }),
 }));
 
@@ -79,9 +84,9 @@ import {
   readClientPostRows,
   selectPeriodPlaceable,
   selectPeriodRows,
-} from "./bi-posts";
+} from "./post-metrics";
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -104,7 +109,7 @@ function row(over: Partial<BiPostRow>): BiPostRow {
   };
 }
 
-const ids = (rows: BiPostRow[]) => rows.map((r) => r.linkedin_post_id);
+const ids = (rows: PostMetricsRow[]) => rows.map((r) => r.linkedin_post_id);
 
 const JULY: ReportPeriod = {
   kind: "month",
@@ -279,7 +284,7 @@ describe("period bounds are half-open — [start, end)", () => {
   });
 });
 
-describe("readClientPostRows (paged bi read)", () => {
+describe("readClientPostRows (paged read of public.client_posts)", () => {
   it("selects post_url, so the drill-down can link out to each post", async () => {
     state.pages = [[row({ linkedin_post_id: "a" })]];
 
@@ -506,7 +511,7 @@ describe("a custom period is a REAL WINDOW, not a second all-time", () => {
   });
 
   it("DROPS an undatable row, unlike all-time which keeps every row", () => {
-    // ⚠️ All-time is every row, datable or not (bi-posts.ts:113). A custom period
+    // ⚠️ All-time is every row, datable or not (post-metrics.ts). A custom period
     // must NOT inherit that short-circuit: it is a bounded window, and a row that
     // cannot be placed on a time axis cannot be shown to fall inside one.
     expect(ids(selectPeriodRows([DATED, GHOST], ALL))).toEqual(["dated", "ghost"]);

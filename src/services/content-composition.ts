@@ -1,5 +1,5 @@
 import { median } from "@/lib/median";
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import type { ContentComposition, HashtagCount } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,12 +46,12 @@ const MENTION_RE = /(^|[^\w])@\w/;
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
 /** Analysable text, or null when the post carried none (null/blank `post_content`). */
-function analysableText(row: BiPostRow): string | null {
+function analysableText(row: PostMetricsRow): string | null {
   const text = row.post_content;
   return text != null && text.trim() !== "" ? text : null;
 }
 
-export function buildContentComposition(rows: BiPostRow[]): ContentComposition {
+export function buildContentComposition(rows: PostMetricsRow[]): ContentComposition {
   const totalPosts = rows.length;
 
   const hashtagCounts = new Map<string, number>();

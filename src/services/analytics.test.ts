@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Hermetic: mock the Supabase server client + cookies so nothing hits the DB. ─
-const { biState } = vi.hoisted(() => ({
-  biState: {
+const { postsState } = vi.hoisted(() => ({
+  postsState: {
     rows: [] as unknown[],
     error: null as { message: string } | null,
     eqCalls: [] as unknown[][],
@@ -21,7 +21,7 @@ vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 /**
  * ⚠️ THIS MOCK MODELS POSTGREST'S 1000-ROW RESPONSE CAP, AND THAT IS THE POINT.
  *
- * The previous version returned `biState.rows` wholesale however the query was
+ * The previous version returned `postsState.rows` wholesale however the query was
  * built, so it could not tell a paged read from an unpaged one — which is why
  * the dashboard's silent cap survived here unnoticed while two sibling reads were
  * being fixed. A request with no `.range()` gets the first PAGE_SIZE rows and a
@@ -32,68 +32,73 @@ vi.mock("next/headers", () => ({ cookies: () => ({}) }));
  * 1..n CONCURRENTLY and a shared cursor would let one page overwrite another's
  * range — the real client builds a new query per call too.
  */
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => ({
+vi.mock("@/lib/supabase/server", () => {
+  const client: Record<string, unknown> = {
+    // ⚠️ STILL PRESENT, AND DELIBERATELY SO. ADR 0010 moved every read onto the
+    // app-owned `public.client_posts`, which lives in the DEFAULT schema — so the
+    // seam must never call `.schema()` again. Keeping the recorder here means a
+    // regression is caught as a non-empty `schemaCalls` instead of as a TypeError
+    // that could be mistaken for an unrelated mock problem.
     schema: (s: string) => {
-      biState.schemaCalls.push(s);
-      return {
-        from: (t: string) => {
-          biState.fromCalls.push(t);
-          const chain: Record<string, unknown> = {};
-          let from = 0;
-          // The implicit window PostgREST applies when no range is asked for.
-          let to = PAGE_SIZE - 1;
-          let wantsCount = false;
-
-          chain.select = (_columns?: unknown, opts?: { count?: string }) => {
-            if (opts?.count === "exact") wantsCount = true;
-            return chain;
-          };
-          chain.eq = (...a: unknown[]) => {
-            biState.eqCalls.push(a);
-            return chain;
-          };
-          chain.or = (f: string) => {
-            biState.orCalls.push(f);
-            return chain;
-          };
-          chain.order = (...a: unknown[]) => {
-            biState.orderCalls.push(a);
-            return chain;
-          };
-          chain.range = (f: number, t2: number) => {
-            from = f;
-            to = t2;
-            return chain;
-          };
-          chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-            Promise.resolve()
-              .then(() => {
-                if (biState.error) return { data: null, error: biState.error, count: null };
-                return {
-                  data: biState.rows.slice(from, to + 1),
-                  error: null,
-                  count: wantsCount ? biState.rows.length : null,
-                };
-              })
-              .then(resolve, reject);
-          return chain;
-        },
-      };
+      postsState.schemaCalls.push(s);
+      return client;
     },
-  }),
-}));
+    from: (t: string) => {
+      postsState.fromCalls.push(t);
+      const chain: Record<string, unknown> = {};
+      let from = 0;
+      // The implicit window PostgREST applies when no range is asked for.
+      let to = PAGE_SIZE - 1;
+      let wantsCount = false;
+
+      chain.select = (_columns?: unknown, opts?: { count?: string }) => {
+        if (opts?.count === "exact") wantsCount = true;
+        return chain;
+      };
+      chain.eq = (...a: unknown[]) => {
+        postsState.eqCalls.push(a);
+        return chain;
+      };
+      chain.or = (f: string) => {
+        postsState.orCalls.push(f);
+        return chain;
+      };
+      chain.order = (...a: unknown[]) => {
+        postsState.orderCalls.push(a);
+        return chain;
+      };
+      chain.range = (f: number, t2: number) => {
+        from = f;
+        to = t2;
+        return chain;
+      };
+      chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+        Promise.resolve()
+          .then(() => {
+            if (postsState.error) return { data: null, error: postsState.error, count: null };
+            return {
+              data: postsState.rows.slice(from, to + 1),
+              error: null,
+              count: wantsCount ? postsState.rows.length : null,
+            };
+          })
+          .then(resolve, reject);
+      return chain;
+    },
+  };
+  return { createClient: () => client };
+});
 
 vi.mock("@/services/clients", () => ({
   listClientRegistry: () => {
-    biState.registryCalls += 1;
-    return Promise.resolve(biState.registry);
+    postsState.registryCalls += 1;
+    return Promise.resolve(postsState.registry);
   },
 }));
 vi.mock("@/services/uploads", () => ({
   listAllUploads: () => {
-    biState.uploadsCalls += 1;
-    return Promise.resolve(biState.uploads);
+    postsState.uploadsCalls += 1;
+    return Promise.resolve(postsState.uploads);
   },
 }));
 
@@ -107,10 +112,11 @@ import {
   currentWindow,
   effectiveMs,
   getDashboardAnalytics,
-  type BiPostRow,
+  placePost,
+  type PostMetricsRow,
 } from "./analytics";
 
-function biRow(over: Partial<BiPostRow>): BiPostRow {
+function metricsRow(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -143,8 +149,8 @@ const R90: RangeSelection = { kind: "preset", days: 90 };
 const ALL: RangeSelection = { kind: "all" };
 
 // Two current-window posts (Jul), one prior-window (May), one hour-age (null date).
-const ROWS: BiPostRow[] = [
-  biRow({
+const ROWS: PostMetricsRow[] = [
+  metricsRow({
     linkedin_post_id: "p1",
     estimated_post_date: "2026-07-10",
     impressions: 1000,
@@ -156,7 +162,7 @@ const ROWS: BiPostRow[] = [
     scraped_at: "2026-07-15T09:00:00.000Z",
     post_content: "First post content",
   }),
-  biRow({
+  metricsRow({
     linkedin_post_id: "p2",
     estimated_post_date: "2026-07-01",
     impressions: 500,
@@ -168,7 +174,7 @@ const ROWS: BiPostRow[] = [
     scraped_at: "2026-07-14T08:00:00.000Z",
     post_content: "Second",
   }),
-  biRow({
+  metricsRow({
     linkedin_post_id: "p3",
     estimated_post_date: "2026-05-20",
     impressions: 600,
@@ -180,7 +186,7 @@ const ROWS: BiPostRow[] = [
     scraped_at: "2026-05-25T10:00:00.000Z",
     post_content: "Old prior-window post",
   }),
-  biRow({
+  metricsRow({
     linkedin_post_id: "p4",
     estimated_post_date: null,
     post_age: "5h",
@@ -195,20 +201,21 @@ const ROWS: BiPostRow[] = [
 
 describe("effectiveMs (pure)", () => {
   it("uses estimated_post_date when it parses", () => {
-    expect(effectiveMs(biRow({ estimated_post_date: "2026-07-10" }))).toBe(
+    expect(effectiveMs(metricsRow({ estimated_post_date: "2026-07-10" }))).toBe(
       Date.parse("2026-07-10"),
     );
   });
 
   it("falls back to scraped_at when estimated_post_date is null (hour-age posts)", () => {
-    // Shay's resolver leaves estimated_post_date NULL for "23h"-style ages. The
-    // scrape timestamp is the best available stand-in for when it was published.
-    const row = biRow({ estimated_post_date: null, scraped_at: "2026-07-15T09:00:00.000Z" });
+    // `src/lib/post-date.ts` leaves estimated_post_date NULL for "23h"-style ages,
+    // deliberately. The scrape timestamp is the best available stand-in for when
+    // such a post was published.
+    const row = metricsRow({ estimated_post_date: null, scraped_at: "2026-07-15T09:00:00.000Z" });
     expect(effectiveMs(row)).toBe(Date.parse("2026-07-15T09:00:00.000Z"));
   });
 
   it("falls back to scraped_at when estimated_post_date is unparseable", () => {
-    const row = biRow({
+    const row = metricsRow({
       estimated_post_date: "not a date",
       scraped_at: "2026-07-15T09:00:00.000Z",
     });
@@ -216,8 +223,10 @@ describe("effectiveMs (pure)", () => {
   });
 
   it("is null when neither date is usable", () => {
-    expect(effectiveMs(biRow({ estimated_post_date: null, scraped_at: null }))).toBeNull();
-    expect(effectiveMs(biRow({ estimated_post_date: null, scraped_at: "nonsense" }))).toBeNull();
+    expect(effectiveMs(metricsRow({ estimated_post_date: null, scraped_at: null }))).toBeNull();
+    expect(
+      effectiveMs(metricsRow({ estimated_post_date: null, scraped_at: "nonsense" })),
+    ).toBeNull();
   });
 });
 
@@ -247,7 +256,7 @@ describe("hour-age posts (null estimated_post_date) are counted", () => {
 
   it("still excludes a null-date post whose scrape falls outside the window", () => {
     // Proves the fallback is a real date test, not a blanket include.
-    const stale = biRow({
+    const stale = metricsRow({
       linkedin_post_id: "p5",
       estimated_post_date: null,
       post_age: "3h",
@@ -369,20 +378,20 @@ describe("the window is one definition, and everything derives from it", () => {
 
   it("baselines a 48-day custom window on exactly the 48 days before it", () => {
     // One row inside the window, one row inside the prior window, one far older.
-    const inWindow = biRow({
+    const inWindow = metricsRow({
       linkedin_post_id: "w1",
       estimated_post_date: "2026-06-20",
       impressions: 100,
       scraped_at: "2026-06-21T00:00:00.000Z",
     });
     // The prior window is 12 Jun minus 48 days = 25 Apr, up to (not incl.) 12 Jun.
-    const inPrior = biRow({
+    const inPrior = metricsRow({
       linkedin_post_id: "w2",
       estimated_post_date: "2026-05-01",
       impressions: 50,
       scraped_at: "2026-05-02T00:00:00.000Z",
     });
-    const tooOld = biRow({
+    const tooOld = metricsRow({
       linkedin_post_id: "w3",
       estimated_post_date: "2026-04-24", // one day before the prior window opens
       impressions: 999,
@@ -401,7 +410,7 @@ describe("the window is one definition, and everything derives from it", () => {
 
 describe("ALL TIME — no comparable prior period, which is not a zero", () => {
   it("reaches back past every preset's horizon", () => {
-    const ancient = biRow({
+    const ancient = metricsRow({
       linkedin_post_id: "old",
       estimated_post_date: "2019-01-01",
       impressions: 7,
@@ -457,7 +466,7 @@ describe("ALL TIME — no comparable prior period, which is not a zero", () => {
   });
 
   it("draws a single day for a single post", () => {
-    const only = biRow({
+    const only = metricsRow({
       linkedin_post_id: "one",
       estimated_post_date: "2026-07-16",
       impressions: 42,
@@ -485,7 +494,7 @@ describe("every non-all-time range keeps the delta behaviour it has today", () =
     // May post + a null-date post scraped back in May. Neither falls in the
     // current window, so the dashboard is genuinely empty. (p4 is deliberately
     // NOT used here any more — its recent scrape now puts it in the window.)
-    const staleHourAge = biRow({
+    const staleHourAge = metricsRow({
       linkedin_post_id: "p5",
       estimated_post_date: null,
       post_age: "3h",
@@ -526,11 +535,11 @@ describe("the Posts KPI (publishing volume)", () => {
     // One current post; three in the prior 30-day window. A count that fell must
     // read as a down delta, not a flat one — the discriminator against a Posts
     // KPI wired to compare a window against itself.
-    const rows: BiPostRow[] = [
-      biRow({ linkedin_post_id: "cur", estimated_post_date: "2026-07-10", impressions: 10 }),
-      biRow({ linkedin_post_id: "pr1", estimated_post_date: "2026-06-01", impressions: 10 }),
-      biRow({ linkedin_post_id: "pr2", estimated_post_date: "2026-06-05", impressions: 10 }),
-      biRow({ linkedin_post_id: "pr3", estimated_post_date: "2026-05-20", impressions: 10 }),
+    const rows: PostMetricsRow[] = [
+      metricsRow({ linkedin_post_id: "cur", estimated_post_date: "2026-07-10", impressions: 10 }),
+      metricsRow({ linkedin_post_id: "pr1", estimated_post_date: "2026-06-01", impressions: 10 }),
+      metricsRow({ linkedin_post_id: "pr2", estimated_post_date: "2026-06-05", impressions: 10 }),
+      metricsRow({ linkedin_post_id: "pr3", estimated_post_date: "2026-05-20", impressions: 10 }),
     ];
     const a = buildDashboardAnalytics(rows, { range: R30, now: NOW });
     // (1 − 3) / 3 × 100 = −66.7 → 67%, down.
@@ -539,13 +548,16 @@ describe("the Posts KPI (publishing volume)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE WEEKDAY IS WHEN THE POST WENT OUT, NOT WHEN IT WAS SCRAPED.
+// THE WEEKDAY IS WHEN THE POST WENT OUT, NOT WHEN IT WAS SCRAPED — AND NOT EVERY
+// POST HAS ONE TO GIVE.
 //
-// ⚠️ A post whose estimated_post_date the pipeline never resolved (an hour-age
-// post) has NO assertable weekday. Bucketing it by its scrape weekday would pile
-// a whole weekly scrape onto one day and fabricate a spike — turning "which
-// weekday lands best" into "which weekday we happened to scrape". Such posts are
-// EXCLUDED from the weekday buckets and counted separately so the chart can say so.
+// ⚠️ TWO SEPARATE DISQUALIFICATIONS, COUNTED SEPARATELY. A post whose date was
+// never resolved (an hour-age post) is UNDATED; a post dated from a week or month
+// age is DATED BUT TOO COARSE — a week age lands on the scrape's own weekday and a
+// month age on whatever weekday the 1st fell on. Either one, bucketed anyway, turns
+// "which weekday lands best" into "which weekday we happened to scrape". Both are
+// excluded and each is counted under its own name, because a reader told the date
+// is MISSING when it is merely BLUNT goes looking for a fault that is not there.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("average impressions by weekday", () => {
   const wk = (label: string, data: SeriesPoint[]) => data.find((d) => d.label === label)!.value;
@@ -554,11 +566,34 @@ describe("average impressions by weekday", () => {
   //   w1 Wed 2026-07-01 · 100 impressions   w2 Wed 2026-07-08 · 300 impressions
   //   w3 Fri 2026-07-10 · 500 impressions
   //   w4 UNDATED (est null) scraped Thu 2026-07-16 · 999 impressions
-  const WEEKDAY_ROWS: BiPostRow[] = [
-    biRow({ linkedin_post_id: "w1", estimated_post_date: "2026-07-01", impressions: 100 }),
-    biRow({ linkedin_post_id: "w2", estimated_post_date: "2026-07-08", impressions: 300 }),
-    biRow({ linkedin_post_id: "w3", estimated_post_date: "2026-07-10", impressions: 500 }),
-    biRow({
+  //
+  // ⚠️ EACH DATED ROW CARRIES A DAY AGE THAT RESOLVES TO ITS OWN DATE, and it has
+  // to: the weekday chart admits day-precision posts only, and precision is read
+  // off `post_age`. These three rows previously carried a date and NO age, which
+  // asserted a weekday from a row that never said how precisely it was known.
+  const WEEKDAY_ROWS: PostMetricsRow[] = [
+    metricsRow({
+      linkedin_post_id: "w1",
+      post_age: "3d",
+      scraped_at: "2026-07-04T00:00:00.000Z",
+      estimated_post_date: "2026-07-01",
+      impressions: 100,
+    }),
+    metricsRow({
+      linkedin_post_id: "w2",
+      post_age: "2d",
+      scraped_at: "2026-07-10T00:00:00.000Z",
+      estimated_post_date: "2026-07-08",
+      impressions: 300,
+    }),
+    metricsRow({
+      linkedin_post_id: "w3",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10",
+      impressions: 500,
+    }),
+    metricsRow({
       linkedin_post_id: "w4",
       estimated_post_date: null,
       post_age: "5h",
@@ -603,6 +638,11 @@ describe("average impressions by weekday", () => {
     // exclusion is surfaced so the UI can disclose it rather than hide it.
     expect(a.totalPosts).toBe(4);
     expect(a.weekdayUndatedPosts).toBe(1);
+    // ⚠️ AND IT IS NOT COUNTED AS COARSE. w4 has no date at all; the coarse count
+    // is for posts that DO have one. Merging them would report the same number
+    // under a sentence that says something different and untrue.
+    expect(a.weekdayCoarsePosts).toBe(0);
+    expect(a.weekdayPlacedPosts).toBe(3);
   });
 
   it("gives a weekday with no posts a genuine zero", () => {
@@ -616,15 +656,15 @@ describe("average impressions by weekday", () => {
     // Every post in the window is hour-age (undated). There is nothing to place on
     // a weekday, so every bucket is 0 and the whole window is disclosed as excluded
     // — the chart's all-zero empty state still triggers, honestly this time.
-    const undatedOnly: BiPostRow[] = [
-      biRow({
+    const undatedOnly: PostMetricsRow[] = [
+      metricsRow({
         linkedin_post_id: "u1",
         estimated_post_date: null,
         post_age: "2h",
         impressions: 400,
         scraped_at: "2026-07-15T06:00:00.000Z",
       }),
-      biRow({
+      metricsRow({
         linkedin_post_id: "u2",
         estimated_post_date: null,
         post_age: "9h",
@@ -642,9 +682,15 @@ describe("average impressions by weekday", () => {
     // A Friday post from the prior window (2026-06-05) must not inflate Friday of
     // the current window's chart. Under 30d it is out of scope; only w3 (Jul 10,
     // Fri) counts, so Friday stays 500.
-    const withPrior: BiPostRow[] = [
+    const withPrior: PostMetricsRow[] = [
       ...WEEKDAY_ROWS,
-      biRow({ linkedin_post_id: "old", estimated_post_date: "2026-06-05", impressions: 9000 }),
+      metricsRow({
+        linkedin_post_id: "old",
+        post_age: "1d",
+        scraped_at: "2026-06-06T00:00:00.000Z",
+        estimated_post_date: "2026-06-05",
+        impressions: 9000,
+      }),
     ];
     const a = buildDashboardAnalytics(withPrior, { range: R30, now: NOW });
     expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
@@ -672,13 +718,13 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
   //
   // A 25× gap. Nothing subtle can hide in it.
   const LOPSIDED = [
-    biRow({
+    metricsRow({
       linkedin_post_id: "whale",
       impressions: 100_000,
       interactions: 1_000,
       scraped_at: "2026-07-15T00:00:00.000Z",
     }),
-    biRow({
+    metricsRow({
       linkedin_post_id: "minnow",
       impressions: 10,
       interactions: 5,
@@ -700,7 +746,7 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
     // of rates this jumps by ~25 points; weighted, it moves by ~0.005.
     const quieterMinnow = [
       LOPSIDED[0]!,
-      biRow({
+      metricsRow({
         linkedin_post_id: "minnow",
         impressions: 10,
         interactions: 0,
@@ -716,7 +762,7 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
 
   it("reports 0 — not NaN — when the period has impressions of zero", () => {
     const noReach = [
-      biRow({
+      metricsRow({
         linkedin_post_id: "a",
         impressions: 0,
         interactions: 0,
@@ -731,25 +777,31 @@ describe("the dashboard engagement rate is impression-weighted, not a mean of ra
   });
 });
 
-describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
+describe("getDashboardAnalytics (seam → public.client_posts)", () => {
   beforeEach(() => {
-    biState.rows = [];
-    biState.error = null;
-    biState.eqCalls = [];
-    biState.schemaCalls = [];
-    biState.fromCalls = [];
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registry = [];
-    biState.uploads = [];
+    postsState.rows = [];
+    postsState.error = null;
+    postsState.eqCalls = [];
+    postsState.schemaCalls = [];
+    postsState.fromCalls = [];
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registry = [];
+    postsState.uploads = [];
   });
 
-  it("reads the bi view and returns a well-formed analytics", async () => {
-    biState.rows = ROWS;
+  it("reads the APP-OWNED view and returns a well-formed analytics", async () => {
+    postsState.rows = ROWS;
     const a = await getDashboardAnalytics({ range: R30 });
 
-    expect(biState.schemaCalls).toContain("bi");
-    expect(biState.fromCalls).toContain("linkedin_post_latest");
+    // ⚠️ ASSERTS THE APP-OWNED SOURCE BY NAME, AND THAT `bi` IS NEVER REACHED.
+    // This line read `expect(postsState.schemaCalls).toContain("bi")` until ADR 0010
+    // repointed the seam — it pinned the source the app was supposed to stop
+    // using. The empty-schemaCalls half is the tripwire: `toContain` alone would
+    // still pass if some other read quietly went back to `bi`.
+    expect(postsState.fromCalls).toContain("client_posts");
+    expect(postsState.schemaCalls).toEqual([]);
+    expect(postsState.fromCalls).toContain("client_posts");
     expect(a.hero.label).toBe("Impressions");
     expect(a.kpis.map((k) => k.label)).toEqual(["Posts", "Likes", "Comments", "Shares", "Saves"]);
     expect(Array.isArray(a.impressionsSeries)).toBe(true);
@@ -757,13 +809,13 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
   });
 
   it("filters by client_id when provided", async () => {
-    biState.rows = ROWS;
+    postsState.rows = ROWS;
     await getDashboardAnalytics({ range: R30, clientId: "c1" });
-    expect(biState.eqCalls).toContainEqual(["client_id", "c1"]);
+    expect(postsState.eqCalls).toContainEqual(["client_id", "c1"]);
   });
 
   it("returns the empty state for zero rows (available, just no data)", async () => {
-    biState.rows = [];
+    postsState.rows = [];
     const a = await getDashboardAnalytics({ range: R7 });
     expect(a.recentPosts).toEqual([]);
     expect(a.totalPosts).toBe(0);
@@ -777,7 +829,7 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
   // the window's end are filtered in memory by `currentWindow`, which is cheap.
 
   it("bounds the read at the PRIOR window's start, so the baseline is readable", async () => {
-    biState.rows = ROWS;
+    postsState.rows = ROWS;
     await getDashboardAnalytics({ range: R30 });
 
     // ⚠️ THIS BOUND MOVED FORWARD BY ONE DAY ON 2026-08-13, WITH THE PRESET DAY
@@ -790,47 +842,49 @@ describe("getDashboardAnalytics (seam → bi.linkedin_post_latest)", () => {
     const today = new Date();
     const todayStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
     const bound = new Date(todayStart - (2 * 30 - 1) * 86_400_000).toISOString().slice(0, 10);
-    expect(biState.orCalls).toHaveLength(1);
-    expect(biState.orCalls[0]).toBe(`estimated_post_date.gte.${bound},estimated_post_date.is.null`);
+    expect(postsState.orCalls).toHaveLength(1);
+    expect(postsState.orCalls[0]).toBe(
+      `estimated_post_date.gte.${bound},estimated_post_date.is.null`,
+    );
   });
 
   it("bounds a CUSTOM window at its own prior start, not at now minus a span", async () => {
     // A window that ended in the past would read nothing at all under the old
     // `now − 2 × span` bound: both its windows sit further back than that.
-    biState.rows = ROWS;
+    postsState.rows = ROWS;
     await getDashboardAnalytics({
       range: { kind: "custom", startDay: "2026-06-12", endDay: "2026-07-29" },
     });
 
     // 12 Jun 2026 minus its own 48-day span = 25 Apr 2026.
-    expect(biState.orCalls[0]).toBe(
+    expect(postsState.orCalls[0]).toBe(
       "estimated_post_date.gte.2026-04-25,estimated_post_date.is.null",
     );
   });
 
   it("DROPS THE BOUND ENTIRELY for all time — there is no floor to apply", async () => {
-    biState.rows = ROWS;
+    postsState.rows = ROWS;
     await getDashboardAnalytics({ range: ALL });
 
     // Not a bound at the epoch, and not a bound at -Infinity stringified into a
     // date: no clause at all.
-    expect(biState.orCalls).toEqual([]);
+    expect(postsState.orCalls).toEqual([]);
   });
 
   it("never adds an UPPER bound to the query", async () => {
-    biState.rows = ROWS;
+    postsState.rows = ROWS;
     for (const range of [R7, R30, ALL]) {
-      biState.orCalls = [];
+      postsState.orCalls = [];
       await getDashboardAnalytics({ range });
-      for (const filter of biState.orCalls) {
+      for (const filter of postsState.orCalls) {
         expect(filter, JSON.stringify(range)).not.toMatch(/\.lte\.|\.lt\./);
       }
     }
   });
 
-  it("flags unavailable (does not throw) when the bi query errors", async () => {
+  it("flags unavailable (does not throw) when the posts query errors", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    biState.error = { message: "permission denied for schema bi" };
+    postsState.error = { message: "permission denied for schema bi" };
 
     const a = await getDashboardAnalytics({ range: R30 });
 
@@ -857,20 +911,20 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
   const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
 
   beforeEach(() => {
-    biState.rows = [];
-    biState.error = null;
-    biState.eqCalls = [];
-    biState.schemaCalls = [];
-    biState.fromCalls = [];
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registry = [];
-    biState.uploads = [];
+    postsState.rows = [];
+    postsState.error = null;
+    postsState.eqCalls = [];
+    postsState.schemaCalls = [];
+    postsState.fromCalls = [];
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registry = [];
+    postsState.uploads = [];
   });
 
   it("counts EVERY post past the 1000-row response cap, not just the first page", async () => {
-    biState.rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
-      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
+    postsState.rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+      metricsRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
     );
 
     const a = await getDashboardAnalytics({ range: R30 });
@@ -881,8 +935,8 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
   });
 
   it("sums impressions across every page, so the hero KPI is not short either", async () => {
-    biState.rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
-      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
+    postsState.rows = Array.from({ length: PAGE_SIZE + 200 }, (_, i) =>
+      metricsRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow, impressions: 10 }),
     );
 
     const a = await getDashboardAnalytics({ range: R30 });
@@ -894,21 +948,21 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
   // Pages 1..n are issued concurrently; with no total order the database may
   // return a row in two ranges or in neither.
   it("applies a stable order so concurrent page ranges cannot overlap or skip", async () => {
-    biState.rows = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
-      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
+    postsState.rows = Array.from({ length: PAGE_SIZE + 5 }, (_, i) =>
+      metricsRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
     );
 
     await getDashboardAnalytics({ range: R30 });
 
-    expect(biState.orderCalls).toContainEqual(["linkedin_post_id", { ascending: true }]);
+    expect(postsState.orderCalls).toContainEqual(["linkedin_post_id", { ascending: true }]);
   });
 
   // ⚠️ TWO DIFFERENT FACTS. "Meaningless" and "real but incomplete" must not
   // collapse into one flag — the screen says something different for each.
   it("flags TRUNCATED, not unavailable, when the read hits the page cap", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    biState.rows = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
-      biRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
+    postsState.rows = Array.from({ length: MAX_PAGES * PAGE_SIZE + 1 }, (_, i) =>
+      metricsRow({ linkedin_post_id: `p${i}`, estimated_post_date: inWindow }),
     );
 
     const a = await getDashboardAnalytics({ range: R30 });
@@ -926,7 +980,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
 
   it("flags UNAVAILABLE, not truncated, when the read fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    biState.error = { message: "permission denied for schema bi" };
+    postsState.error = { message: "permission denied for schema bi" };
 
     const a = await getDashboardAnalytics({ range: R30 });
 
@@ -937,7 +991,7 @@ describe("the dashboard read is paged — every post, not the first 1000", () =>
   });
 
   it("flags neither on a complete read", async () => {
-    biState.rows = ROWS;
+    postsState.rows = ROWS;
 
     const a = await getDashboardAnalytics({ range: R30 });
 
@@ -979,20 +1033,20 @@ describe("the client comparison", () => {
   });
 
   beforeEach(() => {
-    biState.rows = [];
-    biState.error = null;
-    biState.eqCalls = [];
-    biState.schemaCalls = [];
-    biState.fromCalls = [];
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registryCalls = 0;
-    biState.uploadsCalls = 0;
-    biState.registry = [
+    postsState.rows = [];
+    postsState.error = null;
+    postsState.eqCalls = [];
+    postsState.schemaCalls = [];
+    postsState.fromCalls = [];
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registryCalls = 0;
+    postsState.uploadsCalls = 0;
+    postsState.registry = [
       { id: "c1", name: "Bryan Wish" },
       { id: "c2", name: "Ada Lovelace" },
     ];
-    biState.uploads = [
+    postsState.uploads = [
       upload("c1", "2026-07-20T00:00:00.000Z", 10_000),
       upload("c2", "2026-07-20T00:00:00.000Z", 2_000),
     ];
@@ -1002,14 +1056,14 @@ describe("the client comparison", () => {
   // registry Client or counted as unattributed — never silently dropped. A
   // reader must be able to reconcile the table against the post count above it.
   it("accounts for EVERY post in the window: rows + unattributed === totalPosts", async () => {
-    biState.rows = [
-      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
-      biRow({ linkedin_post_id: "b", client_id: "c1", estimated_post_date: inWindow }),
-      biRow({ linkedin_post_id: "c", client_id: "c2", estimated_post_date: inWindow }),
+    postsState.rows = [
+      metricsRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+      metricsRow({ linkedin_post_id: "b", client_id: "c1", estimated_post_date: inWindow }),
+      metricsRow({ linkedin_post_id: "c", client_id: "c2", estimated_post_date: inWindow }),
       // ⚠️ A REAL UNATTRIBUTED POST. Attribution happens downstream (ADR 0009),
       // so a client_id matching nobody in the roster is expected, not a bug. A
       // parity test whose unattributed term is always 0 proves nothing.
-      biRow({ linkedin_post_id: "d", client_id: "ghost", estimated_post_date: inWindow }),
+      metricsRow({ linkedin_post_id: "d", client_id: "ghost", estimated_post_date: inWindow }),
     ];
 
     const a = await getDashboardAnalytics({ range: R30 });
@@ -1021,10 +1075,14 @@ describe("the client comparison", () => {
   });
 
   it("excludes posts outside the window from both the rows and the unattributed count", async () => {
-    biState.rows = [
-      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
-      biRow({ linkedin_post_id: "old", client_id: "c1", estimated_post_date: outOfWindow }),
-      biRow({ linkedin_post_id: "oldghost", client_id: "ghost", estimated_post_date: outOfWindow }),
+    postsState.rows = [
+      metricsRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+      metricsRow({ linkedin_post_id: "old", client_id: "c1", estimated_post_date: outOfWindow }),
+      metricsRow({
+        linkedin_post_id: "oldghost",
+        client_id: "ghost",
+        estimated_post_date: outOfWindow,
+      }),
     ];
 
     const a = await getDashboardAnalytics({ range: R30 });
@@ -1039,8 +1097,8 @@ describe("the client comparison", () => {
   // ⚠️ A CLIENT WHO PUBLISHED NOTHING IS A FINDING. Dropping the row would make
   // the book look smaller and better than it is.
   it("keeps a Client with no posts in range, as a genuine 0 with nothing derived", async () => {
-    biState.rows = [
-      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+    postsState.rows = [
+      metricsRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
     ];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
@@ -1055,8 +1113,8 @@ describe("the client comparison", () => {
   });
 
   it("reports the engagement rate as null, never 0, when a Client had no impressions", async () => {
-    biState.rows = [
-      biRow({
+    postsState.rows = [
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1076,9 +1134,9 @@ describe("the client comparison", () => {
   // ⚠️ ONE ENGAGEMENT-RATE DEFINITION. Impression-weighted, via `weightedRate`
   // — never the mean of the posts' individual rates.
   it("computes the engagement rate impression-weighted, not as a mean of per-post rates", async () => {
-    biState.rows = [
+    postsState.rows = [
       // 1 interaction / 10 impressions = 10%
-      biRow({
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1086,7 +1144,7 @@ describe("the client comparison", () => {
         interactions: 1,
       }),
       // 10 interactions / 1000 impressions = 1%
-      biRow({
+      metricsRow({
         linkedin_post_id: "b",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1102,14 +1160,14 @@ describe("the client comparison", () => {
   });
 
   it("averages impressions per post, and reports null rather than 0 when there are none", async () => {
-    biState.rows = [
-      biRow({
+    postsState.rows = [
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
         impressions: 300,
       }),
-      biRow({
+      metricsRow({
         linkedin_post_id: "b",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1144,8 +1202,8 @@ describe("the comparison's follower-normalised figure", () => {
   });
 
   beforeEach(() => {
-    biState.rows = [
-      biRow({
+    postsState.rows = [
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1153,17 +1211,17 @@ describe("the comparison's follower-normalised figure", () => {
         impressions: 1000,
       }),
     ];
-    biState.error = null;
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registryCalls = 0;
-    biState.uploadsCalls = 0;
-    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
-    biState.uploads = [];
+    postsState.error = null;
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registryCalls = 0;
+    postsState.uploadsCalls = 0;
+    postsState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    postsState.uploads = [];
   });
 
   it("takes the MOST RECENT recorded follower count, skipping uploads that recorded none", async () => {
-    biState.uploads = [
+    postsState.uploads = [
       // Newest, but recorded nothing — skipped, never read as a drop to zero.
       upload("c1", "2026-07-22T00:00:00.000Z", null),
       upload("c1", "2026-07-20T00:00:00.000Z", 10_000),
@@ -1178,7 +1236,7 @@ describe("the comparison's follower-normalised figure", () => {
   });
 
   it("reports followers and the per-1,000 rate as null when nothing was ever recorded", async () => {
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null)];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1188,7 +1246,7 @@ describe("the comparison's follower-normalised figure", () => {
 
   // ⚠️ A RATE PER NOTHING IS UNDEFINED — not Infinity, and not zero.
   it("reports the per-1,000 rate as null when the follower count is a recorded 0", async () => {
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 0)];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 0)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1226,8 +1284,8 @@ describe("the comparison's raw connection count", () => {
   });
 
   beforeEach(() => {
-    biState.rows = [
-      biRow({
+    postsState.rows = [
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1235,17 +1293,17 @@ describe("the comparison's raw connection count", () => {
         impressions: 1000,
       }),
     ];
-    biState.error = null;
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registryCalls = 0;
-    biState.uploadsCalls = 0;
-    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
-    biState.uploads = [];
+    postsState.error = null;
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registryCalls = 0;
+    postsState.uploadsCalls = 0;
+    postsState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    postsState.uploads = [];
   });
 
   it("takes the MOST RECENT recorded connection count, skipping uploads that recorded none", async () => {
-    biState.uploads = [
+    postsState.uploads = [
       // Newest, but carried no connection count — skipped, never a drop to zero.
       upload("c1", "2026-07-22T00:00:00.000Z", 1_000, null),
       upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000),
@@ -1259,7 +1317,7 @@ describe("the comparison's raw connection count", () => {
 
   it("reports connections as null when nothing was ever recorded", async () => {
     // The DEFAULT for every client today: a full follower history, no connections.
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1271,7 +1329,7 @@ describe("the comparison's raw connection count", () => {
   });
 
   it("never lets a follower count stand in for a missing connection count", async () => {
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 10_000, null)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1280,7 +1338,7 @@ describe("the comparison's raw connection count", () => {
   });
 
   it("keeps a recorded 0 as 0 — a measured zero is a fact, not a gap", async () => {
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 0)];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 0)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1292,8 +1350,8 @@ describe("the comparison's raw connection count", () => {
     // ⚠️ WHY THE RAW COUNT SURVIVES WHERE THE RATE DID NOT. A rate needs a
     // numerator and a sample size; a captured count needs neither, so a silent
     // Client still has a real, reportable connection figure.
-    biState.rows = [];
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 5_000)];
+    postsState.rows = [];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", null, 5_000)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1306,7 +1364,7 @@ describe("the comparison's raw connection count", () => {
     // every key that may exist catches ANY derived figure someone adds back —
     // not just the per-1,000-connections one that was deliberately removed —
     // while leaving the FOLLOWER rate in place, because that asymmetry is intended.
-    biState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000)];
+    postsState.uploads = [upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000)];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1330,11 +1388,11 @@ describe("the comparison's raw connection count", () => {
   });
 
   it("carries a connections median with its own sample size", async () => {
-    biState.registry = [
+    postsState.registry = [
       { id: "c1", name: "A" },
       { id: "c2", name: "B" },
     ];
-    biState.uploads = [
+    postsState.uploads = [
       upload("c1", "2026-07-20T00:00:00.000Z", 1_000, 5_000),
       // c2 recorded a follower count but no connections — it contributes to the
       // followers median and NOT to the connections one.
@@ -1353,33 +1411,33 @@ describe("the comparison's medians carry their sample size", () => {
   const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
 
   beforeEach(() => {
-    biState.error = null;
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registryCalls = 0;
-    biState.uploadsCalls = 0;
-    biState.uploads = [];
-    biState.registry = [
+    postsState.error = null;
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registryCalls = 0;
+    postsState.uploadsCalls = 0;
+    postsState.uploads = [];
+    postsState.registry = [
       { id: "c1", name: "A" },
       { id: "c2", name: "B" },
       { id: "c3", name: "C" },
       // Posted nothing: contributes no value to any median.
       { id: "c4", name: "D" },
     ];
-    biState.rows = [
-      biRow({
+    postsState.rows = [
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
         impressions: 100,
       }),
-      biRow({
+      metricsRow({
         linkedin_post_id: "b",
         client_id: "c2",
         estimated_post_date: inWindow,
         impressions: 200,
       }),
-      biRow({
+      metricsRow({
         linkedin_post_id: "c",
         client_id: "c3",
         estimated_post_date: inWindow,
@@ -1411,16 +1469,16 @@ describe("the comparison is only built where it is meaningful", () => {
   const inWindow = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
 
   beforeEach(() => {
-    biState.rows = [
-      biRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
+    postsState.rows = [
+      metricsRow({ linkedin_post_id: "a", client_id: "c1", estimated_post_date: inWindow }),
     ];
-    biState.error = null;
-    biState.orderCalls = [];
-    biState.orCalls = [];
-    biState.registryCalls = 0;
-    biState.uploadsCalls = 0;
-    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
-    biState.uploads = [];
+    postsState.error = null;
+    postsState.orderCalls = [];
+    postsState.orCalls = [];
+    postsState.registryCalls = 0;
+    postsState.uploadsCalls = 0;
+    postsState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    postsState.uploads = [];
   });
 
   // ⚠️ AND IT DOES NOT PAY FOR WHAT IT WILL NOT USE.
@@ -1428,16 +1486,16 @@ describe("the comparison is only built where it is meaningful", () => {
     const a = await getDashboardAnalytics({ range: R30, clientId: "c1" });
 
     expect(a.comparison).toBeNull();
-    expect(biState.registryCalls).toBe(0);
-    expect(biState.uploadsCalls).toBe(0);
+    expect(postsState.registryCalls).toBe(0);
+    expect(postsState.uploadsCalls).toBe(0);
   });
 
   it("is built, and reads both sources, in the all-clients state", async () => {
     const a = await getDashboardAnalytics({ range: R30 });
 
     expect(a.comparison).not.toBeNull();
-    expect(biState.registryCalls).toBe(1);
-    expect(biState.uploadsCalls).toBe(1);
+    expect(postsState.registryCalls).toBe(1);
+    expect(postsState.uploadsCalls).toBe(1);
   });
 
   // ⚠️ THE DASHBOARD READS THE CLIENT BOOK ONCE PER REQUEST. The page reads the
@@ -1454,14 +1512,14 @@ describe("the comparison is only built where it is meaningful", () => {
     // read would have been.
     expect(a.comparison).not.toBeNull();
     // ...but NOT re-read. The uploads read is still the comparison's own.
-    expect(biState.registryCalls).toBe(0);
-    expect(biState.uploadsCalls).toBe(1);
+    expect(postsState.registryCalls).toBe(0);
+    expect(postsState.uploadsCalls).toBe(1);
   });
 
   it("still reads its own registry when the caller supplies none", async () => {
     // The fallback the other callers and every existing test rely on.
     await getDashboardAnalytics({ range: R30 });
-    expect(biState.registryCalls).toBe(1);
+    expect(postsState.registryCalls).toBe(1);
   });
 
   it("honours a caller-supplied registry that FAILED — comparison unavailable, still no re-read", async () => {
@@ -1471,11 +1529,11 @@ describe("the comparison is only built where it is meaningful", () => {
     // A passed-in null is a failed roster read; the comparison is unavailable and
     // the service does not fall back to a second read that would likely fail too.
     expect(c.unavailable).toBe(true);
-    expect(biState.registryCalls).toBe(0);
+    expect(postsState.registryCalls).toBe(0);
   });
 
   it("marks the comparison unavailable when the registry read failed — not empty", async () => {
-    biState.registry = null;
+    postsState.registry = null;
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1488,8 +1546,8 @@ describe("the comparison is only built where it is meaningful", () => {
   // columns; blanking the whole table to hide them threw away three readable
   // ones. The comparison is now BUILT, and only the follower columns degrade.
   it("BUILDS the comparison when the roster reads but uploads fail — only follower columns degrade", async () => {
-    biState.rows = [
-      biRow({
+    postsState.rows = [
+      metricsRow({
         linkedin_post_id: "a",
         client_id: "c1",
         estimated_post_date: inWindow,
@@ -1497,8 +1555,8 @@ describe("the comparison is only built where it is meaningful", () => {
         interactions: 50,
       }),
     ];
-    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
-    biState.uploads = null; // the upload read FAILED
+    postsState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    postsState.uploads = null; // the upload read FAILED
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1528,8 +1586,8 @@ describe("the comparison is only built where it is meaningful", () => {
   });
 
   it("does not claim followers are unavailable when the uploads read SUCCEEDED", async () => {
-    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
-    biState.uploads = []; // read ok, just no follower rows
+    postsState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    postsState.uploads = []; // read ok, just no follower rows
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1542,8 +1600,8 @@ describe("the comparison is only built where it is meaningful", () => {
     // ⚠️ THE CRY-WOLF CASE THAT MATTERS MOST. Connections is optional, so an
     // all-blank column is the NORMAL state. Flagging it as an outage would put a
     // permanent false alarm on the dashboard.
-    biState.registry = [{ id: "c1", name: "Bryan Wish" }];
-    biState.uploads = [];
+    postsState.registry = [{ id: "c1", name: "Bryan Wish" }];
+    postsState.uploads = [];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
@@ -1551,11 +1609,132 @@ describe("the comparison is only built where it is meaningful", () => {
   });
 
   it("is available and empty — not unavailable — when the registry is genuinely empty", async () => {
-    biState.registry = [];
+    postsState.registry = [];
 
     const c = (await getDashboardAnalytics({ range: R30 })).comparison!;
 
     expect(c.unavailable).toBe(false);
     expect(c.rows).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE GRANULARITY RULE. A resolved `estimated_post_date` is a full timestamp
+// whatever produced it, so a "4d" post and a "4m" post look equally day-exact and
+// are not: the month post was SNAPPED to the 1st and the week post landed on the
+// scrape's own weekday. A bucket at granularity G may only contain posts whose
+// precision is at least as fine as G, and the posts kept out for coarseness are a
+// THIRD state — counted and disclosed, never folded into "undated", which would
+// tell a reader the date is missing when it is merely too blunt for this chart.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("placePost — three states, never two", () => {
+  it("places a day-age post at every granularity", () => {
+    const row = metricsRow({ post_age: "4d", estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "placed", ms: Date.parse("2026-07-10") });
+    expect(placePost(row, "week").state).toBe("placed");
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("⚠️ refuses a week-age post at DAY granularity, and admits it at week", () => {
+    const row = metricsRow({ post_age: "3w", estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "week").state).toBe("placed");
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("⚠️ refuses a month-age post at day AND week granularity, and admits it at month", () => {
+    const row = metricsRow({ post_age: "4m", estimated_post_date: "2026-05-01T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "week")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("⚠️ treats a YEAR age as month-grained — its day is the scrape's", () => {
+    const row = metricsRow({ post_age: "1y", estimated_post_date: "2025-07-15T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "week")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("reports UNDATED — not too-coarse — when there is no resolved date at all", () => {
+    // ⚠️ THE TWO MUST NOT MERGE. "we could not date this post" and "we dated it,
+    // but only to the month" are different facts and get different sentences.
+    const row = metricsRow({ post_age: "5h", estimated_post_date: null });
+    expect(placePost(row, "day")).toEqual({ state: "undated" });
+    expect(placePost(row, "month")).toEqual({ state: "undated" });
+  });
+
+  it("⚠️ treats a dated row whose age cannot be read as MONTH-grained, never finer", () => {
+    // Reachable only for rows loaded by the one-time migration, whose date came
+    // from the previous analytics layer while the age text came from the scrape:
+    // that layer dated hour-ages this resolver refuses. Month is the COARSEST
+    // datable granularity, so such a row can never enter a finer bucket — and the
+    // month charts, which count it today, keep counting it.
+    const row = metricsRow({ post_age: "23h", estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "month").state).toBe("placed");
+
+    const noAge = metricsRow({ post_age: null, estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(noAge, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(noAge, "month").state).toBe("placed");
+  });
+});
+
+describe("the weekday chart admits only day-precision posts", () => {
+  // Four posts, one per precision, all inside the 30-day window. Weekdays (UTC):
+  // 2026-07-10 Fri · 2026-07-08 Wed · 2026-07-01 Wed.
+  const MIXED: PostMetricsRow[] = [
+    metricsRow({
+      linkedin_post_id: "day",
+      post_age: "6d",
+      estimated_post_date: "2026-07-10T00:00:00.000Z",
+      impressions: 900,
+      scraped_at: "2026-07-16T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "week",
+      post_age: "1w",
+      estimated_post_date: "2026-07-08T00:00:00.000Z",
+      impressions: 100,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "month",
+      post_age: "1m",
+      estimated_post_date: "2026-07-01T00:00:00.000Z",
+      impressions: 100,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "hour",
+      post_age: "5h",
+      estimated_post_date: null,
+      impressions: 100,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+    }),
+  ];
+
+  const wkOf = (a: ReturnType<typeof buildDashboardAnalytics>) =>
+    Object.fromEntries(a.impressionsByWeekday.map((d) => [d.label, d.value]));
+
+  it("⚠️ MUTATION PROOF — the week-age and month-age posts do not reach a weekday", () => {
+    const a = buildDashboardAnalytics(MIXED, { range: R30, now: NOW });
+    // Only the "6d" post is averaged. Both coarse posts land on a Wednesday if
+    // their timestamps are trusted, so a Wed of 100 is the signature of the bug.
+    expect(wkOf(a).Fri).toBe(900);
+    expect(wkOf(a).Wed).toBe(0);
+  });
+
+  it("counts the coarse posts separately from the undated one", () => {
+    const a = buildDashboardAnalytics(MIXED, { range: R30, now: NOW });
+    expect(a.weekdayPlacedPosts).toBe(1);
+    expect(a.weekdayCoarsePosts).toBe(2);
+    expect(a.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("⚠️ accounts for EVERY in-window post — the three states partition the total", () => {
+    const a = buildDashboardAnalytics(MIXED, { range: R30, now: NOW });
+    expect(a.weekdayPlacedPosts + a.weekdayCoarsePosts + a.weekdayUndatedPosts).toBe(a.totalPosts);
   });
 });

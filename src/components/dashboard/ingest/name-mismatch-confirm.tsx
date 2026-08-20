@@ -22,6 +22,20 @@ import type { AuthorMatchReport, ScrapedAuthor } from "@/lib/author-match";
  * match would mean guessing which half of a mangled string is the real name,
  * which is how a post gets attributed to the WRONG client — and ADR 0009 forbids
  * rewriting scraped values regardless. The only lever here is human.
+ *
+ * ⚠️ THE CONSEQUENCE ON THIS SCREEN CHANGED WITH ADR 0010, AND THE COPY CHANGED
+ * WITH IT IN THE SAME COMMIT. Attribution used to be a downstream name match, so
+ * a mismatch meant the posts uploaded and then appeared NOWHERE — and every
+ * sentence here said so. Attribution is now the `client_id` foreign key stamped
+ * from the selection the operator made on the form, so nothing is lost: these
+ * posts are filed under the chosen Client whatever the scrape calls their author.
+ *
+ * The gate is kept and REPURPOSED, exactly as ADR 0010 says: from an attribution
+ * mechanism into a WRONG-FILE GUARD. The danger flipped from LOSS to
+ * MISATTRIBUTION, and the two have different remedies — loss was fixed by making
+ * the names agree, misattribution is fixed by changing the client selection or
+ * the file. A screen still describing the old consequence would send staff to
+ * chase a name alignment that now affects nothing.
  */
 export function NameMismatchConfirm({
   report,
@@ -35,7 +49,9 @@ export function NameMismatchConfirm({
   onBack: () => void;
 }) {
   const { clientName, authors, total, mismatched } = report;
-  const willAppear = total - mismatched;
+  // Renamed from `willAppear`: every post appears now. What this counts is the
+  // rows the scrape and the selection AGREE about.
+  const matching = total - mismatched;
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -49,20 +65,23 @@ export function NameMismatchConfirm({
 
         <h2 className="font-display text-lg font-bold tracking-tight">
           {mismatched === total
-            ? `These posts won't appear under ${clientName}`
-            : `Some of these posts won't appear under ${clientName}`}
+            ? `The author on these posts isn't ${clientName}`
+            : `Some of these posts have a different author`}
         </h2>
 
-        {/* ⚠️ THE MECHANISM, NOT JUST THE OUTCOME. Staff cannot act on "they
-            won't appear"; they can act on "we match on the author name, exactly". */}
+        {/* ⚠️ THE MECHANISM, NOT JUST THE OUTCOME. Staff cannot act on a bare
+            outcome; they can act on "we file by your selection, not by the row".
+            That sentence is also what tells them the remedy is the dropdown
+            above rather than a conversation about names. */}
         <p className="mt-1.5 text-sm text-muted-foreground">
           <strong className="font-semibold text-foreground">
             {mismatched} of {total}
           </strong>{" "}
           {total === 1 ? "post carries" : "posts carry"} an author name that doesn&rsquo;t match
-          this client. Analytics attributes posts by author name, matched exactly — so these would
-          upload and then never appear anywhere.
-          {willAppear > 0 && ` The other ${willAppear} will appear as normal.`}
+          this client. ArcBase files posts by the client you selected, not by the author on the row
+          — so {total === 1 ? "it is" : "they are"} filed under {clientName} anyway. If that is
+          wrong, go back and change the client, or upload a different file.
+          {matching > 0 && ` The other ${matching} carry a matching author name.`}
         </p>
 
         <div className="mt-5 border-t pt-4">
@@ -149,11 +168,14 @@ function AuthorRow({ author }: { author: ScrapedAuthor }) {
         <div
           className={
             matches
-              ? "mt-0.5 font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase"
-              : "mt-0.5 font-mono text-[10px] tracking-[0.1em] text-primary uppercase"
+              ? "mt-0.5 font-mono text-[10px] tracking-widest text-muted-foreground uppercase"
+              : "mt-0.5 font-mono text-[10px] tracking-widest text-primary uppercase"
           }
         >
-          {matches ? "will appear" : "won't appear"}
+          {/* ⚠️ NAMES THE AUTHOR, NOT AN OUTCOME. Both rows are filed under the
+              selected Client (ADR 0010); the only thing that differs between
+              them is whether the scrape agrees about who wrote the post. */}
+          {matches ? "author matches" : "author differs"}
         </div>
       </div>
     </div>

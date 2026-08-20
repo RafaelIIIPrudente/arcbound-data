@@ -14,8 +14,10 @@ Roles, Superadmin) has been retired — see [ADR 0007](docs/adr/0007-arcbase-sin
 
 - **ArcBase** — the product this repository builds: an internal web dashboard for
   Arcbound staff to register Clients, ingest scraped LinkedIn post metrics, and
-  view the resulting analytics. It is the middle stage of a pipeline
-  (`external scraper → ArcBase → Supabase views + Power BI`).
+  view the resulting analytics. It is the **terminal** of the pipeline
+  (`external scraper → ArcBase`): ArcBase stores the scrape in its own
+  `public.posts` and computes every figure it shows. Nothing reads downstream of
+  it (ADR 0010).
 
 - **Arcbound** — the company. Its staff are the only users; there is no public
   access.

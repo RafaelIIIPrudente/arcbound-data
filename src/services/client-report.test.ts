@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BiPostRow } from "./analytics";
+import type { PostMetricsRow } from "./analytics";
 import type { ReportPeriod } from "./types";
 
 // ── Hermetic: mock Supabase + cookies so nothing ever touches the live DB. ────
@@ -8,15 +8,15 @@ import type { ReportPeriod } from "./types";
 // `public.post_attributes` (via the post-attributes seam), and `public.uploads`.
 const { state } = vi.hoisted(() => ({
   state: {
-    /** [from, to] of each `.range()` call on the bi view, in order. */
+    /** [from, to] of each `.range()` call on the posts view, in order. */
     ranges: [] as number[][],
     /** One entry per bi page, served BY PAGE INDEX (not by call order). */
-    biPages: [] as unknown[][],
-    biError: null as { message: string } | null,
+    metricsPages: [] as unknown[][],
+    metricsError: null as { message: string } | null,
     /** Fail exactly one page, to prove a LATE failure still fails the whole read. */
-    biErrorOnPage: null as number | null,
-    /** What `count: "exact"` reports. Defaults to the total rows in `biPages`. */
-    biCount: null as number | null,
+    metricsErrorOnPage: null as number | null,
+    /** What `count: "exact"` reports. Defaults to the total rows in `metricsPages`. */
+    metricsCount: null as number | null,
     /** The `count` option each bi request carried — `undefined` when it asked for none. */
     countOptions: [] as (string | undefined)[],
     /** Ids per `.in()` on post_attributes, in call order — observes merged ROW order. */
@@ -34,61 +34,63 @@ const { state } = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
-    // bi.linkedin_post_latest — paged.
-    schema: (s: string) => {
-      state.schemaCalls.push(s);
-      return {
-        from: (t: string) => {
-          state.fromCalls.push(t);
-          const q: Record<string, unknown> = {};
-          // Captured per QUERY, not globally: concurrent pages are all built
-          // before any resolves, so a shared cursor would serve them all the
-          // same page and the merge would look correct while being wrong.
-          let page = 0;
-          let countOption: string | undefined;
-          q.select = (_columns: string, opts?: { count?: string }) => {
-            countOption = opts?.count;
-            state.countOptions.push(opts?.count);
-            return q;
-          };
-          q.eq = () => q;
-          q.or = () => q;
-          q.order = () => q;
-          q.range = (from: number, to: number) => {
-            state.ranges.push([from, to]);
-            // Derived from the request itself (`from / pageLength`) so the mock
-            // never has to know PAGE_SIZE and cannot drift from the module.
-            page = from / (to - from + 1);
-            return q;
-          };
-          q.then = (resolve: (v: unknown) => unknown) => {
-            state.inFlight += 1;
-            state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
-            // Settled on a LATER macrotask so overlap is observable. Resolving
-            // immediately would drain each page before the next was issued, and
-            // peak in-flight would read 1 even for a fully concurrent caller.
-            return new Promise((r) => setTimeout(r, 0))
-              .then(() => {
-                state.inFlight -= 1;
-                const error =
-                  state.biError ??
-                  (state.biErrorOnPage === page ? { message: `page ${page} exploded` } : null);
-                const total = state.biPages.reduce((n, p) => n + p.length, 0);
-                return {
-                  data: error ? null : (state.biPages[page] ?? []),
-                  error,
-                  count: countOption === "exact" ? (state.biCount ?? total) : null,
-                };
-              })
-              .then(resolve);
-          };
-          return q;
-        },
-      };
+    // public.client_posts — paged.
+    // ⚠️ RECORDER, NOT A ROUTE. ADR 0010 moved the read onto the app-owned
+    // `public.client_posts` in the DEFAULT schema, so `schemaCalls` must stay
+    // EMPTY; keeping the method here makes a regression show up as a recorded
+    // call rather than as a TypeError.
+    schema: function (this: unknown, sch: string) {
+      state.schemaCalls.push(sch);
+      return this as never;
     },
-    // public.* — post_attributes and uploads.
     from: (t: string) => {
       state.fromCalls.push(t);
+      if (t === "client_posts") {
+        const q: Record<string, unknown> = {};
+        // Captured per QUERY, not globally: concurrent pages are all built
+        // before any resolves, so a shared cursor would serve them all the
+        // same page and the merge would look correct while being wrong.
+        let page = 0;
+        let countOption: string | undefined;
+        q.select = (_columns: string, opts?: { count?: string }) => {
+          countOption = opts?.count;
+          state.countOptions.push(opts?.count);
+          return q;
+        };
+        q.eq = () => q;
+        q.or = () => q;
+        q.order = () => q;
+        q.range = (from: number, to: number) => {
+          state.ranges.push([from, to]);
+          // Derived from the request itself (`from / pageLength`) so the mock
+          // never has to know PAGE_SIZE and cannot drift from the module.
+          page = from / (to - from + 1);
+          return q;
+        };
+        q.then = (resolve: (v: unknown) => unknown) => {
+          state.inFlight += 1;
+          state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
+          // Settled on a LATER macrotask so overlap is observable. Resolving
+          // immediately would drain each page before the next was issued, and
+          // peak in-flight would read 1 even for a fully concurrent caller.
+          return new Promise((r) => setTimeout(r, 0))
+            .then(() => {
+              state.inFlight -= 1;
+              const error =
+                state.metricsError ??
+                (state.metricsErrorOnPage === page ? { message: `page ${page} exploded` } : null);
+              const total = state.metricsPages.reduce((n, p) => n + p.length, 0);
+              return {
+                data: error ? null : (state.metricsPages[page] ?? []),
+                error,
+                count: countOption === "exact" ? (state.metricsCount ?? total) : null,
+              };
+            })
+            .then(resolve);
+        };
+        return q;
+      }
+      // public.* — post_attributes and uploads.
       const q: Record<string, unknown> = {};
       q.select = () => q;
       q.eq = () => q;
@@ -107,11 +109,11 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-// PAGE_SIZE / MAX_PAGES now live in the shared `bi-posts` seam — the paging they
+// PAGE_SIZE / MAX_PAGES now live in the shared `post-metrics` seam — the paging they
 // govern is read by the report AND the per-post drill-down. Import paths only:
 // every assertion below is unchanged, which is what makes this file the guard
 // proving that extraction was behaviour-preserving.
-import { MAX_PAGES, PAGE_SIZE } from "./bi-posts";
+import { MAX_PAGES, PAGE_SIZE } from "./post-metrics";
 import {
   availablePeriods,
   buildClientReport,
@@ -119,7 +121,22 @@ import {
   parseReportPeriod,
 } from "./client-report";
 
-function row(over: Partial<BiPostRow>): BiPostRow {
+/**
+ * Attach raw formats to rows.
+ *
+ * ⚠️ THE FORMAT RIDES THE ROW SINCE ADR 0010 S3 — `buildClientReport` no longer
+ * takes a separate map, because `public.posts` carries `post_format_type` and the
+ * second read that used to supply it is gone. These fixtures keep the map shape
+ * only because it reads well; this puts the value where the product finds it.
+ */
+function withFormats(rows: PostMetricsRow[], formats: Map<string, string>): PostMetricsRow[] {
+  return rows.map((r) => ({
+    ...r,
+    post_format_type: formats.get(r.linkedin_post_id) ?? null,
+  }));
+}
+
+function row(over: Partial<PostMetricsRow>): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",
@@ -146,7 +163,7 @@ function row(over: Partial<BiPostRow>): BiPostRow {
  * Pages of the given sizes. Ids encode `page-offset`, so the merged order is
  * observable rather than inferred from a row count that any ordering satisfies.
  */
-function pagesOf(sizes: number[]): BiPostRow[][] {
+function pagesOf(sizes: number[]): PostMetricsRow[][] {
   return sizes.map((size, page) =>
     Array.from({ length: size }, (_, i) =>
       row({
@@ -162,10 +179,17 @@ const NOW = new Date("2026-07-16T12:00:00.000Z");
 
 // Jan (1) · May (1) · Jun (2) · Jul (1). Feb–Apr are deliberately empty so the
 // by-month chart has real gaps to render.
-const HISTORY: BiPostRow[] = [
+//
+// ⚠️ EVERY ROW CARRIES A DAY AGE MATCHING ITS DATE. The weekday chart admits
+// day-precision posts only and reads precision off `post_age`, so a row with a
+// date and no age can state no weekday — it would silently zero the weekday
+// assertions below rather than failing them for the reason a reader expects.
+const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jul1",
     estimated_post_date: "2026-07-10",
+    post_age: "1d",
+    scraped_at: "2026-07-11T00:00:00.000Z",
     impressions: 100,
     likes: 10,
     comments: 2,
@@ -175,6 +199,8 @@ const HISTORY: BiPostRow[] = [
   row({
     linkedin_post_id: "jun1",
     estimated_post_date: "2026-06-10",
+    post_age: "1d",
+    scraped_at: "2026-06-11T00:00:00.000Z",
     impressions: 200,
     likes: 20,
     comments: 4,
@@ -184,6 +210,8 @@ const HISTORY: BiPostRow[] = [
   row({
     linkedin_post_id: "jun2",
     estimated_post_date: "2026-06-20",
+    post_age: "1d",
+    scraped_at: "2026-06-21T00:00:00.000Z",
     impressions: 400,
     likes: 8,
     comments: 1,
@@ -193,6 +221,8 @@ const HISTORY: BiPostRow[] = [
   row({
     linkedin_post_id: "may1",
     estimated_post_date: "2026-05-05",
+    post_age: "1d",
+    scraped_at: "2026-05-06T00:00:00.000Z",
     impressions: 300,
     likes: 5,
     comments: 1,
@@ -202,6 +232,8 @@ const HISTORY: BiPostRow[] = [
   row({
     linkedin_post_id: "jan1",
     estimated_post_date: "2026-01-15",
+    post_age: "1d",
+    scraped_at: "2026-01-16T00:00:00.000Z",
     impressions: 900,
     likes: 100,
     comments: 20,
@@ -217,10 +249,10 @@ const YEAR_2026 = { kind: "year", key: "2026", label: "2026", year: 2026 } as co
 
 beforeEach(() => {
   state.ranges = [];
-  state.biPages = [];
-  state.biError = null;
-  state.biErrorOnPage = null;
-  state.biCount = null;
+  state.metricsPages = [];
+  state.metricsError = null;
+  state.metricsErrorOnPage = null;
+  state.metricsCount = null;
   state.countOptions = [];
   state.attributeIdChunks = [];
   state.attributes = [];
@@ -358,9 +390,9 @@ describe("period scoping — what the picker moves, and what it deliberately doe
   // hero is identical too and literally nothing changes but the caption. That
   // reads as a broken picker and is correct behaviour. Anyone re-investigating
   // "All time does nothing" should start here.
-  const build = (rows: BiPostRow[], key: string | undefined) => {
+  const build = (rows: PostMetricsRow[], key: string | undefined) => {
     const periods = availablePeriods(rows);
-    return buildClientReport(rows, new Map(), {
+    return buildClientReport(rows, {
       period: parseReportPeriod(key, periods),
       now: NOW,
       followers: 1000,
@@ -372,11 +404,34 @@ describe("period scoping — what the picker moves, and what it deliberately doe
     r.keyPerformance.selected.map((f) => [f.label, f.value]);
 
   // Jul ×2, Jun ×1, May ×1 — a period change genuinely changes the row set.
+  // Impressions are non-zero so the FOURTH hero figure widens with the other
+  // three: a fixture of zeroes would leave "Total impressions" reading 0 under
+  // both periods, which this test's own name says should not happen.
   const SPREAD = [
-    row({ linkedin_post_id: "jul1", estimated_post_date: "2026-07-10", interactions: 10 }),
-    row({ linkedin_post_id: "jul2", estimated_post_date: "2026-07-11", interactions: 20 }),
-    row({ linkedin_post_id: "jun1", estimated_post_date: "2026-06-10", interactions: 100 }),
-    row({ linkedin_post_id: "may1", estimated_post_date: "2026-05-10", interactions: 500 }),
+    row({
+      linkedin_post_id: "jul1",
+      estimated_post_date: "2026-07-10",
+      impressions: 100,
+      interactions: 10,
+    }),
+    row({
+      linkedin_post_id: "jul2",
+      estimated_post_date: "2026-07-11",
+      impressions: 200,
+      interactions: 20,
+    }),
+    row({
+      linkedin_post_id: "jun1",
+      estimated_post_date: "2026-06-10",
+      impressions: 1000,
+      interactions: 100,
+    }),
+    row({
+      linkedin_post_id: "may1",
+      estimated_post_date: "2026-05-10",
+      impressions: 5000,
+      interactions: 500,
+    }),
   ];
 
   it("widens the HERO figures when the period widens to all-time", () => {
@@ -384,11 +439,13 @@ describe("period scoping — what the picker moves, and what it deliberately doe
       ["Total posts", 2],
       ["Avg interactions", 15],
       ["Total interactions", 30],
+      ["Total impressions", 300],
     ]);
     expect(figures(build(SPREAD, "all"))).toEqual([
       ["Total posts", 4],
       ["Avg interactions", 157.5],
       ["Total interactions", 630],
+      ["Total impressions", 6300],
     ]);
   });
 
@@ -438,7 +495,7 @@ describe("period scoping — what the picker moves, and what it deliberately doe
 // ─────────────────────────────────────────────────────────────────────────────
 describe("all-time figures are INVARIANT to the selected period", () => {
   const build = (period: ReportPeriod) =>
-    buildClientReport(HISTORY, new Map(), {
+    buildClientReport(HISTORY, {
       period,
       now: NOW,
       followers: 5000,
@@ -522,7 +579,7 @@ describe("all-time figures are INVARIANT to the selected period", () => {
 
 describe("the four charts follow the selected period", () => {
   const build = (period: ReportPeriod, rows = HISTORY, formats = new Map<string, string>()) =>
-    buildClientReport(rows, formats, {
+    buildClientReport(withFormats(rows, formats), {
       period,
       now: NOW,
       followers: null,
@@ -700,20 +757,52 @@ describe("the four charts follow the selected period", () => {
 // ⚠️ The report's weekday chart used to bucket on `effectiveMs` (the windowing
 // key, which stands `scraped_at` in for an hour-age post's missing publish date).
 // That dropped every hour-age post onto its SCRAPE weekday — fabricating a rhythm
-// in a client-facing chart. It now dates by `estMs` (estimated_post_date) alone,
-// exactly as the dashboard's weekday chart does; undated posts are excluded and
-// counted in `weekdayUndatedPosts` so the chart can disclose the gap.
+// in a client-facing chart. It now admits DAY-PRECISION posts only, exactly as the
+// dashboard's weekday chart does.
+//
+// ⚠️ AND A RESOLVED DATE IS NOT ENOUGH ON ITS OWN. A week age resolves to the
+// scrape's own weekday and a month age to whatever weekday the 1st fell on, so
+// both would vote on a weekday they never carried. Those posts are counted as
+// COARSE, separately from undated ones, so the chart can say which is which.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("the report weekday chart dates by publish date, never scrape date", () => {
   // All placeable into July — the dated ones by estimated_post_date, the hour-age
   // one by its July scrape. Weekdays (UTC):
   //   d1 Wed 2026-07-01 · 100    d2 Wed 2026-07-08 · 300    d3 Fri 2026-07-10 · 500
   //   z1 Mon 2026-07-13 · 0      u1 UNDATED, scraped Thu 2026-07-16 · 999
-  const WEEKDAY_ROWS: BiPostRow[] = [
-    row({ linkedin_post_id: "d1", estimated_post_date: "2026-07-01", impressions: 100 }),
-    row({ linkedin_post_id: "d2", estimated_post_date: "2026-07-08", impressions: 300 }),
-    row({ linkedin_post_id: "d3", estimated_post_date: "2026-07-10", impressions: 500 }),
-    row({ linkedin_post_id: "z1", estimated_post_date: "2026-07-13", impressions: 0 }),
+  //
+  // ⚠️ EVERY DATED ROW CARRIES A DAY AGE THAT RESOLVES TO ITS OWN DATE. Precision
+  // is read off `post_age`, so a row with a date and no age states no precision at
+  // all — and asserting a weekday from it is the very thing this chart refuses.
+  const WEEKDAY_ROWS: PostMetricsRow[] = [
+    row({
+      linkedin_post_id: "d1",
+      post_age: "3d",
+      scraped_at: "2026-07-04T00:00:00.000Z",
+      estimated_post_date: "2026-07-01",
+      impressions: 100,
+    }),
+    row({
+      linkedin_post_id: "d2",
+      post_age: "2d",
+      scraped_at: "2026-07-10T00:00:00.000Z",
+      estimated_post_date: "2026-07-08",
+      impressions: 300,
+    }),
+    row({
+      linkedin_post_id: "d3",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10",
+      impressions: 500,
+    }),
+    row({
+      linkedin_post_id: "z1",
+      post_age: "1d",
+      scraped_at: "2026-07-14T00:00:00.000Z",
+      estimated_post_date: "2026-07-13",
+      impressions: 0,
+    }),
     row({
       linkedin_post_id: "u1",
       estimated_post_date: null,
@@ -724,7 +813,7 @@ describe("the report weekday chart dates by publish date, never scrape date", ()
   ];
 
   const build = (rows = WEEKDAY_ROWS) =>
-    buildClientReport(rows, new Map<string, string>(), {
+    buildClientReport(rows, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -790,7 +879,7 @@ describe("buildClientReport (pure)", () => {
       ["c", "  Document  "],
     ]);
 
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -812,7 +901,7 @@ describe("buildClientReport (pure)", () => {
     ];
     const formats = new Map([["a", "VIDEO"]]); // "b" has no attribute row at all
 
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -831,7 +920,7 @@ describe("buildClientReport (pure)", () => {
     const rows = [row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })];
     const formats = new Map([["a", "CAROUSEL_V2"]]);
 
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -843,7 +932,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("computes prior-3-month and all-time figures from the FULL history", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -865,7 +954,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("scopes row 1 to the period but rows 2 and 3 to all time", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -886,7 +975,7 @@ describe("buildClientReport (pure)", () => {
     // THE RESHAPE GUARD. Moving nine figures from three flat arrays into a hero
     // plus a matrix is presentation only — this pins all nine so a value that
     // shifted during the move cannot pass as a layout change.
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -939,7 +1028,7 @@ describe("buildClientReport (pure)", () => {
       ),
     ];
     const periods = availablePeriods(rows);
-    const { matrix } = buildClientReport(rows, new Map(), {
+    const { matrix } = buildClientReport(rows, {
       period: parseReportPeriod("all", periods),
       now: NOW,
       followers: null,
@@ -966,7 +1055,7 @@ describe("buildClientReport (pure)", () => {
       ),
     ];
     const periods = availablePeriods(rows);
-    const { matrix } = buildClientReport(rows, new Map(), {
+    const { matrix } = buildClientReport(rows, {
       period: parseReportPeriod("all", periods),
       now: NOW,
       followers: null,
@@ -987,7 +1076,7 @@ describe("buildClientReport (pure)", () => {
     // ALL_TIME, not JULY: a month period now buckets by WEEK, so months with
     // gaps in them only exist for the wider periods. The rule under test — an
     // empty bucket is null, never 0 — is unchanged.
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -1004,7 +1093,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("averages impressions by weekday across all seven days", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1024,7 +1113,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("reports the follower ratio as null (an em dash) when no upload carries a count", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1037,8 +1126,8 @@ describe("buildClientReport (pure)", () => {
     expect(ratio.approximate).toBe(true); // followers are per-Upload, not per-post
   });
 
-  it("leads the scoped row with Total posts, Avg interactions, Total interactions", () => {
-    const report = buildClientReport(HISTORY, new Map(), {
+  it("leads the scoped row with Total posts, Avg interactions, Total interactions, Total impressions", () => {
+    const report = buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1046,13 +1135,83 @@ describe("buildClientReport (pure)", () => {
       availablePeriods: availablePeriods(HISTORY),
     });
 
-    // Order matters: this row reproduces a page of the analytics engineer's
-    // Power BI report, and a reader compares them side by side.
+    // Order matters: this row reproduces a page of the BI report ArcBase's own
+    // report was designed against. That report is retired, so nobody compares
+    // them side by side any more — but the ORDER it fixed is what Arcbound's
+    // readers learned, and changing it now would move figures under them.
     expect(report.keyPerformance.selected.map((f) => f.label)).toEqual([
       "Total posts",
       "Avg interactions",
       "Total interactions",
+      "Total impressions",
     ]);
+  });
+
+  it("totals impressions over the SAME posts as Total posts — undated ones included", () => {
+    // ⚠️ THE POPULATION IS THE WHOLE POINT. "Total posts" is `selected.length`,
+    // so "Total impressions" must sum `selected` — never `selectedPlaceable`,
+    // the narrower DATABLE set the charts read. A post with no resolvable date
+    // cannot be placed on a timeline, but its impressions are a real
+    // measurement: dropping them would understate the total against a post
+    // count that counted the post, under one period caption.
+    const dated = row({
+      linkedin_post_id: "dated",
+      estimated_post_date: "2026-07-10",
+      impressions: 300,
+      interactions: 3,
+    });
+    const ghost = row({
+      // Neither a resolved publish date nor a scrape timestamp, so it is
+      // genuinely unplaceable: `selectPeriodRows` keeps it under all-time and
+      // `selectPeriodPlaceable` drops it. That divergence is what this pins.
+      linkedin_post_id: "ghost",
+      estimated_post_date: null,
+      scraped_at: null,
+      impressions: 700,
+      interactions: 7,
+    });
+    const rows = [dated, ghost];
+
+    const report = buildClientReport(rows, {
+      period: ALL_TIME,
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: availablePeriods(rows),
+    });
+    const value = (label: string) =>
+      report.keyPerformance.selected.find((f) => f.label === label)!.value;
+
+    expect(value("Total posts")).toBe(2);
+    expect(value("Total impressions")).toBe(1000);
+    // THE DISCRIMINATOR. The charts really did exclude the undated post, so a
+    // total of 1,000 cannot have come from the placeable set. A 300 here would
+    // mean the two hero figures describe different sets of posts.
+    expect(report.impressionsPostCount).toBe(1);
+  });
+
+  it("counts a post carrying NO impressions figure as 0, never blanking the total", () => {
+    // `impressions` is `number | null` on the BI row and the local `sum()`
+    // coerces through `num()` — the same coercion already blessed for likes,
+    // comments and reposts. One post missing a figure must not turn the hero
+    // into an em dash: an em dash means "could not be read", and this total was
+    // read fine. (`saves` is the column that must never be coerced; untouched.)
+    const rows = [
+      row({ linkedin_post_id: "a", estimated_post_date: "2026-07-10", impressions: 250 }),
+      row({ linkedin_post_id: "b", estimated_post_date: "2026-07-11", impressions: null }),
+    ];
+
+    const report = buildClientReport(rows, {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+    const total = report.keyPerformance.selected.find((f) => f.label === "Total impressions")!;
+    expect(total.value).toBe(250);
+    expect(total.value).not.toBeNull();
   });
 
   it("totals interactions from the `interactions` field, NOT from likes + comments + reposts", () => {
@@ -1061,7 +1220,7 @@ describe("buildClientReport (pure)", () => {
     // clicks, or apply a definition of its own. These rows make the two
     // readings disagree on purpose: summing the field gives 150, deriving it
     // from likes + comments + reposts gives 20.
-    const divergent: BiPostRow[] = [
+    const divergent: PostMetricsRow[] = [
       row({
         linkedin_post_id: "jul-a",
         estimated_post_date: "2026-07-04",
@@ -1080,7 +1239,7 @@ describe("buildClientReport (pure)", () => {
       }),
     ];
 
-    const report = buildClientReport(divergent, new Map(), {
+    const report = buildClientReport(divergent, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1102,7 +1261,7 @@ describe("buildClientReport (pure)", () => {
       month: 1,
     } as const;
 
-    const report = buildClientReport(HISTORY, new Map(), {
+    const report = buildClientReport(HISTORY, {
       period: february,
       now: NOW,
       followers: null,
@@ -1116,7 +1275,7 @@ describe("buildClientReport (pure)", () => {
   });
 
   it("produces an empty report for a client with zero posts, without throwing", () => {
-    const report = buildClientReport([], new Map(), {
+    const report = buildClientReport([], {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
@@ -1150,7 +1309,7 @@ describe("buildClientReport (pure)", () => {
       }),
     );
 
-    const report = buildClientReport(many, new Map(), {
+    const report = buildClientReport(many, {
       period: { kind: "all", key: "all", label: "All time" },
       now: NOW,
       followers: null,
@@ -1172,7 +1331,7 @@ describe("buildClientReport (pure)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("posting cadence is carried on the report (period-scoped)", () => {
   const build = (period: ReportPeriod, rows = HISTORY) =>
-    buildClientReport(rows, new Map(), {
+    buildClientReport(rows, {
       period,
       now: NOW,
       followers: null,
@@ -1219,7 +1378,19 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
     expect(cadence.datedPosts).toBe(5); // but not dated
     expect(cadence.undatedPosts).toBe(1);
     expect(cadence.timeline).toHaveLength(5); // never placed at its scrape instant
-    expect(cadence.longestGapDays).toBe(110); // gaps unchanged by the undated post
+
+    // ⚠️ RE-TARGETED, NOT WEAKENED. This asserted 110 under the comment "gaps
+    // unchanged by the undated post" — the point being that the ghost must not be
+    // placed at its scrape instant and stretch the gap. It is not placed there
+    // (the timeline assertion above is what proves that, and still does). But an
+    // unchanged gap is not a KNOWN gap: the ghost really was published somewhere,
+    // and somewhere includes inside the 110-day silence. A gap is only a gap if
+    // nothing was published in it.
+    expect(cadence.longestGapDays).toBeNull();
+    expect(cadence.medianGapDays).toBeNull();
+    // ⚠️ And the sibling test above is the positive control: the same HISTORY
+    // WITHOUT the ghost still reports 110 and 28, so this is a real condition and
+    // not the report quietly giving up on gaps.
   });
 });
 
@@ -1230,8 +1401,8 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
 // rule for textless posts end to end.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("content composition is carried on the report (period-scoped)", () => {
-  const build = (rows: BiPostRow[], period: ReportPeriod = JULY) =>
-    buildClientReport(rows, new Map(), {
+  const build = (rows: PostMetricsRow[], period: ReportPeriod = JULY) =>
+    buildClientReport(rows, {
       period,
       now: NOW,
       followers: null,
@@ -1283,7 +1454,7 @@ describe("content composition is carried on the report (period-scoped)", () => {
   });
 });
 
-describe("getClientReport (seam → paged bi read)", () => {
+describe("getClientReport (seam → paged read of public.client_posts)", () => {
   it("pages past the PostgREST 1000-row cap and merges every page", async () => {
     // A FULL first page must trigger a second request — a silent truncation here
     // would look like working software and report wrong all-time figures.
@@ -1291,7 +1462,7 @@ describe("getClientReport (seam → paged bi read)", () => {
       row({ linkedin_post_id: `p${i}`, estimated_post_date: "2026-07-01", impressions: 1 }),
     );
     const tail = [row({ linkedin_post_id: "last", estimated_post_date: "2026-07-02" })];
-    state.biPages = [full, tail];
+    state.metricsPages = [full, tail];
 
     const report = await getClientReport({ clientId: "c1", period: "2026-07" });
 
@@ -1302,7 +1473,7 @@ describe("getClientReport (seam → paged bi read)", () => {
   });
 
   it("issues exactly ONE request when the count fits in a single page", async () => {
-    state.biPages = pagesOf([1]);
+    state.metricsPages = pagesOf([1]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1310,7 +1481,7 @@ describe("getClientReport (seam → paged bi read)", () => {
   });
 
   it("asks for an EXACT count, on the first page only", async () => {
-    state.biPages = pagesOf([PAGE_SIZE, 500]);
+    state.metricsPages = pagesOf([PAGE_SIZE, 500]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1323,7 +1494,7 @@ describe("getClientReport (seam → paged bi read)", () => {
   it("issues exactly one request per page and merges them in PAGE ORDER", async () => {
     const pages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]); // count defaults to 2500
 
-    state.biPages = pages;
+    state.metricsPages = pages;
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
     expect(state.ranges).toEqual([
@@ -1333,15 +1504,22 @@ describe("getClientReport (seam → paged bi read)", () => {
     ]);
     expect(report.totalPostsAllTime).toBe(2500);
 
-    // Row ORDER, observed downstream rather than asserted on a shuffled count:
-    // the seam hands `listPostAttributes` the merged ids, and its chunk queries
-    // are built in that order. Concurrency that resolved out of order would
-    // scramble this while leaving the row COUNT correct.
-    expect(state.attributeIdChunks.flat()).toEqual(pages.flat().map((r) => r.linkedin_post_id));
+    // ⚠️ THE ORDER OBSERVATION MOVED, IT WAS NOT DROPPED. This used to watch the
+    // merged ids arrive at `listPostAttributes`, whose chunk queries were built
+    // in row order — a channel ADR 0010 S3 removed along with that second read,
+    // because the format now rides the row. Nothing in a REPORT can observe row
+    // order: every figure on it is an aggregate, and aggregates are
+    // order-independent by construction.
+    //
+    // The merge-order guarantee is asserted directly, on the seam that owns it,
+    // in `post-metrics.test.ts` → "pages past the PostgREST 1000-row cap and merges
+    // every page in order". What is still provable HERE is that every page was
+    // requested and every row reached the report.
+    expect(pages.flat()).toHaveLength(2500);
   });
 
   it("issues pages 1..n CONCURRENTLY, not one after another", async () => {
-    state.biPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
+    state.metricsPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
 
     await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1358,8 +1536,8 @@ describe("getClientReport (seam → paged bi read)", () => {
   });
 
   it("fails the WHOLE read when a LATER page errors, never a partial result", async () => {
-    state.biPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
-    state.biErrorOnPage = 2;
+    state.metricsPages = pagesOf([PAGE_SIZE, PAGE_SIZE, 500]);
+    state.metricsErrorOnPage = 2;
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1373,8 +1551,8 @@ describe("getClientReport (seam → paged bi read)", () => {
 
   it("warns and caps the read when the count exceeds the page cap", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    state.biPages = pagesOf([PAGE_SIZE]); // pages 1..49 serve []
-    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE
+    state.metricsPages = pagesOf([PAGE_SIZE]); // pages 1..49 serve []
+    state.metricsCount = 60_000; // > MAX_PAGES * PAGE_SIZE
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1390,8 +1568,8 @@ describe("getClientReport (seam → paged bi read)", () => {
 
   it("surfaces the truncated read to the report as read + total", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    state.biPages = pagesOf([PAGE_SIZE]); // page 0 full; pages 1..49 serve []
-    state.biCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
+    state.metricsPages = pagesOf([PAGE_SIZE]); // page 0 full; pages 1..49 serve []
+    state.metricsCount = 60_000; // > MAX_PAGES * PAGE_SIZE — the read cannot be complete
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1406,7 +1584,7 @@ describe("getClientReport (seam → paged bi read)", () => {
   });
 
   it("leaves truncation null on a complete read", async () => {
-    state.biPages = pagesOf([500]);
+    state.metricsPages = pagesOf([500]);
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1414,21 +1592,36 @@ describe("getClientReport (seam → paged bi read)", () => {
     expect(report.truncation ?? null).toBeNull();
   });
 
-  it("reads the externally-owned bi view", async () => {
-    state.biPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
+  it("reads the APP-OWNED view, and never reaches into the bi schema", async () => {
+    // ⚠️ THIS TEST USED TO PIN THE OLD SOURCE — it asserted
+    // `schemaCalls).toContain("bi")` and `fromCalls).toContain(
+    // "linkedin_post_latest")`, so it would have kept passing on exactly the
+    // read ADR 0010 exists to replace. The empty-schemaCalls half is the
+    // tripwire: naming the new table alone would still pass if some other read
+    // quietly went back to `bi`.
+    state.metricsPages = [[row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01" })]];
 
     await getClientReport({ clientId: "c1", period: "all" });
 
-    expect(state.schemaCalls).toContain("bi");
-    expect(state.fromCalls).toContain("linkedin_post_latest");
+    expect(state.fromCalls).toContain("client_posts");
+    expect(state.fromCalls).not.toContain("linkedin_post_latest");
+    expect(state.schemaCalls).toEqual([]);
   });
 
-  it("joins the app-owned asset type onto the bi rows", async () => {
-    state.biPages = [
-      [row({ linkedin_post_id: "a", estimated_post_date: "2026-07-01", interactions: 5 })],
-    ];
-    state.attributes = [
-      { linkedin_post_id: "a", post_format_type: "video", recorded_at: "2026-07-01" },
+  it("reads the asset type OFF THE ROW — no second query joins it in", async () => {
+    // ⚠️ THIS USED TO SET `state.attributes` AND ASSERT A JOIN. ADR 0010 S3 folded
+    // `post_format_type` into `public.posts`, so the format arrives with the row
+    // and the second read of `public.post_attributes` is gone entirely. Raw
+    // casing still survives storage and is still canonicalised at read time.
+    state.metricsPages = [
+      [
+        row({
+          linkedin_post_id: "a",
+          estimated_post_date: "2026-07-01",
+          interactions: 5,
+          post_format_type: "video",
+        }),
+      ],
     ];
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
@@ -1436,8 +1629,8 @@ describe("getClientReport (seam → paged bi read)", () => {
     expect(report.postTypeDistribution.map((b) => b.format)).toEqual(["VIDEO"]);
   });
 
-  it("flags unavailable (does not throw) when the bi read fails", async () => {
-    state.biError = { message: "permission denied for schema bi" };
+  it("flags unavailable (does not throw) when the posts read fails", async () => {
+    state.metricsError = { message: "permission denied for schema bi" };
 
     const report = await getClientReport({ clientId: "c1", period: "all" });
 
@@ -1455,15 +1648,15 @@ describe("getClientReport (seam → paged bi read)", () => {
 // a total is the same lie in a subtler form.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("comparisonRow — saves keeps its three states apart", () => {
-  const build = (rows: BiPostRow[]) =>
-    buildClientReport(rows, new Map(), {
+  const build = (rows: PostMetricsRow[]) =>
+    buildClientReport(rows, {
       period: ALL_TIME,
       now: NOW,
       followers: null,
       connections: null,
       availablePeriods: availablePeriods(rows),
     });
-  const allTimeRow = (rows: BiPostRow[]) =>
+  const allTimeRow = (rows: PostMetricsRow[]) =>
     build(rows).interactionsComparison.find((r) => r.scope === "allTime")!;
 
   it("sums saves and marks the scope complete when EVERY post reported them", () => {
@@ -1520,7 +1713,7 @@ describe("comparisonRow — saves keeps its three states apart", () => {
       row({ linkedin_post_id: "jul", estimated_post_date: "2026-07-10", saves: 5 }),
       row({ linkedin_post_id: "jan", estimated_post_date: "2026-01-10", saves: 100 }),
     ];
-    const report = buildClientReport(rows, new Map(), {
+    const report = buildClientReport(rows, {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1544,7 +1737,7 @@ describe("comparisonRow — saves keeps its three states apart", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("buildClientReport — the raw connection count", () => {
   const build = (connections: number | null, followers: number | null = null) =>
-    buildClientReport(HISTORY, new Map(), {
+    buildClientReport(HISTORY, {
       period: JULY,
       now: NOW,
       followers,
@@ -1613,7 +1806,7 @@ describe("buildClientReport — the raw connection count", () => {
   it("does not scale with the post volume — it is point-in-time, not per-period", () => {
     // A rate would move with the numerator; a captured count must not.
     const busy = build(5000).keyPerformance.connections.value;
-    const quiet = buildClientReport(HISTORY.slice(0, 1), new Map(), {
+    const quiet = buildClientReport(HISTORY.slice(0, 1), {
       period: JULY,
       now: NOW,
       followers: null,
@@ -1635,9 +1828,9 @@ describe("buildClientReport — the raw connection count", () => {
 describe("buildClientReport — a custom period", () => {
   const NOW_C = new Date("2026-07-29T12:00:00.000Z");
 
-  const buildC = (rows: BiPostRow[], key: string | undefined) => {
+  const buildC = (rows: PostMetricsRow[], key: string | undefined) => {
     const periods = availablePeriods(rows);
-    return buildClientReport(rows, new Map(), {
+    return buildClientReport(rows, {
       period: parseReportPeriod(key, periods),
       now: NOW_C,
       followers: 1000,
@@ -1684,6 +1877,8 @@ describe("buildClientReport — a custom period", () => {
       ["Total posts", 3],
       ["Avg interactions", 43.3],
       ["Total interactions", 130],
+      // jun1 1,000 + jul1 100 + jul2 200 — may1's 5,000 is outside the window.
+      ["Total impressions", 1300],
     ]);
   });
 
@@ -1751,5 +1946,84 @@ describe("buildClientReport — a custom period", () => {
   it("labels weekly buckets by the day they open", () => {
     const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
     expect(r.impressionsSeries[0]!.label).toBe("12 Jun");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE CLIENT-FACING WEEKDAY CHART ADMITS DAY-PRECISION POSTS ONLY.
+//
+// This is the same rule the dashboard applies, asserted separately because the
+// consequence is not the same: a fabricated weekday on the dashboard misleads a
+// colleague who can ask, and on this document it misleads a Client who cannot.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the report weekday chart refuses week- and month-grained posts", () => {
+  // Weekdays (UTC): 2026-07-10 Fri · 2026-07-08 Wed · 2026-07-01 Wed.
+  const MIXED: PostMetricsRow[] = [
+    row({
+      linkedin_post_id: "day",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10",
+      impressions: 900,
+    }),
+    row({
+      linkedin_post_id: "week",
+      post_age: "1w",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-07-08",
+      impressions: 100,
+    }),
+    row({
+      linkedin_post_id: "month",
+      post_age: "1m",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-07-01",
+      impressions: 100,
+    }),
+    row({
+      linkedin_post_id: "hour",
+      post_age: "5h",
+      estimated_post_date: null,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+      impressions: 100,
+    }),
+  ];
+
+  const built = () =>
+    buildClientReport(MIXED, {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: availablePeriods(MIXED),
+    });
+
+  it("⚠️ MUTATION PROOF — neither coarse post reaches a weekday bucket", () => {
+    const day = Object.fromEntries(built().impressionsByWeekday.map((d) => [d.label, d.value]));
+    // Both coarse posts land on a Wednesday if their timestamps are trusted, so a
+    // Wed of 100 is the exact signature of the bug this rule removes.
+    expect(day["Fri"]).toBe(900);
+    expect(day["Wed"]).toBe(0);
+  });
+
+  it("counts coarse and undated posts under separate names", () => {
+    const report = built();
+    expect(report.weekdayPlacedPosts).toBe(1);
+    expect(report.weekdayCoarsePosts).toBe(2);
+    expect(report.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("⚠️ partitions every in-period post — nothing vanishes between the three", () => {
+    const report = built();
+    expect(report.weekdayPlacedPosts + report.weekdayCoarsePosts + report.weekdayUndatedPosts).toBe(
+      report.impressionsPostCount,
+    );
+  });
+
+  it("⚠️ leaves the MONTHLY impressions chart untouched — it is month-grained already", () => {
+    // The mirror-image error would be excluding coarse posts from a chart whose
+    // own granularity is month. All four in-period posts still drive the period's
+    // impressions figures; only the weekday chart narrows.
+    expect(built().impressionsPostCount).toBe(4);
   });
 });

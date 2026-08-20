@@ -60,7 +60,14 @@ describe("DataQualityTable", () => {
       "post_format_type",
       "estimated_post_date",
       "UNKNOWN",
+      // ⚠️ `bi.` STAYS EVEN THOUGH NOTHING READS THAT SCHEMA. It must never
+      // appear, and a token that can no longer be produced costs nothing to keep.
+      // The two below are the names that CAN leak now — the guard's intent is
+      // "no internal identifier reaches a reader", and the rename moved the
+      // identifiers without moving this list.
       "bi.",
+      "client_posts",
+      "post_metrics",
     ]) {
       expect(screen.queryByText(new RegExp(token))).not.toBeInTheDocument();
     }

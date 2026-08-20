@@ -22,8 +22,15 @@ import { createClient } from "@/services/clients";
 // delete POLICY, so nothing writes the table directly. What changed is the
 // invariant that sentence was enforcing. The half that actually protects
 // attribution is untouched and is enforced by construction, not by convention:
-// `name` and `linkedin_url` are named by no write path in this application, so
-// the key `bi.linkedin_post_latest` joins scraped posts on cannot be edited.
+// `name` and `linkedin_url` are named by no write path in this application.
+//
+// ⚠️ THE ORIGINAL REASON HAS RETIRED, AND THE RULE OUTLIVED IT. `name` was the
+// key an externally-owned view joined scraped posts on, so editing it silently
+// re-attributed or stranded a Client's whole history. Attribution is a foreign
+// key now (ADR 0010) and editing the name moves nothing. What remains is smaller
+// but real: `name` is the label on every report a Client reads and the value the
+// upload-time wrong-file guard compares against, so it is still not something a
+// form should be able to change by accident.
 //
 // (A narrowing of ADR 0007, like the one report links applied to the same ADR.
 // Recorded in docs/decisions/2026-08-18-client-industry-and-writer.md.)

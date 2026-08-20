@@ -1,6 +1,6 @@
 import { bucketLabel, bucketPlan, decodeRange } from "@/lib/date-range";
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
-import { estMs, type BiPostRow } from "@/services/analytics";
+import { estMs, placePost, type PostMetricsRow } from "@/services/analytics";
 import { buildCadence } from "@/services/cadence";
 import { buildContentComposition } from "@/services/content-composition";
 import {
@@ -10,8 +10,7 @@ import {
   selectPeriodRows,
   withDates,
   type PlacedRow,
-} from "@/services/bi-posts";
-import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
+} from "@/services/post-metrics";
 import { listUploads } from "@/services/uploads";
 import type {
   AssetBucket,
@@ -26,10 +25,13 @@ import type {
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Client LinkedIn Report seam. Joins two reads by linkedin_post_id:
-//   • bi.linkedin_post_latest — the externally-owned view (metrics + dates)
-//   • public.post_attributes  — app-owned; the ONLY source of a post's asset
-//                               type, because the BI view doesn't expose it
+// Client LinkedIn Report seam. ONE read: `public.client_posts`, the app-owned
+// projection carrying the metrics, the resolved dates AND the asset type.
+//
+// ⚠️ IT USED TO JOIN TWO. The metrics came from an externally-owned view that did
+// not expose a post's asset type, so the type was kept in a second app-owned
+// table and joined back by `linkedin_post_id` on every read. `public.posts`
+// carries it, so the join and its round-trip are gone (ADR 0010).
 //
 // All aggregation lives in the pure `buildClientReport` (injected `now`), so the
 // whole report is deterministically unit-testable without touching a database.
@@ -105,7 +107,7 @@ function monthKey(year: number, month: number): string {
  * first within each kind, with all-time first. Grouped in exactly the order the
  * picker renders them.
  */
-export function availablePeriods(rows: BiPostRow[]): ReportPeriod[] {
+export function availablePeriods(rows: PostMetricsRow[]): ReportPeriod[] {
   const months = new Set<string>();
   for (const { ms } of withDates(rows)) {
     if (ms === null) continue;
@@ -239,13 +241,15 @@ export function parseReportPeriod(
  * A post with no attribute record — or an unrecognised value — is UNKNOWN, which
  * is a real member of the vocabulary, not an error.
  */
-function groupByFormat(
-  rows: BiPostRow[],
-  formatMap: Map<string, string>,
-): Map<PostFormat, BiPostRow[]> {
-  const groups = new Map<PostFormat, BiPostRow[]>();
+function groupByFormat(rows: PostMetricsRow[]): Map<PostFormat, PostMetricsRow[]> {
+  const groups = new Map<PostFormat, PostMetricsRow[]>();
   for (const row of rows) {
-    const raw = formatMap.get(row.linkedin_post_id);
+    // ⚠️ THE FORMAT NOW RIDES THE ROW (ADR 0010, S3). It used to come from a
+    // second read of public.post_attributes joined in by id; `public.posts`
+    // carries it, so the join and the extra round-trip are gone. Nothing else
+    // about this function changed — an absent or unrecognised value is still
+    // UNKNOWN, which is a real member of the vocabulary rather than an error.
+    const raw = row.post_format_type ?? undefined;
     const format = toCanonicalFormat(raw) ?? "UNKNOWN";
     const bucket = groups.get(format);
     if (bucket) bucket.push(row);
@@ -405,13 +409,12 @@ export interface BuildOptions {
 }
 
 export function buildClientReport(
-  rows: BiPostRow[],
-  formatMap: Map<string, string>,
+  rows: PostMetricsRow[],
   { period, now, followers, connections, availablePeriods }: BuildOptions,
 ): ClientReport {
   const placeable = withDates(rows).filter((d): d is PlacedRow => d.ms !== null);
 
-  // Both selections come from `bi-posts`, which is also what the per-post
+  // Both selections come from `post-metrics`, which is also what the per-post
   // drill-down reads. That shared implementation is the ONLY reason the count
   // this report prints and the rows that screen lists cannot disagree.
   const selected = selectPeriodRows(rows, period);
@@ -429,7 +432,7 @@ export function buildClientReport(
   const p3Start = Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - 3, 1);
   const prior3 = placeable.filter((d) => d.ms >= p3Start && d.ms < p3End).map((d) => d.row);
 
-  const sum = (rs: BiPostRow[], pick: (r: BiPostRow) => number | null): number =>
+  const sum = (rs: PostMetricsRow[], pick: (r: PostMetricsRow) => number | null): number =>
     rs.reduce((s, r) => s + num(pick(r)), 0);
 
   // ── all-time monthly statistics (Key Performance ONLY) ─────────────────────
@@ -448,7 +451,7 @@ export function buildClientReport(
   // after it. `Math.min(...times)` spread every timestamp into a single call,
   // which throws RangeError past the engine's argument limit (~100k–125k on
   // current V8) — a hard crash on a large client's history, not a slowdown.
-  const monthly = new Map<string, BiPostRow[]>();
+  const monthly = new Map<string, PostMetricsRow[]>();
   let firstMs = Infinity;
   let lastMs = -Infinity;
   for (const { row, ms } of placeable) {
@@ -540,23 +543,37 @@ export function buildClientReport(
 
   // ── weekday buckets (SELECTED PERIOD) ──────────────────────────────────────
   //
-  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT the `ms` windowing key.
-  // `selectedPlaceable`'s `ms` is `effectiveMs`, which stands `scraped_at` in for
-  // an hour-age post's missing publish date; that is right for "is it in the
-  // period", but a weekday may NOT be asserted that way. Every post in one weekly
-  // scrape shares a `scraped_at`, so bucketing undated posts by it would pile a
-  // scrape onto a single weekday and fabricate a rhythm in a CLIENT-FACING chart.
-  // Undated posts are excluded and counted in `weekdayUndatedPosts` so the chart
-  // can disclose the gap — mirroring the dashboard's weekday chart exactly.
+  // ⚠️ DAY-PRECISION POSTS ONLY, via `placePost(row, "day")` — NOT the `ms`
+  // windowing key, and not merely "has a date". `selectedPlaceable`'s `ms` is
+  // `effectiveMs`, which stands `scraped_at` in for an hour-age post's missing
+  // publish date; that is right for "is it in the period" and wrong for "which
+  // weekday". Two things disqualify a post here and they are counted apart:
+  //
+  //   • UNDATED — no publish date was ever resolved. Bucketing by `scraped_at`
+  //     would pile a whole weekly scrape onto one weekday.
+  //   • TOO COARSE — dated, but only to the week or month. A week age resolves to
+  //     the SCRAPE's weekday; a month age snaps to the 1st and inherits whatever
+  //     weekday that was. Measured live, 236 of 272 posts are one of these.
+  //
+  // ⚠️ THIS DOCUMENT GOES TO THE CLIENT. A weekday bar built from posts that never
+  // carried a weekday is not a small inaccuracy here — it is a rhythm we invented,
+  // printed under their name. Mirrors `analytics.ts` exactly.
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
   let weekdayUndatedPosts = 0;
+  let weekdayCoarsePosts = 0;
+  let weekdayPlacedPosts = 0;
   for (const { row } of selectedPlaceable) {
-    const t = estMs(row);
-    if (t === null) {
+    const placed = placePost(row, "day");
+    if (placed.state === "undated") {
       weekdayUndatedPosts += 1;
       continue;
     }
-    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(row.impressions));
+    if (placed.state === "too-coarse") {
+      weekdayCoarsePosts += 1;
+      continue;
+    }
+    weekdayPlacedPosts += 1;
+    weekdayBuckets[new Date(placed.ms).getUTCDay()]!.push(num(row.impressions));
   }
   const impressionsByWeekday = WEEKDAYS.map((label, i) => ({
     label,
@@ -565,7 +582,7 @@ export function buildClientReport(
 
   // ── asset-type buckets (SELECTED PERIOD) ───────────────────────────────────
   // ONE `groups` feeds BOTH asset charts, so scoping it scopes both.
-  const groups = groupByFormat(selected, formatMap);
+  const groups = groupByFormat(selected);
   const interactionsByAsset: AssetBucket[] = [...groups.entries()]
     .map(([format, bucket]) => ({
       format,
@@ -599,6 +616,15 @@ export function buildClientReport(
       // own definition). A derived total that disagreed with the per-metric
       // panels below would discredit the whole document.
       { label: "Total interactions", value: sum(selected, (r) => r.interactions) },
+      // ⚠️ SUMMED OVER `selected`, NEVER OVER `selectedPlaceable`. "Total posts"
+      // two lines above is `selected.length`, so these two figures must describe
+      // the SAME population or they contradict each other beneath one period
+      // caption. `selectedPlaceable` is the narrower DATABLE set, and it exists
+      // for the CHARTS (`impressionsAverage`, `impressionsPostCount`) because a
+      // chart cannot plot a post it cannot place on a timeline — an undated
+      // post's impressions are still a real measurement, and dropping them here
+      // would understate the total against a count that included the post.
+      { label: "Total impressions", value: sum(selected, (r) => r.impressions) },
     ] satisfies ReportFigure[],
     // Two rows against three columns: posts · per-post rate · interaction
     // total. Same figures, same rounding, as the flat arrays this replaced —
@@ -663,7 +689,7 @@ export function buildClientReport(
   const comparisonRow = (
     scope: InteractionsRow["scope"],
     label: string,
-    rs: BiPostRow[],
+    rs: PostMetricsRow[],
   ): InteractionsRow => {
     // ⚠️ SAVES IS COUNTED, NOT SUMMED THROUGH `num()`. The other three metrics
     // can safely coerce an absent value to 0; saves cannot, because the scrape
@@ -703,6 +729,8 @@ export function buildClientReport(
     // line through someone else's numbers.
     impressionsAverage: mean(selectedPlaceable.map((d) => num(d.row.impressions))),
     impressionsByWeekday,
+    weekdayPlacedPosts,
+    weekdayCoarsePosts,
     weekdayUndatedPosts,
     interactionsByAsset,
     postTypeDistribution,
@@ -733,7 +761,7 @@ export function buildClientReport(
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
 //
-// The paged `bi` read lives in `@/services/bi-posts`, which the per-post
+// The paged `bi` read lives in `@/services/post-metrics`, which the per-post
 // drill-down reads too. Do not re-implement it here.
 
 export interface ClientReportOptions {
@@ -748,7 +776,7 @@ export async function getClientReport({
   const now = new Date();
   const fallback = (): ClientReport => {
     const periods = availablePeriods([]);
-    return buildClientReport([], new Map(), {
+    return buildClientReport([], {
       period: parseReportPeriod(period, periods),
       now,
       availablePeriods: periods,
@@ -762,12 +790,10 @@ export async function getClientReport({
   const { rows, unavailable, truncated, total } = await readClientPostRows(clientId);
   if (unavailable) return { ...fallback(), unavailable: true };
 
-  // The asset type lives in the app-owned table; both reads degrade to empty
-  // rather than throwing, so a missing attribute shows as Unknown, not an error.
-  const [attributes, uploads] = await Promise.all([
-    listPostAttributes(rows.map((r) => r.linkedin_post_id)),
-    listUploads(clientId),
-  ]);
+  // ⚠️ ONE READ WHERE THERE WERE TWO. The asset type used to require a second
+  // query against public.post_attributes, joined back by post id; it is a column
+  // on public.posts now, so it arrives with the row (ADR 0010, S3).
+  const uploads = await listUploads(clientId);
 
   // Computed ONCE per render, then used for both resolving the period and as the
   // report's own `availablePeriods`.
@@ -784,7 +810,7 @@ export async function getClientReport({
   const periods = availablePeriods(rows);
 
   return {
-    ...buildClientReport(rows, toFormatMap(attributes), {
+    ...buildClientReport(rows, {
       period: parseReportPeriod(period, periods),
       now,
       availablePeriods: periods,

@@ -230,7 +230,8 @@ export default async function ClientReportPage({
                 // Datable posts only — the weekday chart excludes undated ones,
                 // so its N is the sibling impressions chart's N minus those. The
                 // month/week chart above keeps `impressionsPostCount` untouched.
-                datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+                placedPosts={report.weekdayPlacedPosts}
+                coarsePosts={report.weekdayCoarsePosts}
                 undatedPosts={report.weekdayUndatedPosts}
               />
             </div>

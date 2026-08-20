@@ -30,7 +30,13 @@ describe("nameMatchWarning", () => {
     const warning = nameMatchWarning(rows, "Bryan Wish");
     expect(warning).toContain("2 of 3");
     expect(warning).toContain("Bryan Wish");
-    expect(warning).toContain("analytics");
+    // ⚠️ THE WORDS, NOT A LOOSE SUBSTRING. This line used to read
+    // `toContain("analytics")`, which the FALSE sentence ("…won't appear in
+    // analytics until the names align") satisfied exactly as well as a true one.
+    // Under ADR 0010 the posts are attributed by the operator's selection, so
+    // they are filed regardless and the warning is about MISATTRIBUTION.
+    expect(warning).toContain("filed under that client anyway");
+    expect(warning).not.toMatch(/won't appear|until the names align/i);
   });
 });
 

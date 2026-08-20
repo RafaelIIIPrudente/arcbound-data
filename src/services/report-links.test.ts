@@ -38,6 +38,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+import type { PostMetricsRow } from "./analytics";
 import type { ReportLinkOutreach, ReportLinkSource } from "./report-links";
 import {
   getReportLink,
@@ -46,6 +47,7 @@ import {
   resolveReportLink,
   revokeReportLink,
   rotateReportLink,
+  withFormatFallback,
 } from "./report-links";
 
 const CLIENT = "11111111-1111-1111-1111-111111111111";
@@ -690,5 +692,90 @@ describe("readReportLinkSource — the EMAIL block, parsed as OPTIONAL (S4, D9)"
     const src = await readReportLinkSource("tok", "grant");
 
     expect(JSON.stringify(okOutreach(src!).email)).not.toMatch(/dana@northwind\.io|called twice/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE DEPLOY WINDOW (ADR 0010, S3). The SQL and the application deploy at
+// different moments, and for the ninety seconds between them the running app
+// reads a bundle produced by the OTHER version of `report_link_read`. Both
+// orders must render correct formats, because the surface is a document a Client
+// downloads — a wrong format there is visibly wrong and completely silent.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("withFormatFallback — both deploy orders render correct formats", () => {
+  const POST: PostMetricsRow = {
+    client_id: "c1",
+    client_name: null,
+    linkedin_post_id: "p1",
+    post_url: null,
+    post_content: null,
+    post_age: null,
+    estimated_post_date: null,
+    impressions: null,
+    likes: null,
+    comments: null,
+    reposts: null,
+    saves: null,
+    interactions: null,
+    provided_engagement_rate: null,
+    calculated_engagement_rate: null,
+    scraped_at: null,
+    uploaded_at: null,
+  };
+
+  it("APP FIRST, SQL AFTER — falls back to attributes[] when the row carries no format", () => {
+    // The OLD `report_link_read` is still live: its rows come from
+    // bi.linkedin_post_latest, which has no post_format_type at all, and it
+    // supplies the format through the separate `attributes` array.
+    const rows = withFormatFallback(
+      [{ ...POST }],
+      [{ linkedin_post_id: "p1", post_format_type: "DOCUMENT", recorded_at: "2026-08-01" }],
+    );
+
+    expect(rows[0]!.post_format_type).toBe("DOCUMENT");
+  });
+
+  it("SQL FIRST, APP AFTER — prefers the row's own format when it carries one", () => {
+    // The NEW `report_link_read` is live: the format rides the row. It also still
+    // emits `attributes[]`, so BOTH are present and the row must win.
+    const rows = withFormatFallback(
+      [{ ...POST, post_format_type: "VIDEO" }],
+      [{ linkedin_post_id: "p1", post_format_type: "DOCUMENT", recorded_at: "2026-08-01" }],
+    );
+
+    expect(rows[0]!.post_format_type).toBe("VIDEO");
+  });
+
+  it("prefers the row even when the bundle carries NO attributes at all", () => {
+    const rows = withFormatFallback([{ ...POST, post_format_type: "IMAGE" }], []);
+    expect(rows[0]!.post_format_type).toBe("IMAGE");
+  });
+
+  it("⚠️ leaves the format NULL when neither source has one — never invents a value", () => {
+    // Null here becomes UNKNOWN at canonicalisation, which is a real member of
+    // the vocabulary. Substituting any other format would put a claim on a
+    // client-facing document that nobody made.
+    const rows = withFormatFallback([{ ...POST }], []);
+    expect(rows[0]!.post_format_type).toBeNull();
+  });
+
+  it("keeps the RAW casing from either source, so canonicalisation stays the only normaliser", () => {
+    const fromRow = withFormatFallback([{ ...POST, post_format_type: " Document " }], []);
+    const fromMap = withFormatFallback(
+      [{ ...POST }],
+      [{ linkedin_post_id: "p1", post_format_type: "carousel_v2", recorded_at: "x" }],
+    );
+
+    expect(fromRow[0]!.post_format_type).toBe(" Document ");
+    expect(fromMap[0]!.post_format_type).toBe("carousel_v2");
+  });
+
+  it("does not mutate the rows it was given", () => {
+    const original = { ...POST };
+    withFormatFallback(
+      [original],
+      [{ linkedin_post_id: "p1", post_format_type: "VIDEO", recorded_at: "x" }],
+    );
+    expect(original.post_format_type).toBeUndefined();
   });
 });

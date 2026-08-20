@@ -1,19 +1,38 @@
-// Client attribution is a DOWNSTREAM NAME MATCH (ADR 0009): the BI view
-// `bi.linkedin_post_latest` INNER JOINs staging to `clients` on
-// `clients.name = TRIM(regexp_replace(post_name, '\s*•\s*You\s*$', '', 'i'))`.
-// These pure helpers mirror that cleaning so the upload flow can warn (never
-// block) when scraped authors won't match the selected client's name.
+// ⚠️ THIS MODULE NO LONGER DESCRIBES HOW ATTRIBUTION WORKS. It once did:
+// attribution was a DOWNSTREAM NAME MATCH (ADR 0009), where
+// `bi.linkedin_post_latest` INNER JOINed staging to `clients` on
+// `clients.name = TRIM(regexp_replace(post_name, '\s*•\s*You\s*$', '', 'i'))`,
+// and a post whose author did not match was written and then appeared nowhere.
+//
+// Under ADR 0010 attribution is the `client_id` foreign key stamped at ingest
+// from the Client the operator selected. Nothing is dropped for a name anymore.
+//
+// These helpers survive as a WRONG-FILE GUARD, and the comparison they perform is
+// unchanged — it is simply asked a different question. It used to ask "will these
+// posts be attributed?"; it now asks "does the scrape agree that these are the
+// selected Client's posts?". A disagreement no longer risks LOSS, it risks
+// MISATTRIBUTION: the posts land under the chosen Client whether or not that is
+// the right one, and only a human can tell.
+//
+// ⚠️ Keep the cleaning identical to the historical join anyway. It is what makes
+// the evidence on screen legible — a reader shown a stripped " • You" can see
+// that it was stripped and still did not match.
 
-/** Strip a trailing " • You" (case-insensitive) and trim — mirrors the BI join. */
+/** Strip a trailing " • You" (case-insensitive) and trim. */
 export function cleanAuthorName(postName?: string): string {
   return (postName ?? "").replace(/\s*•\s*You\s*$/i, "").trim();
 }
 
 /**
- * Non-blocking warning when scraped authors won't match the selected client's
- * name (exact, case-sensitive — the BI join is exact). Returns null when all
- * match, otherwise "N of M post(s) … won't appear in analytics until the names
- * align."
+ * Non-blocking warning when scraped authors do not match the selected client's
+ * name (exact, case-sensitive). Returns null when all match.
+ *
+ * ⚠️ THE SENTENCE CHANGED WITH ADR 0010 AND THE OLD ONE WAS A LIE THE MOMENT THE
+ * READS MOVED. It used to end "…won't appear in analytics until the names align",
+ * which was true while attribution was a name match. It is now false twice over:
+ * the posts DO appear, and aligning the names changes nothing. What the warning
+ * has to convey instead is that they were filed under that client REGARDLESS, so
+ * a reader who picked the wrong client can still catch it.
  */
 export function nameMatchWarning(
   rows: { post_name?: string }[],
@@ -24,24 +43,24 @@ export function nameMatchWarning(
 
   const total = rows.length;
   const verb = mismatches === 1 ? "post doesn't" : "posts don't";
-  return `${mismatches} of ${total} ${verb} match ${clientName} and won't appear in analytics until the names align.`;
+  return `${mismatches} of ${total} ${verb} match ${clientName} by author name, and ${mismatches === 1 ? "was" : "were"} filed under that client anyway — check the client selection if that isn't right.`;
 }
 
 /**
- * One distinct scraped author string in an upload, with what the BI join makes
- * of it and how many posts carry it.
+ * One distinct scraped author string in an upload, with what the guard makes of
+ * it and how many posts carry it.
  *
  * ⚠️ `postName` IS THE RAW SCRAPED VALUE AND STAYS RAW. ADR 0009 forbids
  * rewriting scraped data, and the raw string is the whole diagnostic value here:
  * it is what shows a reader that the scraper duplicated the name and swept in a
- * `Premium` badge. `cleaned` is shown NEXT TO it, never instead of it — the join
- * strips one trailing " • You", and the reader needs to see that it did and that
- * it still did not help.
+ * `Premium` badge. `cleaned` is shown NEXT TO it, never instead of it — the
+ * comparison strips one trailing " • You", and the reader needs to see that it
+ * did and that it still did not help.
  */
 export interface ScrapedAuthor {
   /** Verbatim `post_name` as the scrape sent it. `""` when the row carried none. */
   postName: string;
-  /** What the BI join actually compares against `clients.name`. */
+  /** What the guard compares against `clients.name` after cleaning. */
   cleaned: string;
   /** Posts in this upload carrying this exact scraped string. */
   count: number;
@@ -57,7 +76,13 @@ export interface AuthorMatchReport {
   authors: ScrapedAuthor[];
   /** Posts in the upload. */
   total: number;
-  /** Posts whose author will not match, so will not appear in analytics. */
+  /**
+   * Posts whose scraped author does not match the selected Client's name.
+   *
+   * ⚠️ THIS IS A DISAGREEMENT COUNT, NOT A LOSS COUNT (ADR 0010). Every one of
+   * these posts is filed under the selected Client; what this counts is how many
+   * times the scrape said someone else wrote them.
+   */
   mismatched: number;
 }
 

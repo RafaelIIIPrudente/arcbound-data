@@ -7,7 +7,14 @@ const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }));
 vi.mock("next/headers", () => ({ cookies: () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: () => ({ rpc: rpcMock }) }));
 
-import { applyResolvedFormats, computeReviewPosts, ingestMetrics, resolveFormat } from "./ingest";
+import {
+  applyResolvedFormats,
+  attachTypedMetrics,
+  computeReviewPosts,
+  ingestMetrics,
+  resolveFormat,
+  typedMetrics,
+} from "./ingest";
 
 function makeRow(id: string, over: Partial<PostRow> = {}): PostRow {
   return {
@@ -104,6 +111,116 @@ describe("applyResolvedFormats (pure)", () => {
   });
 });
 
+describe("typedMetrics (pure) — ⚠️ NULL and 0 are different facts (ADR 0010, D4)", () => {
+  it("keeps a GENUINE zero as 0 and an ABSENT value as null", () => {
+    // The whole ADR in one assertion. `saves: 0` is a measurement — this post was
+    // saved by nobody. `saves: null` is the absence of a measurement — the scrape
+    // carried no saves column at all. A schema that stored both as 0 would make
+    // the two indistinguishable forever, and every "0 saves" in the report would
+    // be unfalsifiable.
+    expect(typedMetrics(makeRow("a", { saves: 0 })).n_saves).toBe(0);
+
+    const absent = typedMetrics(makeRow("a", { saves: null }));
+    expect(absent.n_saves).toBeNull();
+    // Stated separately and on purpose: `toBeNull()` alone still passes if a
+    // future change returns 0, because this line is what fails then.
+    expect(absent.n_saves).not.toBe(0);
+  });
+
+  it("carries a zero impression count through as 0, not as unreadable", () => {
+    const t = typedMetrics(makeRow("a", { impressions: 0 }));
+    expect(t.n_impressions).toBe(0);
+    expect(t.n_impressions).not.toBeNull();
+  });
+
+  it("maps an unreadable metric to null rather than 0", () => {
+    // ⚠️ `parse-metrics.ts` currently REJECTS the whole upload when a required
+    // metric is unreadable, so this branch is unreachable from today's live
+    // upload path. It is implemented and pinned anyway: the same rule governs the
+    // historical backfill, which reads all-text staging where every column can be
+    // unreadable, and it must not silently become 0 if parsing is ever relaxed.
+    const t = typedMetrics({ ...makeRow("a"), impressions: null, likes: null });
+    expect(t.n_impressions).toBeNull();
+    expect(t.n_likes).toBeNull();
+    expect(t.n_impressions).not.toBe(0);
+  });
+
+  it("derives interactions as likes + comments + reposts, EXCLUDING saves", () => {
+    // Saves are deliberately not summed in. The scrape's own engagement_rate
+    // reconciles exactly against (likes+comments+reposts)/impressions across
+    // every sample row in this repo; adding saves would silently restate every
+    // published interaction total.
+    const t = typedMetrics(makeRow("a", { likes: 10, comments: 2, reposts: 1, saves: 99 }));
+    expect(t.n_interactions).toBe(13);
+  });
+
+  it("returns a NULL interactions total when ANY component is unreadable", () => {
+    // ⚠️ A partial sum printed as a total is the same lie as a null printed as a
+    // zero. 10 + 2 + (unreadable) is not 12.
+    expect(typedMetrics({ ...makeRow("a"), likes: null }).n_interactions).toBeNull();
+    expect(typedMetrics({ ...makeRow("a"), comments: null }).n_interactions).toBeNull();
+    expect(typedMetrics({ ...makeRow("a"), reposts: null }).n_interactions).toBeNull();
+    // ...but an absent SAVES count does not poison it, because saves is not a term.
+    expect(typedMetrics(makeRow("a", { saves: null })).n_interactions).toBe(13);
+  });
+
+  it("derives the engagement rate as a PERCENTAGE, matching the dashboard", () => {
+    // data-quality.ts reconciles against `(interactions / impressions) * 100`;
+    // storing a fraction here would read as a unit mismatch on that screen.
+    const t = typedMetrics(makeRow("a", { impressions: 200, likes: 5, comments: 3, reposts: 2 }));
+    expect(t.n_calculated_rate).toBeCloseTo(5, 10);
+  });
+
+  it("returns a NULL rate when impressions is ZERO — no divide-by-zero, no fake rate", () => {
+    const t = typedMetrics(makeRow("a", { impressions: 0 }));
+    expect(t.n_calculated_rate).toBeNull();
+    expect(t.n_calculated_rate).not.toBe(0);
+  });
+
+  it("returns a NULL rate when impressions or interactions is unreadable", () => {
+    expect(typedMetrics({ ...makeRow("a"), impressions: null }).n_calculated_rate).toBeNull();
+    expect(typedMetrics({ ...makeRow("a"), likes: null }).n_calculated_rate).toBeNull();
+  });
+
+  it("passes the scrape's own rate through UNDERIVED, including its absence", () => {
+    expect(typedMetrics(makeRow("a", { engagement_rate: 6.23 })).n_provided_rate).toBe(6.23);
+    expect(typedMetrics({ ...makeRow("a"), engagement_rate: null }).n_provided_rate).toBeNull();
+  });
+
+  it("resolves the publish date from the age and the scrape instant", () => {
+    const t = typedMetrics(
+      makeRow("a", { post_date: "4d", scraped_at: "2026-07-15T15:25:39.889Z" }),
+    );
+    expect(t.n_estimated_post_date).toBe("2026-07-11T15:25:39.889Z");
+  });
+
+  it("leaves an hour-age post UNDATED, preserving today's charting behaviour", () => {
+    expect(typedMetrics(makeRow("a", { post_date: "23h" })).n_estimated_post_date).toBeNull();
+    expect(typedMetrics(makeRow("a", { post_date: undefined })).n_estimated_post_date).toBeNull();
+  });
+});
+
+describe("attachTypedMetrics (pure) — dual-write payload", () => {
+  it("adds typed siblings WITHOUT altering a single raw key", () => {
+    // ⚠️ The staging write must stay byte-for-byte what it is today, because
+    // the staging write stayed byte-identical through the cutover. The typed
+    // keys rode alongside it, and are all that is written now.
+    const row = makeRow("a", { post_date: "4d", saves: null });
+    const [out] = attachTypedMetrics([row]);
+
+    for (const key of Object.keys(row) as (keyof PostRow)[]) {
+      expect(out![key]).toEqual(row[key]);
+    }
+    expect(out!.n_interactions).toBe(13);
+    expect(out!.n_saves).toBeNull();
+  });
+
+  it("returns one output row per input row, in order", () => {
+    const out = attachTypedMetrics([makeRow("a"), makeRow("b"), makeRow("c")]);
+    expect(out.map((r) => r.linkedin_post_id)).toEqual(["a", "b", "c"]);
+  });
+});
+
 describe("ingestMetrics (seam → RPC)", () => {
   it("returns review WITHOUT calling the RPC when a format needs review", async () => {
     const rows = [makeRow("x", { post_format_type: "" })];
@@ -193,6 +310,37 @@ describe("ingestMetrics (seam → RPC)", () => {
     const result = await ingestMetrics({ ...base, rows });
     expect(result.status).toBe("review");
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the typed siblings alongside the raw values in ONE array", async () => {
+    // One array, one loop at the database — no join-by-id and no second array
+    // that could drift out of alignment with the first.
+    rpcMock.mockResolvedValue({ data: { inserted: 1, updated: 0, unchanged: 0 }, error: null });
+    const rows = [
+      makeRow("a", {
+        post_format_type: "video",
+        post_date: "4d",
+        scraped_at: "2026-07-15T15:25:39.889Z",
+        impressions: 200,
+        likes: 5,
+        comments: 3,
+        reposts: 2,
+        saves: null,
+      }),
+    ];
+
+    await ingestMetrics({ ...base, rows });
+
+    const sent = rpcMock.mock.calls[0]![1].p_rows[0];
+    // Raw, exactly as received — this is what still lands in staging.
+    expect(sent.impressions).toBe(200);
+    expect(sent.post_date).toBe("4d");
+    // Typed, resolved, four-state-preserving — this is what lands in posts.
+    expect(sent.n_impressions).toBe(200);
+    expect(sent.n_interactions).toBe(10);
+    expect(sent.n_calculated_rate).toBeCloseTo(5, 10);
+    expect(sent.n_saves).toBeNull();
+    expect(sent.n_estimated_post_date).toBe("2026-07-11T15:25:39.889Z");
   });
 
   it("throws when the RPC returns an error", async () => {

@@ -14,9 +14,9 @@ import { ReportPeriodPicker } from "@/components/dashboard/report/report-period-
 import { REPORT_METRIC_KEYS } from "@/lib/metric-definitions";
 import { getGateReadGrant } from "@/lib/report-link-session";
 import { availablePeriods, buildClientReport, parseReportPeriod } from "@/services/client-report";
-import { toFormatMap } from "@/services/post-attributes";
 import {
   readReportLinkSource,
+  withFormatFallback,
   type ReportLinkOutreach,
   type ReportLinkSource,
 } from "@/services/report-links";
@@ -30,7 +30,7 @@ import { ReportStatus, type ReportFreshness } from "./report-status";
 //
 // `PublicReport` (async) is the DATA path: it reads the short-lived read grant
 // from the signed gate cookie and fetches THIS client's report source through the
-// token+grant definer read (no service-role key, no direct bi.* access). A URL
+// token+grant definer read (no service-role key, no direct table access). A URL
 // holder WITHOUT a valid grant, or an expired one, reads nothing → the neutral
 // "not available" state. `PublicReportView` (pure) is the RENDER: the SAME report
 // sections the staff page uses, with ALL staff chrome stripped.
@@ -76,9 +76,13 @@ function buildReportFromSource(
   source: ReportLinkSource,
   periodParam: string | undefined,
 ): ClientReport {
-  const rows = source.posts;
+  // ⚠️ THE FALLBACK IS THE DEPLOY-WINDOW GUARD, NOT A CONVENIENCE. The bundle may
+  // have been built by EITHER version of `report_link_read` — the format rides
+  // the row under the new one and arrives in `attributes[]` under the old — and
+  // this document is the one a Client downloads. See `withFormatFallback`.
+  const rows = withFormatFallback(source.posts, source.attributes);
   const periods = availablePeriods(rows);
-  return buildClientReport(rows, toFormatMap(source.attributes), {
+  return buildClientReport(rows, {
     period: parseReportPeriod(periodParam, periods),
     now: new Date(),
     followers: latestCount(source.uploads, (u) => u.followerCount),
@@ -257,7 +261,8 @@ export function PublicReportView({
             <ImpressionsByWeekdayChart
               data={report.impressionsByWeekday}
               period={report.period}
-              datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+              placedPosts={report.weekdayPlacedPosts}
+              coarsePosts={report.weekdayCoarsePosts}
               undatedPosts={report.weekdayUndatedPosts}
             />
           </div>

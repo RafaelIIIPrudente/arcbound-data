@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import { availablePeriods, parseReportPeriod } from "@/services/client-report";
 import type { ReportPeriod } from "@/services/types";
 
@@ -30,7 +30,7 @@ const PATHNAME = "/clients/8f3c/report";
 /** Only used to make the relative href parseable; never navigated to. */
 const ORIGIN = "https://arcbase.test";
 
-function row(estimated_post_date: string): BiPostRow {
+function row(estimated_post_date: string): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Bryan Wish",

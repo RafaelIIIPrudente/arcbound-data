@@ -25,7 +25,7 @@ export interface Client {
   /** ISO 8601 date string. */
   createdAt: string;
   /**
-   * Posts attributed to this Client in `bi.linkedin_post_latest`.
+   * Posts attributed to this Client in `public.client_posts`.
    *
    * ⚠️ `null` means the count could NOT BE READ — it is not a zero. A real `0`
    * (the read succeeded and found nothing) and a failed read used to collapse
@@ -349,18 +349,33 @@ export interface DashboardAnalytics {
   /**
    * Average impressions by the weekday a post was PUBLISHED on, Sunday → Saturday.
    *
-   * ⚠️ DATED BY `estimated_post_date` ALONE, undated posts EXCLUDED. Unlike every
-   * other dashboard figure — which windows on `effectiveMs` and so counts hour-age
-   * posts via their `scraped_at` — a weekday may not be asserted for a post whose
-   * publish date was never resolved: bucketing it by its scrape weekday would pile
-   * a whole weekly scrape onto one day and fabricate rhythm. Those posts are
-   * counted in `weekdayUndatedPosts` instead. An empty weekday is a genuine 0.
+   * ⚠️ DAY-PRECISION POSTS ONLY. Unlike every other dashboard figure — which
+   * windows on `effectiveMs` and so counts hour-age posts via their `scraped_at` —
+   * a weekday may only be asserted for a post whose date is precise TO THE DAY. A
+   * post dated from a week age landed on the scrape's own weekday and one dated
+   * from a month age on whatever weekday the 1st fell on; both would vote on a
+   * weekday they never carried. An empty weekday is a genuine 0.
+   *
+   * The three counts below partition the window's posts and are surfaced so the
+   * chart can say what it was built from:
+   * `weekdayPlacedPosts + weekdayCoarsePosts + weekdayUndatedPosts === totalPosts`.
    */
   impressionsByWeekday: SeriesPoint[];
+  /** Posts actually averaged into `impressionsByWeekday` — those dated to the day. */
+  weekdayPlacedPosts: number;
   /**
-   * Posts in the current window with NO resolved publish date, excluded from
-   * `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose the
-   * exclusion; the datable count it averaged is `totalPosts − weekdayUndatedPosts`.
+   * Posts in the window that ARE dated, but only to the week or the month —
+   * excluded from `impressionsByWeekday` because they carry no assertable weekday.
+   *
+   * ⚠️ NOT A KIND OF `weekdayUndatedPosts`, AND NEVER ADDED TO IT. These posts
+   * have a date; it is simply too blunt for this one chart. A reader told the date
+   * is missing goes looking for an ingestion fault that is not there.
+   */
+  weekdayCoarsePosts: number;
+  /**
+   * Posts in the current window with NO resolved publish date at all, excluded
+   * from `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose
+   * the exclusion separately from the coarse one.
    */
   weekdayUndatedPosts: number;
   recentPosts: RecentPost[];
@@ -562,9 +577,18 @@ export type IngestResult =
   | { status: "error"; errors: Record<string, string[]> }
   | { status: "review"; posts: ReviewPost[] }
   /**
-   * The scraped authors will not match the selected Client, so the posts would
-   * be written and then never appear. NOTHING HAS BEEN WRITTEN when this is
-   * returned — it is a question, asked before the irreversible act.
+   * The scraped authors do not match the selected Client. NOTHING HAS BEEN
+   * WRITTEN when this is returned — it is a question, asked before the
+   * irreversible act.
+   *
+   * ⚠️ THE CONSEQUENCE FLIPPED WITH ADR 0010, AND THIS DOC ONCE STATED THE OLD
+   * ONE. It read "the posts would be written and then never appear", which was
+   * true while attribution was a downstream name match. Attribution is now the
+   * `client_id` stamped from the operator's selection, so the posts ARE written
+   * and DO appear — under the Client that was picked. The danger is
+   * MISATTRIBUTION, not loss, and its remedy is changing the selection rather
+   * than aligning names. The on-screen copy was corrected with the read repoint;
+   * this type doc was out of that slice's scope and kept the old claim.
    *
    * ⚠️ A FOURTH STATUS, NOT A FLAG ON `ok`. Bolted onto the success case it
    * would be optional, every existing consumer would still compile, and the
@@ -679,10 +703,17 @@ export type ResolveReportLink =
   { ok: true; clientId: string; readGrant: string } | { ok: false; reason: "invalid" | "locked" };
 
 // ── Post attributes ──────────────────────────────────────────────────────────
-// App-owned per-post facts that the externally-owned `bi.linkedin_post_latest`
-// does not expose. Today that is just the Format Type (Asset Type): ArcBase
-// already resolves it during upload review, so it records it here and joins it
-// to the BI rows at read time. Column names are the raw table columns.
+// ⚠️ A DEPLOY-WINDOW SHIM, NOT A DATA SOURCE — AND IT IS ON ITS WAY OUT. This
+// once described app-owned per-post facts an externally-owned view did not
+// expose: ArcBase resolved the Format Type during upload review, recorded it in
+// its own table, and joined it back at read time.
+//
+// `public.posts` carries `post_format_type` itself now, so nothing reads that
+// table. The shape survives only because the client-facing `/r/[token]` bundle
+// still emits an `attributes[]` key, which lets the SQL and the application
+// deploy in either order without a Client's report rendering every post as an
+// UNKNOWN format in between. It retires with that key.
+// Column names are the raw table columns.
 
 export interface PostAttributes {
   linkedin_post_id: string;
@@ -836,13 +867,32 @@ export interface PostingCadence {
    * post shares one day: a rate over a zero-length span is undefined, not zero.
    */
   postsPerWeek: number | null;
-  /** MEDIAN days between consecutive dated posts — a hiatus must not inflate it.
-   *  `null` with fewer than two dated posts; a genuine `0` when posts share a day. */
+  /**
+   * MEDIAN days between consecutive dated posts — a hiatus must not inflate it.
+   *
+   * `null` with fewer than two dated posts; a genuine `0` when two posts really
+   * do share a day; and `null` — NOT-COMPUTABLE — whenever `dayCoarsePosts` or
+   * `undatedPosts` is non-zero.
+   *
+   * ⚠️ A GAP NEEDS BOTH ENDPOINTS DAY-PRECISE **AND** NEEDS THAT NOTHING WAS
+   * PUBLISHED BETWEEN THEM. Coarse dates break the first; an unplaceable post
+   * breaks the second. ⚠️ AND THE FIX IS NEVER TO FILTER THE TIMELINE AND
+   * RECOMPUTE: the surviving gaps would stretch across the dropped posts and
+   * overstate the client's silence — a number too small swapped for one too big.
+   */
   medianGapDays: number | null;
-  /** Longest gap in days between consecutive dated posts — the "went quiet" signal.
-   *  `null` with fewer than two dated posts. */
+  /** Longest gap in days between consecutive dated posts — the "went quiet"
+   *  signal. Same three null conditions as `medianGapDays`. */
   longestGapDays: number | null;
-  /** Whole days since the most recent dated post. `null` when no post is dated. */
+  /**
+   * Whole days since the most recent dated post.
+   *
+   * `null` when no post is dated, and `null` when `lastPostDateIsExact` is false
+   * — a recency inherits exactly one post's precision, so a month-aged last post
+   * makes the day count unknowable no matter how precise the rest of the history
+   * is. Conversely a coarse HISTORY does not withhold it: only the last post
+   * matters.
+   */
   daysSinceLastPost: number | null;
   /**
    * One resolved-publish-date timestamp (ms) per DATED post, ASCENDING — the marks
@@ -850,14 +900,69 @@ export interface PostingCadence {
    */
   timeline: number[];
   /**
-   * Dated posts counted per calendar WEEK (Monday start), first→last dated post,
-   * with empty weeks kept as a genuine `0` (a week with no posts really had none —
-   * not missing data). The "Week" view of the switchable chart. Empty when nothing
-   * is dated. `Σ count === datedPosts`.
+   * Posts dated to the WEEK OR FINER, counted per calendar week (Monday start),
+   * first→last such post, with empty weeks kept as a `0`. The "Week" view of the
+   * switchable chart. Empty when nothing is week-precise. `Σ count ===
+   * weeklyPlacedPosts`.
+   *
+   * ⚠️ THE BASIS IS NARROWER THAN `datedPosts`, AND THE `0` SAYS LESS THAN IT USED
+   * TO. A month-aged post was snapped to the 1st, so the week it would land in is
+   * whichever week that 1st fell in — a bar the client never earned. Such posts are
+   * held out and counted in `weeklyCoarsePosts`; an empty slot here therefore means
+   * "no week-dated post that week", not "no post that week".
    */
   weekly: CadenceBucket[];
-  /** As `weekly`, but per calendar MONTH — the "Month" view. `Σ count === datedPosts`. */
+  /**
+   * As `weekly`, but per calendar MONTH — the "Month" view. `Σ count ===
+   * datedPosts`.
+   *
+   * ⚠️ EVERY DATED POST, DELIBERATELY. A month-aged post IS month-precise, so this
+   * chart is exactly as fine as its input; narrowing it to match `weekly` would be
+   * the mirror-image error — discarding a real reading.
+   */
   monthly: CadenceBucket[];
+  /** Posts drawn in `weekly` — those dated to the week or finer. */
+  weeklyPlacedPosts: number;
+  /**
+   * Dated posts known to the DAY — the population the day-level figures need.
+   *
+   * `dayPlacedPosts + dayCoarsePosts === datedPosts`, one notch finer than the
+   * weekly pair above and counted separately because they answer different
+   * questions: a week-aged post is drawn in a weekly bar AND is too coarse for a
+   * gap measured in days.
+   */
+  dayPlacedPosts: number;
+  /**
+   * Dated posts coarser than a day (week-, month- and year-aged).
+   *
+   * ⚠️ WHEN THIS IS NON-ZERO, `medianGapDays` AND `longestGapDays` ARE NULL. A
+   * day count between two month-snapped instants is arithmetic on artifacts —
+   * and worse, posts sharing a month share one instant, so their gap is exactly
+   * 0 and the median collapses toward zero for a client who posts monthly.
+   *
+   * ⚠️ NOT A KIND OF `undatedPosts`. Every post counted here has a date.
+   */
+  dayCoarsePosts: number;
+  /**
+   * Whether the most RECENT dated post is itself known to the day — the only
+   * thing `daysSinceLastPost` depends on.
+   *
+   * ⚠️ NOT DERIVABLE FROM `dayCoarsePosts`. A history of month-aged posts with one
+   * day-aged post at the end still answers "when did they last post" exactly;
+   * a single month-aged post at the end makes it unknowable however precise the
+   * rest is. False here also means the exact date must not be printed beside it.
+   */
+  lastPostDateIsExact: boolean;
+  /**
+   * Dated posts too coarse for a weekly bar (month- and year-aged), counted so the
+   * component can disclose why the Week view rests on fewer posts than the Month
+   * view.
+   *
+   * ⚠️ NEVER ADDED TO `undatedPosts`. These posts have a date. `weeklyPlacedPosts +
+   * weeklyCoarsePosts === datedPosts`, and `datedPosts + undatedPosts ===
+   * totalPosts` — three states, two sums, no double-counting.
+   */
+  weeklyCoarsePosts: number;
 }
 
 /**
@@ -938,9 +1043,21 @@ export interface ClientReport {
   totalPostsAllTime: number;
   keyPerformance: {
     /**
-     * The hero: three figures scoped to the selected period. Also the print
-     * cover's three headline figures, so this array's shape and labels are
-     * read in two places.
+     * The hero: four figures scoped to the selected period — total posts, avg
+     * interactions, total interactions, total impressions, in that order.
+     *
+     * ⚠️ TWO CONSUMERS, AND THE LENGTH IS THE CONTRACT — NOT AN INCIDENTAL OF
+     * WHAT THE ARRAY HAPPENS TO HOLD. It is rendered by
+     * `report/key-performance.tsx` (the section hero, on all three surfaces) AND
+     * by `report/print/report-cover.tsx` — page 1 of the PDF a client receives,
+     * which does no arithmetic of its own and lays out whatever it is handed.
+     * Both grids are sized for this count against a FIXED 700px paper column, so
+     * adding or removing a figure is a layout change in two files, one of them
+     * the first and often only page a client reads.
+     *
+     * The labels are load-bearing too: `REPORT_METRIC_KEYS` is keyed by them, so
+     * a figure renamed without that map loses its ⓘ. `key-performance.test.tsx`
+     * fails on an unmapped label rather than letting the gap ship.
      */
     selected: ReportFigure[];
     /** All-time context, read against the matrix's column headers. */
@@ -983,19 +1100,33 @@ export interface ClientReport {
    * Average impressions by the weekday a post was PUBLISHED on — seven entries,
    * Sunday → Saturday.
    *
-   * ⚠️ DATED BY `estimated_post_date` ALONE, undated posts EXCLUDED. The rest of
-   * the report windows on `effectiveMs`, which stands `scraped_at` in for an
-   * hour-age post's missing publish date; a weekday may not be asserted that way —
-   * bucketing a whole weekly scrape onto its scrape day fabricates a rhythm in a
-   * client-facing chart. Those posts are counted in `weekdayUndatedPosts` instead.
-   * An empty weekday is a genuine 0.
+   * ⚠️ DAY-PRECISION POSTS ONLY, exactly as the dashboard's chart. The rest of the
+   * report windows on `effectiveMs`, which stands `scraped_at` in for an hour-age
+   * post's missing publish date; a weekday may not be asserted that way, nor from
+   * a week age (which lands on the scrape's weekday) nor a month age (which snaps
+   * to the 1st). This is a CLIENT-FACING chart, and a fabricated rhythm on it is
+   * advice the data never gave. An empty weekday is a genuine 0.
+   *
+   * The three counts below partition the period's placeable posts:
+   * `weekdayPlacedPosts + weekdayCoarsePosts + weekdayUndatedPosts ===
+   * impressionsPostCount`.
    */
   impressionsByWeekday: { label: string; value: number }[];
+  /** Posts actually averaged into `impressionsByWeekday` — those dated to the day. */
+  weekdayPlacedPosts: number;
   /**
-   * Posts in the selected period with NO resolved publish date, excluded from
-   * `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose the
-   * exclusion; the datable count it averaged is `impressionsPostCount −
-   * weekdayUndatedPosts`.
+   * Posts in the period that ARE dated, but only to the week or the month —
+   * excluded from `impressionsByWeekday` because they carry no assertable weekday.
+   *
+   * ⚠️ NOT A KIND OF `weekdayUndatedPosts`. See the dashboard's field of the same
+   * name: telling a Client their post has no date when it merely has a blunt one
+   * is a different — and wrong — statement.
+   */
+  weekdayCoarsePosts: number;
+  /**
+   * Posts in the selected period with NO resolved publish date at all, excluded
+   * from `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose
+   * the exclusion separately from the coarse one.
    */
   weekdayUndatedPosts: number;
   interactionsByAsset: AssetBucket[];
@@ -1038,10 +1169,10 @@ export interface ClientReport {
 // ── Client posts (the per-post drill-down) ───────────────────────────────────
 // Read-model for `/clients/[id]/posts`: the individual posts behind the report's
 // figures, for the same selected ReportPeriod. No new data source — every field
-// comes from `bi.linkedin_post_latest`, plus the app-owned asset type.
+// comes from `public.client_posts`, asset type included.
 //
 // ⚠️ `ClientPosts.totalInPeriod` and `ClientReport.assetPostCount` are THE SAME
-// NUMBER, and both are computed by `selectPeriodRows` in `@/services/bi-posts`.
+// NUMBER, and both are computed by `selectPeriodRows` in `@/services/post-metrics`.
 // A table that contradicts the count printed above it discredits both screens,
 // so neither may grow its own period predicate.
 
@@ -1092,12 +1223,21 @@ export interface ClientPostRow {
 // Read-model for `/data-quality`: across the whole client book, is the pipeline
 // actually delivering?
 //
-// ⚠️ THE FRAME THIS SCREEN REPORTS IN. Attribution happens DOWNSTREAM of ArcBase,
-// as a name match (ADR 0009). ArcBase submits Posts to staging and can only
-// observe, afterwards, whether they came back attributed in `bi.*`. So this
-// model states TWO NUMBERS — submitted and attributed — and never a verdict. A
-// name mismatch, a client who genuinely stopped posting, and a downstream outage
-// are indistinguishable from here, and the read-model must not pretend otherwise.
+// ⚠️ THE FRAME THIS SCREEN REPORTS IN, AND IT NARROWED WITH ADR 0010. Attribution
+// used to happen DOWNSTREAM as a name match: ArcBase submitted Posts to a staging
+// table and could only observe, afterwards, whether they came back attributed —
+// so submitted and attributed diverging was routine and unexplainable from here.
+//
+// Attribution is now a foreign key stamped at upload, so nothing ArcBase ingests
+// can fail to be attributed. What can still show a gap is HISTORY: rows the
+// one-time migration could not place, whose scraped author matched no registered
+// client.
+//
+// ⚠️ THE DISCIPLINE STAYS EVEN THOUGH THE MECHANISM CHANGED. This model states
+// NUMBERS and never a verdict, because the other signals it carries — undated
+// posts, unknown formats — remain observations. A client who genuinely stopped
+// posting and one whose data is not arriving still look alike from here, and the
+// read-model must not pretend otherwise.
 
 /** One registered Client's delivery picture. */
 export interface DataQualityRow {

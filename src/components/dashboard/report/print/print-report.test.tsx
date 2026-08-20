@@ -1,12 +1,27 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import { availablePeriods, buildClientReport } from "@/services/client-report";
 import type { ClientReport, ReportPeriod } from "@/services/types";
 
 import { PrintReport } from "./print-report";
 import { ReportCover } from "./report-cover";
+
+/**
+ * Attach raw formats to rows.
+ *
+ * ⚠️ THE FORMAT RIDES THE ROW SINCE ADR 0010 S3 — `buildClientReport` no longer
+ * takes a separate map, because `public.posts` carries `post_format_type` and the
+ * second read that used to supply it is gone. These fixtures keep the map shape
+ * only because it reads well; this puts the value where the product finds it.
+ */
+function withFormats(rows: PostMetricsRow[], formats: Map<string, string>): PostMetricsRow[] {
+  return rows.map((r) => ({
+    ...r,
+    post_format_type: formats.get(r.linkedin_post_id) ?? null,
+  }));
+}
 
 // Fixtures are built through the REAL seam rather than hand-written, so what the
 // document is tested against is exactly what the page will hand it — including
@@ -15,7 +30,9 @@ import { ReportCover } from "./report-cover";
 const ALL_TIME: ReportPeriod = { kind: "all", key: "all", label: "All time" };
 const NOW = new Date("2026-07-22T09:00:00.000Z");
 
-function biRow(overrides: Partial<BiPostRow> & { linkedin_post_id: string }): BiPostRow {
+function metricsRow(
+  overrides: Partial<PostMetricsRow> & { linkedin_post_id: string },
+): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Dana Whitfield",
@@ -68,10 +85,10 @@ describe("the printable document", () => {
     // offers a click-to-open definition. This document is printed, so a trigger
     // here would render as an inert icon in the margin of a PDF a client keeps.
     // The prop defaults to false and this caller does not set it.
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     render(
       <PrintReport
-        report={buildClientReport(rows, new Map(), {
+        report={buildClientReport(rows, {
           period: ALL_TIME,
           now: NOW,
           followers: 1000,
@@ -85,7 +102,7 @@ describe("the printable document", () => {
   });
 
   it("renders the cover and every empty state for a client with no posts", () => {
-    const report = buildClientReport([], new Map(), {
+    const report = buildClientReport([], {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -113,15 +130,29 @@ describe("the printable document", () => {
     // sized itself by measuring its parent would render nothing here — which is
     // the same failure that makes recharts print at zero width. These charts
     // take an explicit pixel size, so they draw regardless.
+    // ⚠️ DAY AGES MATCHING THE DATES. The weekday panel admits day-precision
+    // posts only and reads precision off `post_age`; a row with a date and no age
+    // states none, so that panel would fall to its empty state and the chart count
+    // below would silently drop to three for a reason unrelated to layout.
     const rows = [
-      biRow({ linkedin_post_id: "p1", estimated_post_date: "2026-06-02T10:00:00.000Z" }),
-      biRow({ linkedin_post_id: "p2", estimated_post_date: "2026-07-05T10:00:00.000Z" }),
+      metricsRow({
+        linkedin_post_id: "p1",
+        post_age: "1d",
+        scraped_at: "2026-06-03T10:00:00.000Z",
+        estimated_post_date: "2026-06-02T10:00:00.000Z",
+      }),
+      metricsRow({
+        linkedin_post_id: "p2",
+        post_age: "1d",
+        scraped_at: "2026-07-06T10:00:00.000Z",
+        estimated_post_date: "2026-07-05T10:00:00.000Z",
+      }),
     ];
     const formats = new Map([
       ["p1", "IMAGE"],
       ["p2", "document"],
     ]);
-    const report = buildClientReport(rows, formats, {
+    const report = buildClientReport(withFormats(rows, formats), {
       period: ALL_TIME,
       now: NOW,
       followers: 5000,
@@ -139,8 +170,8 @@ describe("the printable document", () => {
   });
 
   it("names asset types in words, never as raw scraper tokens", () => {
-    const rows = [biRow({ linkedin_post_id: "p1" })];
-    const report = buildClientReport(rows, new Map([["p1", "slide_show"]]), {
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
+    const report = buildClientReport(withFormats(rows, new Map([["p1", "slide_show"]])), {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -162,9 +193,9 @@ describe("the printable document", () => {
   // leaves the building. A partial read whose figures print as totals, with
   // nothing saying so, is the worst thing this document can do.
   it("prints a truncation notice — with BOTH numbers — when the read was partial", () => {
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     const report: ClientReport = {
-      ...buildClientReport(rows, new Map(), {
+      ...buildClientReport(rows, {
         period: ALL_TIME,
         now: NOW,
         followers: null,
@@ -184,10 +215,10 @@ describe("the printable document", () => {
   });
 
   it("prints NO truncation notice when the read was complete", () => {
-    const rows = [biRow({ linkedin_post_id: "p1" })];
+    const rows = [metricsRow({ linkedin_post_id: "p1" })];
     // `buildClientReport` leaves truncation undefined — a complete read makes no
     // claim of incompleteness, and a notice that fires anyway cries wolf.
-    const report = buildClientReport(rows, new Map(), {
+    const report = buildClientReport(rows, {
       period: ALL_TIME,
       now: NOW,
       followers: null,
@@ -198,5 +229,95 @@ describe("the printable document", () => {
     render(<PrintReport report={report} />);
 
     expect(screen.queryByText(/lower bounds, not totals/)).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THIS IS THE DOCUMENT THAT LEAVES THE BUILDING.
+//
+// The weekday panel admits only posts dated to the day. The exclusion note is the
+// only thing standing between "here is your best weekday" and a chart built from
+// month-snapped dates, so its exact words are asserted here — the print copy is
+// DUPLICATED from `impressions-by-weekday-chart.tsx` (the print bundle may not
+// import that file; see the note above `exclusionNote`), and a duplicate that is
+// only tested in one place is a duplicate that drifts.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PrintReport — the weekday panel's three-state disclosure", () => {
+  /** One day-aged post, two month-aged, one hour-aged — all in the same period. */
+  const MIXED: PostMetricsRow[] = [
+    metricsRow({
+      linkedin_post_id: "day",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "m1",
+      post_age: "1m",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-07-01T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "m2",
+      post_age: "2m",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-06-01T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "hour",
+      post_age: "5h",
+      scraped_at: "2026-07-20T06:00:00.000Z",
+      estimated_post_date: null,
+    }),
+  ];
+
+  const build = (rows: PostMetricsRow[]) =>
+    buildClientReport(rows, {
+      period: ALL_TIME,
+      now: NOW,
+      followers: 5000,
+      connections: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("⚠️ states the basis and both exclusions, in three separate sentences", () => {
+    render(document_(build(MIXED)));
+
+    const note = screen
+      .getAllByRole("note")
+      .map((n) => n.textContent ?? "")
+      .find((t) => /publish day/i.test(t));
+
+    expect(note).toMatch(/built from the 1 post whose exact publish day is known/i);
+    expect(note).toMatch(/2 posts are dated only to the week or month/i);
+    expect(note).toMatch(/1 post has no publish date at all/i);
+    // ⚠️ NEVER SUMMED. "3 posts excluded" would be true and would erase the one
+    // distinction the Client needs: two have dates, one does not.
+    expect(note).not.toMatch(/3 posts/i);
+  });
+
+  it("⚠️ never describes a month-dated post as having no date", () => {
+    render(document_(build([MIXED[1]!, MIXED[2]!])));
+
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/2 posts are dated only to the week or month/i);
+    expect(body).not.toMatch(/have no publish date at all/i);
+  });
+
+  it("⚠️ does not print 'No posts in this period' over a period with posts in it", () => {
+    // Two real posts, both month-dated. The weekday panel has nothing to draw and
+    // must say WHY — telling a Client they posted nothing that period is false.
+    render(document_(build([MIXED[1]!, MIXED[2]!])));
+
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/no posts with a known publish day in this period/i);
+  });
+
+  it("⚠️ prints no age token and no internal vocabulary anywhere in the document", () => {
+    const { container } = render(document_(build(MIXED)));
+
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/\b\d+(m|w|d|y|h|mo)\b/);
+    expect(text).not.toMatch(/precision|granularity|estimated_post_date|resolver/i);
   });
 });

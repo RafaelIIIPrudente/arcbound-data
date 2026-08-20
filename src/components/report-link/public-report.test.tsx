@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import type { ClientReport, PostingCadence } from "@/services/types";
 
 // The reused period picker calls next/navigation; stub it so the wrapper renders
@@ -17,7 +17,14 @@ vi.mock("next/navigation", () => ({
 // the whole pipeline produces a rendered report from real rows.
 const { grantMock, sourceMock } = vi.hoisted(() => ({ grantMock: vi.fn(), sourceMock: vi.fn() }));
 vi.mock("@/lib/report-link-session", () => ({ getGateReadGrant: grantMock }));
-vi.mock("@/services/report-links", () => ({ readReportLinkSource: sourceMock }));
+vi.mock("@/services/report-links", async (importOriginal) => ({
+  // ⚠️ THE REAL `withFormatFallback` IS DELIBERATELY NOT MOCKED. It is the deploy
+  // -window guard that decides which source a Client-facing format comes from;
+  // stubbing it would make every assertion below pass against a shim rather than
+  // against the code that ships.
+  ...(await importOriginal<typeof import("@/services/report-links")>()),
+  readReportLinkSource: sourceMock,
+}));
 
 import { PublicReport, PublicReportView } from "./public-report";
 
@@ -35,6 +42,11 @@ function cadence(over: Partial<PostingCadence> = {}): PostingCadence {
     timeline: [Date.UTC(2026, 4, 1), Date.UTC(2026, 6, 18)],
     weekly: [],
     monthly: [],
+    weeklyPlacedPosts: 5,
+    weeklyCoarsePosts: 0,
+    dayPlacedPosts: 5,
+    dayCoarsePosts: 0,
+    lastPostDateIsExact: true,
     ...over,
   };
 }
@@ -49,6 +61,11 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
         { label: "Total posts", value: 5 },
         { label: "Avg interactions", value: 12 },
         { label: "Total interactions", value: 60 },
+        // The FOURTH hero figure, and deliberately an order of magnitude wider
+        // than its neighbours: `keyPerformance.selected` is what both the hero
+        // and the print cover lay out, so a fixture that stopped at three would
+        // stop describing what a Client is actually handed.
+        { label: "Total impressions", value: 284391 },
       ],
       matrix: [],
       perThousandFollowers: { label: "x", value: null, approximate: true },
@@ -80,6 +97,8 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
       { label: "Fri", value: 0 },
       { label: "Sat", value: 0 },
     ],
+    weekdayPlacedPosts: 0,
+    weekdayCoarsePosts: 0,
     weekdayUndatedPosts: 0,
     interactionsByAsset: [{ format: "IMAGE", label: "Image", value: 12, count: 3 }],
     postTypeDistribution: [{ format: "IMAGE", label: "Image", value: 60, count: 3 }],
@@ -191,6 +210,24 @@ describe("PublicReportView — the client-facing wrapper (pure)", () => {
     expect(screen.getAllByRole("button", { name: /^What is / }).length).toBeGreaterThan(0);
   });
 
+  it("shows the Client their Total impressions, in full, with its ⓘ", () => {
+    // ⚠️ THE SURFACE ASSERTION, NOT A REPEAT OF THE COMPONENT TEST.
+    // `key-performance.test.tsx` proves `KeyPerformance` renders a fourth hero
+    // figure; this proves the report a CLIENT holds actually receives one — the
+    // wrapper has to forward `keyPerformance` for either string to appear here.
+    //
+    // Printed in full on purpose: `format()` is exact everywhere on this
+    // document, and a compacted "284.4K" would be a precision claim the report
+    // cannot support. The ⓘ is asserted because impressions is the hero figure
+    // whose POPULATION differs from the charts below it, and a Client has no
+    // other way to learn that.
+    render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
+
+    expect(screen.getByText("Total impressions")).toBeInTheDocument();
+    expect(screen.getByText("284,391")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What is Total impressions?" })).toBeInTheDocument();
+  });
+
   it("keeps the period picker", () => {
     render(<PublicReportView report={makeReport()} clientName="Acme" freshness={FRESH} />);
     expect(screen.getByLabelText(/reporting period/i)).toBeInTheDocument();
@@ -238,7 +275,7 @@ describe("PublicReportView — the client-facing wrapper (pure)", () => {
 });
 
 // ── PublicReport (async — fetches through the grant) ─────────────────────────
-function post(over: Partial<BiPostRow> = {}): BiPostRow {
+function post(over: Partial<PostMetricsRow> = {}): PostMetricsRow {
   return {
     client_id: CLIENT,
     client_name: "Acme Corp",
@@ -413,5 +450,49 @@ describe("PublicReport — the connection count", () => {
     expect(within(followerLine).queryByText("—")).not.toBeInTheDocument();
     expect(within(connectionLine).getByText("—")).toBeInTheDocument();
     expect(within(connectionLine).queryByText("500")).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE LIVE CLIENT-FACING REPORT MUST DISCLOSE THE SAME THREE STATES THE PDF
+// DOES. This surface only forwards counts to the chart, which is exactly why it
+// is worth pinning: a forwarding site that drops a prop fails silently — the
+// chart renders, the numbers look plausible, and the disclosure simply is not
+// there.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PublicReportView — the weekday chart's exclusions reach the Client", () => {
+  it("⚠️ forwards the coarse count, and names it as dated-but-blunt", () => {
+    render(
+      <PublicReportView
+        report={makeReport({
+          weekdayPlacedPosts: 2,
+          weekdayCoarsePosts: 7,
+          weekdayUndatedPosts: 1,
+        })}
+        clientName="Acme"
+        freshness={FRESH}
+      />,
+    );
+
+    expect(screen.getByText(/7 posts are dated only to the week or month/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 post has no publish date at all/i)).toBeInTheDocument();
+    expect(screen.getByText(/built from the 2 posts/i)).toBeInTheDocument();
+  });
+
+  it("stays silent when every post carried an exact publish day", () => {
+    render(
+      <PublicReportView
+        report={makeReport({
+          weekdayPlacedPosts: 9,
+          weekdayCoarsePosts: 0,
+          weekdayUndatedPosts: 0,
+        })}
+        clientName="Acme"
+        freshness={FRESH}
+      />,
+    );
+
+    expect(screen.queryByText(/dated only to the week or month/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no publish date at all/i)).not.toBeInTheDocument();
   });
 });

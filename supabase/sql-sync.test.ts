@@ -29,6 +29,67 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // ⚠️ WRITTEN, NOT APPLIED, AND IT MUST STAY THAT WAY FOR NOW. `origin/main`
+    // does not contain the ADR 0010 cutover; production still reads `bi.*`
+    // through `.schema("bi")`, so applying this takes the live app's data source
+    // away mid-request. It is registered here so the two copies cannot drift
+    // while it waits — a retirement script that has gone stale against its
+    // migration is the worst possible thing to discover on the day you run it.
+    //
+    // ⚠️ ITS DROP LIST FOR `bi` IS DELIBERATELY NOT ENUMERATED FROM THIS REPO.
+    // The repo knows one object; the schema is owned outside it. The script
+    // carries a discovery query the operator runs first, and drops the schema as
+    // a whole rather than guessing at a list.
+    name: "retire-bi-and-staging",
+    script: "retire-bi-and-staging.sql",
+    migration: "migrations/20260822120000_retire_bi_and_staging.sql",
+  },
+  {
+    // ⚠️ THE POINT OF NO RETURN FOR THIS WORKSTREAM. Every pair below it left the
+    // old source live and correct, so a code revert was a complete rollback. This
+    // one stops the staging write, after which `bi.*` goes stale and reverting
+    // yields a report silently missing every post uploaded since.
+    //
+    // ⚠️ IT SUPERSEDES TWO APPLIED PAIRS RATHER THAN EDITING THEM: the view from
+    // `posts-read-view` (adding `post_format_type`) and `ingest_metrics` from
+    // `posts-ownership`. Both of those are applied and are never edited.
+    //
+    // ⚠️ AND IT IS DEPLOY-ORDER-SAFE IN BOTH DIRECTIONS, deliberately —
+    // `report_link_read` keeps emitting `attributes[]` so the OLD app renders
+    // correct formats against the NEW SQL, and the new app falls back to that key
+    // so it renders correct formats against the OLD SQL.
+    name: "posts-sole-source",
+    script: "posts-sole-source.sql",
+    migration: "migrations/20260821120000_posts_sole_source.sql",
+  },
+  {
+    // ⚠️ DEPLOY-ORDERED AGAINST THE APPLICATION, SQL FIRST — the code shipped with
+    // it reads `public.client_posts` and nothing else, so deploying the code first
+    // makes every read 404.
+    //
+    // ⚠️ AND GATED ON A ROW COUNT, not just on the pair below being applied: this
+    // view is only as populated as `public.posts`, so that pair's BACKFILL must
+    // have run. An empty posts table yields an empty view, which renders as "no
+    // posts yet" rather than as an error — a blank report that raises nothing.
+    name: "posts-read-view",
+    script: "posts-read-view.sql",
+    migration: "migrations/20260820120000_posts_read_view.sql",
+  },
+  {
+    // ⚠️ GOES IN AFTER THE TWO PAIRS BELOW IT, WHICH WERE STILL UNAPPLIED WHEN
+    // THIS WAS WRITTEN. Nothing here depends on them, but this pair adds the
+    // table the whole analytics cutover stands on (ADR 0010, S1) and it should
+    // land on a database whose state is known.
+    //
+    // It REPLACES `ingest_metrics` at the SAME five-argument signature, so unlike
+    // `uploads-connections-count` it must NOT drop the function first: a drop
+    // followed by a create is a window in which uploads fail, and there is no
+    // overload to remove.
+    name: "posts-ownership",
+    script: "posts-ownership.sql",
+    migration: "migrations/20260819120000_posts_ownership.sql",
+  },
+  {
     // ⚠️ APPLIED AFTER THE CODE DEPLOYS, UNLIKE EVERY OTHER PAIR HERE. It drops
     // a function whose last caller is removed in the same release, so applying
     // it with the registry swap below would take the function away while the

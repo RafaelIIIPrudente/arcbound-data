@@ -25,6 +25,8 @@ const EMPTY: DashboardAnalytics = {
   impressionsSeries: [],
   engagementSeries: [],
   impressionsByWeekday: [],
+  weekdayPlacedPosts: 0,
+  weekdayCoarsePosts: 0,
   weekdayUndatedPosts: 0,
   recentPosts: [],
 };

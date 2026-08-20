@@ -192,31 +192,73 @@ function ImpressionsByMonth({
   );
 }
 
+/**
+ * ⚠️ THE SAME THREE-STATE NOTE THE ON-SCREEN CHART BUILDS, DUPLICATED ON PURPOSE.
+ *
+ * `print-report.tsx` must not import `impressions-by-weekday-chart.tsx`: that file
+ * pulls in `MetricInfo`, whose Radix popover would land in the print bundle — a
+ * boundary `src/rsc-boundary.test.ts` enforces. So the wording lives twice, and
+ * each copy is pinned by its own test. If you change one, change the other: the
+ * screen and the document are the same report and must not say different things.
+ *
+ * Wording rules, both copies: three states get three sentences and are NEVER
+ * summed; no age token; no internal vocabulary.
+ */
+function exclusionNote(placed: number, coarse: number, undated: number): string | null {
+  if (coarse === 0 && undated === 0) return null;
+
+  const sentences: string[] = [];
+  if (placed > 0) {
+    sentences.push(
+      `Built from the ${placed === 1 ? "1 post" : `${placed} posts`} whose exact publish day is known.`,
+    );
+  }
+  if (coarse > 0) {
+    sentences.push(
+      coarse === 1
+        ? "1 post is dated only to the week or month, so the day of the week it went out isn\u2019t known."
+        : `${coarse} posts are dated only to the week or month, so the day of the week they went out isn\u2019t known.`,
+    );
+  }
+  if (undated > 0) {
+    sentences.push(
+      undated === 1
+        ? "1 post has no publish date at all."
+        : `${undated} posts have no publish date at all.`,
+    );
+  }
+  return sentences.join(" ");
+}
+
 function ImpressionsByWeekday({
   data,
   period,
-  datedPosts,
+  placedPosts,
+  coarsePosts,
   undatedPosts,
 }: {
   data: SeriesPoint[];
   period: ReportPeriod;
-  datedPosts: number;
+  /** Posts dated to the day — the only ones a weekday may be asserted for. */
+  placedPosts: number;
+  /** Dated, but only to the week or month. ⚠️ Not a kind of `undatedPosts`. */
+  coarsePosts: number;
+  /** No resolved publish date at all. */
   undatedPosts: number;
 }) {
-  // Empty when nothing DATABLE fell in the period — not merely when the buckets
-  // are all zero. A datable post that earned no impressions is a measured 0 and
-  // still draws; only the absence of any datable post is empty. Mirrors the
+  // Empty when nothing PLACEABLE fell in the period — not merely when the buckets
+  // are all zero. A placeable post that earned no impressions is a measured 0 and
+  // still draws; only the absence of any placeable post is empty. Mirrors the
   // on-screen chart so the document and the app cannot disagree.
-  const hasChart = datedPosts > 0;
-  const exclusion =
-    undatedPosts === 0
-      ? null
-      : `${undatedPosts === 1 ? "1 post" : `${undatedPosts} posts`} without a resolved date ${
-          undatedPosts === 1 ? "is" : "are"
-        } not counted here.`;
+  const hasChart = placedPosts > 0;
+  const exclusion = exclusionNote(placedPosts, coarsePosts, undatedPosts);
 
   return (
-    <Panel title="Average impressions by day of week posted" period={period} postCount={datedPosts}>
+    <Panel
+      title="Average impressions by day of week posted"
+      period={period}
+      postCount={placedPosts}
+    >
       {hasChart ? (
         <AreaChart
           width={CHART_WIDTH}
@@ -249,9 +291,14 @@ function ImpressionsByWeekday({
           />
         </AreaChart>
       ) : (
-        // Distinguish "there were posts, none datable" from "no posts at all".
+        // ⚠️ Distinguish "there were posts, none of them placeable" from "no posts
+        // at all". This document goes to the Client: printing "no posts" over a
+        // period they posted in — because their dates are blunt — is the worst
+        // sentence on the page.
         <p className="py-12 text-center text-sm text-muted-foreground">
-          {undatedPosts > 0 ? "No posts with a resolved publish date in this period." : EMPTY}
+          {coarsePosts + undatedPosts > 0
+            ? "No posts with a known publish day in this period."
+            : EMPTY}
         </p>
       )}
       {exclusion ? (
@@ -401,7 +448,8 @@ export function PrintReport({ report }: { report: ClientReport }) {
           period={report.period}
           // Datable posts only — the weekday chart excludes undated ones. The
           // sibling month chart above keeps `impressionsPostCount` untouched.
-          datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+          placedPosts={report.weekdayPlacedPosts}
+          coarsePosts={report.weekdayCoarsePosts}
           undatedPosts={report.weekdayUndatedPosts}
         />
       </Section>

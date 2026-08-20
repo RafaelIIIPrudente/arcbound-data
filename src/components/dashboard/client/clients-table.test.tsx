@@ -186,9 +186,11 @@ describe("sorting", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // TWO TRUE COLUMNS THAT READ AS A CONTRADICTION.
 //
-// `Last ArcBase upload` comes from `public.uploads` — this app's own ingest.
-// `Posts` comes from `bi.linkedin_post_latest` — the external pipeline. A client
-// with no ArcBase upload and 45 posts is entirely ordinary, but under a bare
+// `Last ArcBase upload` comes from `public.uploads` and `Posts` counts
+// `public.client_posts` — both written by this app's own ingest since ADR 0010,
+// where `Posts` once came from an externally-owned view. A client with no
+// ArcBase upload and 45 posts is still entirely ordinary — those posts came from
+// the one-time migration of older history — but under a bare
 // "Last upload" header it reads as one number calling the other a liar. That is
 // what got filed as a bug, and the reader was right: the screen was saying the
 // wrong thing with correct figures.

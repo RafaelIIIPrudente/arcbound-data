@@ -1,17 +1,16 @@
 import { FORMAT_LABELS, toCanonicalFormat } from "@/lib/post-format";
-import { effectiveMs, type BiPostRow } from "@/services/analytics";
-import { readClientPostRows, selectPeriodRows } from "@/services/bi-posts";
+import { effectiveMs, type PostMetricsRow } from "@/services/analytics";
+import { readClientPostRows, selectPeriodRows } from "@/services/post-metrics";
 import { availablePeriods, parseReportPeriod } from "@/services/client-report";
-import { listPostAttributes, toFormatMap } from "@/services/post-attributes";
 import type { ClientPostRow, ClientPosts, PostFormat } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Per-post drill-down seam for `/clients/[id]/posts`. Joins the same two reads
-// the report does — `bi.linkedin_post_latest` for the metrics, app-owned
-// `public.post_attributes` for the asset type — and shapes them as table rows.
+// Per-post drill-down seam for `/clients/[id]/posts`. Takes the same single read
+// the report does — `public.client_posts`, metrics and asset type together — and
+// shapes it as table rows.
 //
 // ⚠️ IT ADDS NO DATA SOURCE AND OWNS NO PERIOD LOGIC. The paged read and the
-// period predicate both come from `@/services/bi-posts`, which the report reads
+// period predicate both come from `@/services/post-metrics`, which the report reads
 // too. That is deliberate and load-bearing: this screen lists the posts behind
 // the report's counts, so `totalInPeriod` and `ClientReport.assetPostCount` MUST
 // be the same number. Reimplementing either here would let the table contradict
@@ -60,15 +59,16 @@ function snippet(content: string | null): string {
  * is not the date it was published on, and showing one as the other is a lie
  * the reader cannot detect. An hour-age post shows its raw `post_age` instead.
  */
-function publishDate(row: BiPostRow): string | null {
+function publishDate(row: PostMetricsRow): string | null {
   if (!row.estimated_post_date) return null;
   return Number.isNaN(Date.parse(row.estimated_post_date)) ? null : row.estimated_post_date;
 }
 
-function toPostRow(row: BiPostRow, formatMap: Map<string, string>): ClientPostRow {
-  // A missing attribute record — or an unrecognised raw value — is UNKNOWN,
-  // which is a real member of the vocabulary, not an error state.
-  const format: PostFormat = toCanonicalFormat(formatMap.get(row.linkedin_post_id)) ?? "UNKNOWN";
+function toPostRow(row: PostMetricsRow): ClientPostRow {
+  // ⚠️ THE FORMAT RIDES THE ROW (ADR 0010, S3) — it used to come from a second
+  // read of public.post_attributes. An absent or unrecognised raw value is still
+  // UNKNOWN, which is a real member of the vocabulary, not an error state.
+  const format: PostFormat = toCanonicalFormat(row.post_format_type ?? undefined) ?? "UNKNOWN";
 
   return {
     id: row.linkedin_post_id,
@@ -132,13 +132,11 @@ export async function getClientPosts({
 
   // Only the period's posts need an asset type; the read degrades to [] rather
   // than throwing, so a failed join shows Unknown instead of erroring the page.
-  const attributes = await listPostAttributes(selected.map((r) => r.linkedin_post_id));
-  const formatMap = toFormatMap(attributes);
 
   // Sorted BEFORE the cap, so a capped table keeps the top posts rather than an
   // arbitrary 2,000. This also sets the table's default order.
   const mapped = selected
-    .map((row) => toPostRow(row, formatMap))
+    .map((row) => toPostRow(row))
     .sort((a, b) => b.impressions - a.impressions);
 
   const capped = mapped.length > MAX_TABLE_ROWS;

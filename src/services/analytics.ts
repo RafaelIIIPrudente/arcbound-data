@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { bucketLabel, bucketPlan, resolveWindow, type RangeSelection } from "@/lib/date-range";
 import { median } from "@/lib/median";
+import { isAtLeastAsPrecise, resolvePostDatePrecision, type DatePrecision } from "@/lib/post-date";
 import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
 import { listClientRegistry } from "@/services/clients";
@@ -18,15 +19,28 @@ import type {
 } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Analytics Service Seam (dashboard read-model), now LIVE. Reads the externally-
-// owned BI view `bi.linkedin_post_latest` (one row per client-matched post, latest
-// scrape) and aggregates it into DashboardAnalytics. The signature is unchanged
-// (ADR 0009). The pure `buildDashboardAnalytics` does all aggregation so it is
-// deterministically unit-testable with an injected `now`.
+// Analytics Service Seam (dashboard read-model), now LIVE. Reads the APP-OWNED
+// view `public.client_posts` — one row per post, attributed by the `client_id`
+// foreign key stamped at upload — and aggregates it into DashboardAnalytics.
+//
+// ⚠️ IT READ THE EXTERNALLY-OWNED `bi.linkedin_post_latest` UNTIL ADR 0010. The
+// row SHAPE did not change across that cutover, deliberately: `PostMetricsRow` is the
+// firewall, and repointing the source cost one clause here and nothing at all in
+// the aggregation below. The pure `buildDashboardAnalytics` still does every
+// aggregation so it is deterministically unit-testable with an injected `now`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** A row of the externally-owned view bi.linkedin_post_latest. */
-export interface BiPostRow {
+/**
+ * A row of the app-owned view `public.client_posts`, which projects
+ * `public.posts` — one row per post, attributed by the `client_id` foreign key
+ * stamped at upload.
+ *
+ * ⚠️ THIS IS THE FIREWALL. Every reporting surface consumes this shape and
+ * nothing else, which is why moving the underlying source cost one clause per
+ * read site and nothing downstream. Keep it in step with `POST_COLUMNS`
+ * (`post-metrics.ts`) — `asPage` ASSERTS the row type rather than checking it.
+ */
+export interface PostMetricsRow {
   client_id: string;
   client_name: string | null;
   linkedin_post_id: string;
@@ -34,7 +48,13 @@ export interface BiPostRow {
   post_content: string | null;
   /** Raw relative age, e.g. "23h"/"4d". */
   post_age: string | null;
-  /** Resolved date (NULL for hour-age posts — Shay's resolver skips those). */
+  /**
+   * Resolved publish instant, or NULL when none can be established.
+   *
+   * NULL for hour- and minute-grained ages ON PURPOSE — `src/lib/post-date.ts`
+   * refuses to date them, because bucketing a weekly scrape's freshest posts onto
+   * the scrape's own weekday fabricates a rhythm in a client-facing chart.
+   */
   estimated_post_date: string | null;
   impressions: number | null;
   likes: number | null;
@@ -44,6 +64,22 @@ export interface BiPostRow {
   interactions: number | null;
   provided_engagement_rate: number | null;
   calculated_engagement_rate: number | null;
+  /**
+   * The format EXACTLY as the Scrape sent it — any casing, never rewritten.
+   *
+   * ⚠️ CANONICALISE BEFORE GROUPING (`toCanonicalFormat`). "DOCUMENT",
+   * "document" and " Document " are three distinct strings here and one format
+   * in the report; grouping on the raw value splits one format into several
+   * buckets. An unrecognised or absent value is UNKNOWN, which is a real member
+   * of the vocabulary rather than an error.
+   *
+   * ⚠️ OPTIONAL BECAUSE OF THE DEPLOY WINDOW, not because it is unimportant. The
+   * client-facing `/r/[token]` bundle may have been produced by the PREVIOUS
+   * `report_link_read`, which had no such column; those rows fall back to the
+   * bundle's `attributes[]` map (see `withFormatFallback`). Once the old function
+   * is gone this can become required.
+   */
+  post_format_type?: string | null;
   scraped_at: string | null;
   uploaded_at: string | null;
 }
@@ -70,7 +106,7 @@ export interface DashboardOptions {
    * table — the Dashboard's most-hit route otherwise reads `public.clients` twice.
    *
    * ⚠️ A PROMISE, NOT A VALUE, so the caller can hand in the read still in flight
-   * and it overlaps the bi read here rather than serialising ahead of it. Omit it
+   * and it overlaps the posts read here rather than serialising ahead of it. Omit it
    * and this falls back to its own `listClientRegistry()`, so every other caller
    * and test is unaffected. `null` (a resolved failed read) is honoured as failed
    * — the comparison goes unavailable rather than silently re-reading.
@@ -109,7 +145,7 @@ function mean(values: number[]): number {
  * (the windowing helper) deliberately does not. Reused rather than re-copied so
  * the two seams cannot drift on what "the post's date" means.
  */
-export function estMs(row: BiPostRow): number | null {
+export function estMs(row: PostMetricsRow): number | null {
   if (!row.estimated_post_date) return null;
   const t = Date.parse(row.estimated_post_date);
   return Number.isNaN(t) ? null : t;
@@ -118,9 +154,10 @@ export function estMs(row: BiPostRow): number | null {
 /**
  * When a post effectively happened, for WINDOWING and BUCKETING.
  *
- * Posts scraped with a relative age in hours ("23h") come back from
- * `bi.linkedin_post_latest` with a NULL estimated_post_date — Shay's resolver
- * only resolves day-granularity ages. Windowing on estimated_post_date alone
+ * Posts scraped with a relative age in hours ("23h") carry a NULL
+ * estimated_post_date — `src/lib/post-date.ts` resolves day-granularity ages and
+ * REFUSES sub-day ones, deliberately (ADR 0010 D5), exactly as the resolver it
+ * replaced did. Windowing on estimated_post_date alone
  * therefore dropped yesterday's posts out of every KPI, series bucket, and
  * totalPosts, even though they are the most recent posts the client has.
  *
@@ -129,18 +166,59 @@ export function estMs(row: BiPostRow): number | null {
  * recent-posts list keeps showing `post_age`, because the scrape date is not
  * the date the post was published on.
  */
-export function effectiveMs(row: BiPostRow): number | null {
+export function effectiveMs(row: PostMetricsRow): number | null {
   const est = estMs(row);
   if (est !== null) return est;
   const s = row.scraped_at ? Date.parse(row.scraped_at) : NaN;
   return Number.isNaN(s) ? null : s;
 }
 
-function recencyMs(row: BiPostRow): number {
+/**
+ * Where a post may be placed on a timeline bucketed at `granularity` — THREE
+ * states, and they never collapse into two.
+ *
+ * ⚠️ A RESOLVED INSTANT IS NOT A DAY-EXACT ONE. `estimated_post_date` is a full
+ * timestamp whatever age produced it, so a "4d" post and a "4m" post look equally
+ * precise on the row and are not: the month post was SNAPPED to the 1st, the week
+ * post landed on the SCRAPE's own weekday. Placing either on a weekday reports
+ * when we looked, not when they posted. The rule is one line — a bucket at
+ * granularity G admits only posts whose precision is at least as fine as G — and
+ * `src/lib/post-date.ts` owns what each age token can support.
+ *
+ * ⚠️ `too-coarse` IS NOT `undated`, and a caller that merges them has introduced
+ * the defect this function exists to prevent. "We could not date this post" and
+ * "we dated it, but only to the month" are different facts; a reader told the
+ * first when the second is true goes looking for missing data that is not missing.
+ */
+export type PostPlacement =
+  { state: "placed"; ms: number } | { state: "too-coarse" } | { state: "undated" };
+
+export function placePost(row: PostMetricsRow, granularity: DatePrecision): PostPlacement {
+  const ms = estMs(row);
+  if (ms === null) return { state: "undated" };
+
+  // ⚠️ A DATED ROW WHOSE AGE CANNOT BE READ IS TREATED AS MONTH-GRAINED — the
+  // coarsest datable granularity — never as finer, and never as undated.
+  //
+  // At ingest the two cannot disagree: the same `post_age` text produced both the
+  // instant and the precision, so a stored date implies a datable age. This is
+  // reachable only for rows loaded by the one-time migration, whose date was
+  // copied from the previous analytics layer while the age text came from the
+  // scrape — and that layer dated hour-ages this resolver refuses. Every such row
+  // is therefore FINER than a month in truth, so calling it month understates
+  // what we know rather than overstating it, and it keeps the month-bucketed
+  // charts counting exactly the rows they count today.
+  const precision = resolvePostDatePrecision(row.post_age) ?? "month";
+  return isAtLeastAsPrecise(precision, granularity)
+    ? { state: "placed", ms }
+    : { state: "too-coarse" };
+}
+
+function recencyMs(row: PostMetricsRow): number {
   return effectiveMs(row) ?? 0;
 }
 
-function sumOf(rows: BiPostRow[], pick: (r: BiPostRow) => number | null): number {
+function sumOf(rows: PostMetricsRow[], pick: (r: PostMetricsRow) => number | null): number {
   return rows.reduce((s, r) => s + num(pick(r)), 0);
 }
 
@@ -188,7 +266,7 @@ function toKpi(label: string, current: number, prior: number | null): Kpi {
  * some other basis, this aggregate and that column would be quietly measuring
  * two different things under one word.
  */
-function weightedRate(rows: BiPostRow[]): number {
+function weightedRate(rows: PostMetricsRow[]): number {
   const impressions = sumOf(rows, (r) => r.impressions);
   return impressions > 0 ? (sumOf(rows, (r) => r.interactions) / impressions) * 100 : 0;
 }
@@ -234,9 +312,9 @@ function formatSync(ms: number): string {
  * table comes to disagree with the rows in it.
  */
 export function currentWindow(
-  rows: BiPostRow[],
+  rows: PostMetricsRow[],
   { range, now }: { range: RangeSelection; now: Date },
-): BiPostRow[] {
+): PostMetricsRow[] {
   // `startMs` is -Infinity for all time, which needs no special case here: every
   // datable row is `>= -Infinity`. `endMs` is INCLUSIVE.
   const { startMs, endMs } = resolveWindow(range, now);
@@ -247,7 +325,7 @@ export function currentWindow(
 }
 
 export function buildDashboardAnalytics(
-  rows: BiPostRow[],
+  rows: PostMetricsRow[],
   { range, now }: { range: RangeSelection; now: Date },
 ): DashboardAnalytics {
   const nowMs = now.getTime();
@@ -274,7 +352,7 @@ export function buildDashboardAnalytics(
         });
 
   /** Sum a column over the baseline, or `null` when there is no baseline. */
-  const priorSum = (pick: (r: BiPostRow) => number | null): number | null =>
+  const priorSum = (pick: (r: PostMetricsRow) => number | null): number | null =>
     prior === null ? null : sumOf(prior, pick);
 
   const empty = current.length === 0;
@@ -390,24 +468,40 @@ export function buildDashboardAnalytics(
   // Average impressions by the weekday a post was PUBLISHED on, over the current
   // window.
   //
-  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT `effectiveMs`. Every
-  // other figure here windows on `effectiveMs`, which stands `scraped_at` in for an
-  // hour-age post's missing date; that is right for "is it in the window", but a
-  // weekday may NOT be asserted that way. Every post in one weekly scrape shares a
-  // `scraped_at`, so bucketing undated posts by it would pile a scrape onto a single
-  // weekday and fabricate a rhythm — "which weekday lands best" becoming "which
-  // weekday we scraped". Undated posts are excluded and counted separately so the
-  // chart can disclose the gap. (The report's weekday chart now applies this same
-  // `estMs`-only dating and `weekdayUndatedPosts` count — see `client-report.ts`.)
+  // ⚠️ DAY-PRECISION POSTS ONLY, via `placePost(r, "day")`. Two separate things
+  // disqualify a post here and they are counted separately:
+  //
+  //   • UNDATED — no resolved publish date at all. Every other figure windows on
+  //     `effectiveMs`, which stands `scraped_at` in for an hour-age post; that is
+  //     right for "is it in the window" but bucketing by it would pile a whole
+  //     weekly scrape onto one weekday, turning "which weekday lands best" into
+  //     "which weekday we scraped".
+  //   • TOO COARSE — dated, but not to the day. A week age resolves to the
+  //     SCRAPE's weekday and a month age to whatever weekday the 1st fell on, so
+  //     both would vote on a weekday they never carried. Measured live: 236 of
+  //     272 posts are week- or month-grained, so this is the majority of the
+  //     input, not an edge case.
+  //
+  // ⚠️ THE TWO NEVER MERGE. Folding coarse posts into `weekdayUndatedPosts` would
+  // tell a reader their dates are missing when they are merely too blunt for this
+  // one chart — and would send them looking for an ingestion fault that is not
+  // there. (`client-report.ts` applies the identical rule.)
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
   let weekdayUndatedPosts = 0;
+  let weekdayCoarsePosts = 0;
+  let weekdayPlacedPosts = 0;
   for (const r of current) {
-    const t = estMs(r);
-    if (t === null) {
+    const placed = placePost(r, "day");
+    if (placed.state === "undated") {
       weekdayUndatedPosts += 1;
       continue;
     }
-    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(r.impressions));
+    if (placed.state === "too-coarse") {
+      weekdayCoarsePosts += 1;
+      continue;
+    }
+    weekdayPlacedPosts += 1;
+    weekdayBuckets[new Date(placed.ms).getUTCDay()]!.push(num(r.impressions));
   }
   const impressionsByWeekday: SeriesPoint[] = WEEKDAYS.map((label, i) => ({
     label,
@@ -428,6 +522,8 @@ export function buildDashboardAnalytics(
     impressionsSeries,
     engagementSeries,
     impressionsByWeekday,
+    weekdayPlacedPosts,
+    weekdayCoarsePosts,
     weekdayUndatedPosts,
     recentPosts,
   };
@@ -515,12 +611,12 @@ function perThousand(
  * sample size, and the table plus a median is honest at any N.
  */
 export function buildClientComparison(
-  current: BiPostRow[],
+  current: PostMetricsRow[],
   registry: { id: string; name: string }[],
   uploads: Upload[] | null,
 ): ClientComparison {
   const registered = new Set(registry.map((c) => c.id));
-  const byClient = new Map<string, BiPostRow[]>();
+  const byClient = new Map<string, PostMetricsRow[]>();
   let unattributedPosts = 0;
 
   for (const row of current) {
@@ -612,7 +708,14 @@ const COMPARISON_UNAVAILABLE: ClientComparison = {
 const SELECT_COLUMNS =
   "client_id, linkedin_post_id, post_content, post_age, estimated_post_date, impressions, likes, comments, reposts, saves, interactions, scraped_at";
 
-const BI_LABEL = "bi.linkedin_post_latest";
+/**
+ * ⚠️ USER-FACING, NOT A COMMENT. `readAllPages` prints this as the human noun in
+ * its truncation and failure warnings, so it must name the source ArcBase
+ * actually reads. It said `bi.linkedin_post_latest` until ADR 0010 moved the
+ * reads onto the app-owned view; leaving it would have named a source this file
+ * no longer touches.
+ */
+const POSTS_LABEL = "client_posts";
 
 /**
  * One page of the dashboard's window, built per request.
@@ -630,17 +733,17 @@ const BI_LABEL = "bi.linkedin_post_latest";
  * `linkedin_post_id` is the view's per-post identity and is unique, so it totally
  * orders the result.
  *
- * ⚠️ `SELECT_COLUMNS` AND `BiPostRow` ARE A PAIR — `asPage` asserts the row type
+ * ⚠️ `SELECT_COLUMNS` AND `PostMetricsRow` ARE A PAIR — `asPage` asserts the row type
  * rather than checking it. Edit the two together.
  */
 function dashboardPageReader(
   clientId: string | undefined,
   boundIso: string | null,
-): PageReader<BiPostRow> {
+): PageReader<PostMetricsRow> {
   let supabase: ReturnType<typeof createClient> | undefined;
   return (from, to, opts) => {
     supabase ??= createClient(cookies());
-    const base = supabase.schema("bi").from("linkedin_post_latest").select(SELECT_COLUMNS, opts);
+    const base = supabase.from("client_posts").select(SELECT_COLUMNS, opts);
     const scoped = clientId ? base.eq("client_id", clientId) : base;
     // ⚠️ A NULL BOUND IS "NO FLOOR", NOT "A FLOOR AT ZERO". All-time drops the
     // clause entirely rather than passing an epoch or a stringified -Infinity,
@@ -650,7 +753,7 @@ function dashboardPageReader(
         ? scoped
         : // Keeps null-dated hour-age posts so they can still appear in "recent posts".
           scoped.or(`estimated_post_date.gte.${boundIso},estimated_post_date.is.null`);
-    return asPage<BiPostRow>(
+    return asPage<PostMetricsRow>(
       bounded.order("linkedin_post_id", { ascending: true }).range(from, to),
     );
   };
@@ -677,7 +780,7 @@ export async function getDashboardAnalytics({
 
   const { rows, unavailable, truncated, total } = await readAllPages(
     dashboardPageReader(clientId, boundIso),
-    BI_LABEL,
+    POSTS_LABEL,
   );
 
   if (unavailable) {

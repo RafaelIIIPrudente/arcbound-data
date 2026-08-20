@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { BiPostRow } from "@/services/analytics";
+import type { PostMetricsRow } from "@/services/analytics";
 import { buildDashboardAnalytics } from "@/services/analytics";
 
 import {
@@ -24,7 +24,7 @@ const MODULE = "src/lib/metric-definitions.ts";
 // sentences.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function row(over: Partial<BiPostRow> = {}): BiPostRow {
+function row(over: Partial<PostMetricsRow> = {}): PostMetricsRow {
   return {
     client_id: "c1",
     client_name: "Ada Lovelace",
@@ -297,6 +297,7 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
       "Connections",
       "Monthly avg",
       "Monthly max",
+      "Total impressions",
       "Total interactions",
       "Total posts",
     ]);
@@ -472,17 +473,22 @@ describe("the definitions a CLIENT reads name no part of the pipeline", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE CLIENT LIST'S TWO COLUMNS MEASURE TWO DIFFERENT PIPELINES.
+// THE CLIENT LIST'S TWO COLUMNS MEASURE TWO THINGS, NOT TWO PIPELINES.
 //
-// "Never uploaded, 45 posts" is not a contradiction and never was: `Last
-// ArcBase upload` reads `public.uploads` (ArcBase's own `/upload`) and `Posts`
-// reads `bi.linkedin_post_latest` (the external pipeline, attributed by
-// name-match). Both figures are correct. Adjacency under two bare labels is
-// what made a reviewer file it as a bug — so these two sentences carry the
-// whole reconciliation, and each is pinned to the claim that does that work.
+// ⚠️ THIS BLOCK USED TO SAY "TWO DIFFERENT PIPELINES", AND THAT STOPPED BEING
+// TRUE. `Posts` once came from an externally-owned view fed by a separate
+// pipeline and attributed by name match; both columns now derive from ArcBase's
+// own `/upload`, which writes the `uploads` audit row and the posts in ONE
+// transaction. So the two no longer drift apart by mechanism.
+//
+// "Never uploaded, 45 posts" is still possible and still not a contradiction —
+// but for a narrower and more honest reason: those posts were loaded by the
+// one-time historical migration, which had no upload to record. Adjacency under
+// two bare labels is what made a reviewer file it as a bug, so these sentences
+// still carry the reconciliation; they just carry a different one.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("the Client List's two columns say they are two different pipelines", () => {
+describe("the Client List's two columns say what each of them measures", () => {
   const lastUpload = METRIC_DEFINITIONS.clientListLastArcbaseUpload.definition;
   const posts = METRIC_DEFINITIONS.clientListPosts.definition;
 
@@ -504,9 +510,17 @@ describe("the Client List's two columns say they are two different pipelines", (
     // ⚠️ THE ENTIRE POINT OF THE SLICE. Without this sentence the rename alone
     // narrows the claim but never reconciles the two columns, and a reader is
     // still left to guess whether the two numbers are allowed to disagree.
+    //
+    // ⚠️ THE REASON THEY CAN DISAGREE CHANGED, AND THIS LINE PINNED THE OLD ONE.
+    // It asserted `/external pipeline/i`, which was true while Posts came from a
+    // separately-fed view. Both columns now come from ArcBase's own upload, so
+    // the only way to hold posts with no upload recorded is the one-time
+    // historical migration. Asserting the old phrase would keep a retired
+    // mechanism on screen indefinitely.
     expect(lastUpload).toMatch(/posts/i);
-    expect(lastUpload).toMatch(/external pipeline/i);
+    expect(lastUpload).toMatch(/migrat/i);
     expect(lastUpload).toMatch(/never/i);
+    expect(lastUpload).not.toMatch(/external pipeline/i);
   });
 
   it("keeps “Never” a known fact and the dash a separate, unread third case", () => {
@@ -517,16 +531,57 @@ describe("the Client List's two columns say they are two different pipelines", (
     expect(lastUpload).toMatch(/could not be read/i);
   });
 
-  it("discloses that Posts is attributed by NAME MATCH, and what that costs", () => {
-    // ⚠️ A REAL LIMITATION VISIBLE NOWHERE ELSE ON THIS SCREEN. An under-counted
-    // client looks exactly like a quiet one, so the failure mode is named rather
-    // than left for staff to infer from a number that looks plausible.
-    expect(posts).toMatch(/name match/i);
-    expect(posts).toMatch(/under-?counted/i);
+  it("says Posts is attributed by the CLIENT CHOSEN AT UPLOAD, not by a name", () => {
+    // ⚠️ THIS TEST USED TO DEMAND THE OPPOSITE. It asserted `/name match/i` and
+    // `/under-?counted/i`, disclosing a real limitation: attribution matched the
+    // scraped author string against `clients.name`, so a client recorded
+    // differently upstream was silently under-counted.
+    //
+    // ⚠️ THAT LIMITATION NO LONGER GOVERNS NEW UPLOADS. Attribution is a foreign
+    // key stamped from the operator's own selection, so for anything ingested
+    // through /upload a spelling difference cannot lose a post, and leaving the
+    // old warning up would send staff hunting an under-count that cannot happen.
+    //
+    // ⚠️ BUT THE FIX OVERCORRECTED, AND THE BLANKET FORBIDS CAME BACK OUT. This
+    // test used to assert `not.toMatch(/name match/i)` and
+    // `not.toMatch(/under-?counted/i)` under the claim that "a spelling
+    // difference cannot lose a post". That is FALSE OF THE MIGRATED HISTORY:
+    // `backfill_posts_from_staging()` attributes by the SAME exact name match the
+    // retired view used — its own `comment on function` calls that "the last
+    // legitimate use of it" — and the live run returned `skipped_unmatched: 1`.
+    // A spelling difference DID lose a post, once, permanently. Banning those two
+    // phrases banned the only honest way to say so, so the negative assertions
+    // are gone and the disclosure is pinned positively in the next test instead.
+    expect(posts).toMatch(/chosen|selected/i);
   });
 
-  it("says Posts moves independently of the upload column", () => {
-    expect(posts).toMatch(/independent/i);
+  it("discloses that MIGRATED history was matched by NAME and can be short", () => {
+    // ⚠️ THE HAZARD IS HISTORICAL, NOT ZERO, AND THE DIFFERENCE IS THE WHOLE
+    // POINT. Two populations sit in this one number: rows ingested through
+    // /upload, attributed by a recorded FK and safe from spelling; and rows the
+    // one-time migration loaded, attributed by matching the scraped author
+    // string against `clients.name`. The second rule is lossy and already lost
+    // one row. A count that silently blends them, described only by the safe
+    // rule, tells a reader the number is exact when it is a lower bound.
+    //
+    // ⚠️ THIS IS THE EITAN HOENIG SHAPE. A Premium scrape emitted a doubled
+    // author string, failed this same exact-match join, and stranded 14 posts.
+    // Do not let the copy imply the join cannot fail.
+    expect(posts).toMatch(/migrat/i);
+    expect(posts).toMatch(/name/i);
+    expect(posts).toMatch(/left behind|did not match|missing/i);
+  });
+
+  it("names the ONE case where the two columns can still disagree", () => {
+    // ⚠️ THIS REPLACES A DELETED CLAIM RATHER THAN DROPPING IT. The old assertion
+    // was `expect(posts).toMatch(/independent/i)` — the two columns moved
+    // independently because they came from two pipelines. One `/upload` now
+    // writes the audit row and the posts in a single transaction, so
+    // "independent" would be false; what a reader still needs is the one case
+    // that survives, which is history the migration loaded with no upload to
+    // record. Without it, "Never" beside 45 posts reads as a bug again.
+    expect(posts).toMatch(/migrat/i);
+    expect(posts).not.toMatch(/independent/i);
   });
 });
 

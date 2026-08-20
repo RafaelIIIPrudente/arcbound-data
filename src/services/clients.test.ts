@@ -120,13 +120,24 @@ function chainable(result: unknown, table = "?"): unknown {
  */
 function mockSupabase(
   clientsResult: unknown,
-  biResult: unknown,
+  postsResult: unknown,
   uploadsResult: unknown = { data: [], error: null },
   directoryResult: unknown = { data: [], error: null },
 ) {
   supabase.current = {
-    from: (table: string) => chainable(table === "uploads" ? uploadsResult : clientsResult, table),
-    schema: () => ({ from: (t: string) => chainable(biResult, t) }),
+    // ⚠️ `client_posts` IS ROUTED THROUGH THE DEFAULT `from`, AND `schema` IS GONE.
+    // ADR 0010 moved post reads onto the app-owned `public.client_posts`, so a
+    // seam that reached back into the `bi` schema would throw here rather than
+    // quietly resolving — which is the failure mode this mock is meant to have.
+    from: (table: string) =>
+      chainable(
+        table === "uploads"
+          ? uploadsResult
+          : table === "client_posts"
+            ? postsResult
+            : clientsResult,
+        table,
+      ),
     // Routed through the same `chainable`, so the directory joins the
     // concurrency probe below rather than being invisible to it.
     rpc: (name: string, args?: unknown) => {
@@ -192,7 +203,7 @@ beforeEach(() => {
 });
 
 describe("clients service (real seam)", () => {
-  it("lists clients, mapping linkedin_profile_url and joining bi post counts", async () => {
+  it("lists clients, mapping linkedin_profile_url and joining post counts from the app-owned view", async () => {
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish"), ROW("c2", "Priya Nadella")], error: null },
       { data: [{ client_id: "c1" }, { client_id: "c1" }, { client_id: "c2" }], error: null },
@@ -222,7 +233,7 @@ describe("clients service (real seam)", () => {
   // A failed `bi` read and a client with no posts both produced `0`, so the
   // table rendered a broken pipeline and an empty client with the same glyph.
   // `null` now means "could not read"; `0` means a real, successfully-read zero.
-  it("reports postsCount as NULL — not 0 — when the bi view is unreachable", async () => {
+  it("reports postsCount as NULL — not 0 — when the posts view is unreachable", async () => {
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish")], error: null },
       { data: null, error: { message: "schema bi is not exposed" } },
@@ -358,13 +369,13 @@ describe("clients service (real seam)", () => {
   // reported 1000; it must report all 1500.
   // ───────────────────────────────────────────────────────────────────────────
   it("counts EVERY post past the 1000-row response cap, not just the first page", async () => {
-    const biRows = [
+    const metricsRows = [
       ...Array.from({ length: PAGE_SIZE + 200 }, () => ({ client_id: "c1" })),
       ...Array.from({ length: 300 }, () => ({ client_id: "c2" })),
     ];
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish"), ROW("c2", "Priya Nadella")], error: null },
-      { data: biRows, error: null },
+      { data: metricsRows, error: null },
     );
 
     const { items } = await listClients();
@@ -381,7 +392,7 @@ describe("clients service (real seam)", () => {
   // Past MAX_PAGES the rows are a prefix, so every count built from them is
   // wrong while looking entirely plausible. `null` already means "we don't
   // know" throughout this seam, and that is the honest value here.
-  it("reports postsCount as NULL when the bi read is TRUNCATED, never a partial count", async () => {
+  it("reports postsCount as NULL when the posts read is TRUNCATED, never a partial count", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockSupabase(
       { data: [ROW("c1", "Bryan Wish")], error: null },
