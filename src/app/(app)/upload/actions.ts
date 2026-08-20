@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import type { AuthorMatchReport } from "@/lib/author-match";
-import { authorMatchReport, nameMatchWarning } from "@/lib/author-match";
+import { authorMatchReport, decoratedAuthorNote, nameMatchWarning } from "@/lib/author-match";
 import { parseCsv, parseJson } from "@/lib/parse-metrics";
 import { getClient } from "@/services/clients";
 import { ingestMetrics } from "@/services/ingest";
@@ -66,13 +66,30 @@ function parseResolved(value: FormDataEntryValue | null): Record<string, string>
 /**
  * The outcome of comparing this upload's scraped authors to the selected Client.
  *
- * ⚠️ THREE OUTCOMES, NOT TWO, AND `unchecked` IS THE ONE THAT MATTERS. `getClient`
- * can throw (a failed read) or return null (no such row). Either way the client's
- * name is unknown, and **"could not check" is not "matches"** — collapsing it into
- * `match` would silently claim a verification that never happened.
+ * ⚠️ FOUR OUTCOMES, NOT THREE, AND NONE OF THEM COLLAPSES INTO ANOTHER. Each one
+ * leads somewhere different, which is the only reason it is a separate state:
+ *
+ * - `match`     — the scrape and the selection agree. Write, say nothing.
+ * - `artifact`  — the scraped author is this Client's own name plus known
+ *                 LinkedIn chrome, in ANY arrangement — `Raj Singh Raj Singh •
+ *                 You Verified • You` is the corpus case, but the rule pins no
+ *                 order and deliberately accepts others. Not a disagreement, so
+ *                 it must NOT gate; not nothing either, so it is recorded as a
+ *                 note. Added 2026-08-20 — see
+ *                 docs/decisions/2026-08-20-badge-decorated-author-names.md.
+ * - `mismatch`  — the scrape names someone this Client is not. Gate before the
+ *                 write; a wrong file or a wrong selection is the likeliest cause.
+ * - `unchecked` — ⚠️ STILL THE ONE THAT MATTERS. `getClient` can throw (a failed
+ *                 read) or return null (no such row). Either way the client's
+ *                 name is unknown, and **"could not check" is not "matches"**;
+ *                 collapsing it into `match` would silently claim a verification
+ *                 that never happened.
  */
 type NameCheck =
-  { status: "match" } | { status: "mismatch"; report: AuthorMatchReport } | { status: "unchecked" };
+  | { status: "match" }
+  | { status: "artifact"; report: AuthorMatchReport }
+  | { status: "mismatch"; report: AuthorMatchReport }
+  | { status: "unchecked" };
 
 /**
  * ⚠️ SHOWN AFTER A WRITE THAT WENT AHEAD WITHOUT THE CHECK. It must not block —
@@ -90,20 +107,27 @@ const NAME_CHECK_UNAVAILABLE =
   "Couldn't check the author names against this client — the client record didn't load, so this upload went ahead unchecked. The posts are filed under the client you selected; if that was the wrong client, nothing here caught it.";
 
 /** Never throws: a failed read is an outcome (`unchecked`), not an exception. */
-async function checkAuthorNames(clientId: string, rows: { post_name?: string }[]) {
+async function checkAuthorNames(
+  clientId: string,
+  rows: { post_name?: string }[],
+): Promise<NameCheck> {
   let clientName: string;
   try {
     const client = await getClient(clientId);
-    if (!client) return { status: "unchecked" } as const;
+    if (!client) return { status: "unchecked" };
     clientName = client.name;
   } catch {
-    return { status: "unchecked" } as const;
+    return { status: "unchecked" };
   }
 
+  // ⚠️ ORDER IS THE PRECEDENCE RULE. A genuine disagreement outranks a decorated
+  // block: an upload containing both has to gate, and the note then rides along
+  // on the summary afterwards. Reversing these would let a real wrong-file case
+  // through unchallenged because a Verified badge happened to be in the file.
   const report = authorMatchReport(rows, clientName);
-  return report.mismatched > 0
-    ? ({ status: "mismatch", report } as const)
-    : ({ status: "match" } as const);
+  if (report.mismatched > 0) return { status: "mismatch", report };
+  if (report.decorated > 0) return { status: "artifact", report };
+  return { status: "match" };
 }
 
 export async function ingestMetricsAction(
@@ -156,6 +180,13 @@ export async function ingestMetricsAction(
   // ⚠️ A CONFIRMATION, NOT A BLOCK. A mismatch is sometimes legitimate — a genuine
   // rename, a co-authored post — so staff can proceed deliberately. Blocking would
   // leave them holding data they cannot get in, with no override.
+  //
+  // ⚠️ AND IT DELIBERATELY DOES NOT FIRE FOR `artifact` (2026-08-20). A gate that
+  // fires on data that is entirely correct gets clicked through without being
+  // read, which costs the gate its only power. Every Premium and every Verified
+  // account sends LinkedIn's author block, so this was not one person's problem
+  // and it would have greeted each new Client added to the roster. The fact is
+  // not discarded — it moves to the post-write summary as a non-blocking note.
   const nameCheck = await checkAuthorNames(clientId, parsedPayload.rows);
   if (nameCheck.status === "mismatch" && formData.get("confirmNameMismatch") !== "true") {
     return { status: "name-mismatch", report: nameCheck.report };
@@ -185,14 +216,30 @@ export async function ingestMetricsAction(
   // here to disagree with the evidence shown on the confirmation screen. The
   // try/catch that used to wrap it moved into `checkAuthorNames`, which cannot
   // throw — so a failed read can no longer be swallowed into silence.
+  //
+  // ⚠️ AND SINCE 2026-08-20 IT CARRIES A SECOND, DIFFERENT FACT. A decorated
+  // author block no longer gates, so unless a genuine mismatch gates the upload
+  // anyway — putting the decorated rows on the confirm screen alongside it —
+  // this summary is the only place it is mentioned at all. The two notes are
+  // built independently and joined rather than
+  // chosen between: an upload can genuinely disagree about one author AND carry
+  // the scraper's block on another, and reporting only the louder of the two
+  // would quietly drop a fact nothing else records.
   if (result.status === "ok") {
-    if (nameCheck.status === "mismatch") {
-      const warning = nameMatchWarning(parsedPayload.rows, nameCheck.report.clientName);
-      if (warning) return { ...result, warning };
-    }
     if (nameCheck.status === "unchecked") {
       return { ...result, warning: NAME_CHECK_UNAVAILABLE };
     }
+
+    const notes: string[] = [];
+    if (nameCheck.status === "mismatch") {
+      const warning = nameMatchWarning(nameCheck.report);
+      if (warning) notes.push(warning);
+    }
+    if (nameCheck.status === "mismatch" || nameCheck.status === "artifact") {
+      const note = decoratedAuthorNote(nameCheck.report);
+      if (note) notes.push(note);
+    }
+    if (notes.length > 0) return { ...result, warning: notes.join(" ") };
   }
 
   return result;
