@@ -43,11 +43,35 @@ const dayMs = (iso: string) => Date.parse(iso);
 //   • active span 24 days (Jan 1 → Jan 25)
 // NOW is Feb 14 — 20 whole days after the last post, and well past the span, so a
 // rate measured "to today" would differ from the active-span rate.
+//
+// ⚠️ EACH CARRIES A DAY AGE MATCHING ITS DATE. The weekly bars admit only posts
+// dated to the week or finer, and precision is read off `post_age` — a row with a
+// date and no age states none, and would silently empty the weekly assertions.
 const DATED: PostMetricsRow[] = [
-  row({ linkedin_post_id: "a", estimated_post_date: "2026-01-01" }),
-  row({ linkedin_post_id: "b", estimated_post_date: "2026-01-03" }),
-  row({ linkedin_post_id: "c", estimated_post_date: "2026-01-05" }),
-  row({ linkedin_post_id: "d", estimated_post_date: "2026-01-25" }),
+  row({
+    linkedin_post_id: "a",
+    post_age: "1d",
+    scraped_at: "2026-01-02T00:00:00.000Z",
+    estimated_post_date: "2026-01-01",
+  }),
+  row({
+    linkedin_post_id: "b",
+    post_age: "1d",
+    scraped_at: "2026-01-04T00:00:00.000Z",
+    estimated_post_date: "2026-01-03",
+  }),
+  row({
+    linkedin_post_id: "c",
+    post_age: "1d",
+    scraped_at: "2026-01-06T00:00:00.000Z",
+    estimated_post_date: "2026-01-05",
+  }),
+  row({
+    linkedin_post_id: "d",
+    post_age: "1d",
+    scraped_at: "2026-01-26T00:00:00.000Z",
+    estimated_post_date: "2026-01-25",
+  }),
 ];
 const NOW = new Date("2026-02-14T00:00:00.000Z");
 
@@ -139,10 +163,13 @@ describe("buildCadence — week and month buckets for the switchable chart", () 
   });
 
   it("buckets posts by calendar month, 0-filling empty months", () => {
+    // ⚠️ MONTH AGES ON PURPOSE. The monthly bars admit every dated post whatever
+    // its precision — a month-aged post is month-precise, and holding it out here
+    // would discard a real reading. Only the WEEKLY bars narrow.
     const spread = [
-      row({ linkedin_post_id: "m1", estimated_post_date: "2026-05-01" }),
-      row({ linkedin_post_id: "m2", estimated_post_date: "2026-07-05" }),
-      row({ linkedin_post_id: "m3", estimated_post_date: "2026-07-25" }),
+      row({ linkedin_post_id: "m1", post_age: "3m", estimated_post_date: "2026-05-01" }),
+      row({ linkedin_post_id: "m2", post_age: "1m", estimated_post_date: "2026-07-05" }),
+      row({ linkedin_post_id: "m3", post_age: "1m", estimated_post_date: "2026-07-25" }),
     ];
     // May → 1, June → 0 (a silent month, shown), July → 2.
     expect(buildCadence(spread, NOW).monthly).toEqual([
@@ -152,10 +179,15 @@ describe("buildCadence — week and month buckets for the switchable chart", () 
     ]);
   });
 
-  it("every bucket sums back to the dated-post count — nothing is lost or invented", () => {
+  it("every bucket sums back to its own basis — nothing is lost or invented", () => {
+    // ⚠️ TWO DIFFERENT BASES, DELIBERATELY. Monthly counts every dated post;
+    // weekly counts only those dated to the week or finer. Here every post is
+    // day-aged, so the two coincide — and the test asserts each against the field
+    // that actually defines it, so they stay honest when they diverge.
     const c = buildCadence(DATED, NOW);
     const sum = (b: { count: number }[]) => b.reduce((s, x) => s + x.count, 0);
-    expect(sum(c.weekly)).toBe(c.datedPosts);
+    expect(sum(c.weekly)).toBe(c.weeklyPlacedPosts);
+    expect(c.weeklyPlacedPosts).toBe(c.datedPosts);
     expect(sum(c.monthly)).toBe(c.datedPosts);
   });
 
@@ -234,5 +266,94 @@ describe("buildCadence — the low-N four states", () => {
     expect(cadence.longestGapDays).toBe(0); // measured, genuine
     expect(cadence.postsPerWeek).toBeNull(); // undefined over a zero span
     expect(Number.isFinite(cadence.postsPerWeek ?? 0)).toBe(true); // never Infinity/NaN
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ A WEEKLY BAR NEEDS A DATE PRECISE TO THE WEEK. `estimated_post_date` is a
+// full timestamp whatever age produced it, so a month-aged post — snapped to the
+// 1st — lands in whichever calendar week that 1st happened to fall in and votes
+// on it as if it were a reading. Live, 227 of 272 posts are month- or year-aged,
+// so a weekly chart built from every dated post is 84% invented.
+//
+// ⚠️ THE MONTHLY BARS ARE CORRECT AND MUST NOT NARROW. A month-aged post IS
+// month-precise; excluding it there would be the mirror-image error — throwing
+// away a real reading because a different chart could not use it.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("buildCadence — weekly bars admit week-precision posts only", () => {
+  // One post per precision, all in January 2026.
+  //   day   Thu 2026-01-01  → week of Mon 29 Dec
+  //   week  Sat 2026-01-03  → week of Mon 29 Dec
+  //   month Mon 2026-01-05  → week of Mon  5 Jan   (the bar that must not appear)
+  const MIXED: PostMetricsRow[] = [
+    row({
+      linkedin_post_id: "day",
+      post_age: "2d",
+      scraped_at: "2026-01-03T00:00:00.000Z",
+      estimated_post_date: "2026-01-01",
+    }),
+    row({
+      linkedin_post_id: "week",
+      post_age: "1w",
+      scraped_at: "2026-01-10T00:00:00.000Z",
+      estimated_post_date: "2026-01-03",
+    }),
+    row({
+      linkedin_post_id: "month",
+      post_age: "1m",
+      scraped_at: "2026-01-20T00:00:00.000Z",
+      estimated_post_date: "2026-01-05",
+    }),
+  ];
+
+  it("⚠️ MUTATION PROOF — a WEEK-aged post IS in a weekly bar, and in a monthly one", () => {
+    const c = buildCadence(MIXED, NOW);
+    // Both the day post and the week post fall in the week of Mon 29 Dec.
+    expect(c.weekly[0]).toEqual({ label: "29 Dec", count: 2 });
+    expect(c.monthly).toEqual([{ label: "Jan 26", count: 3 }]);
+  });
+
+  it("⚠️ MUTATION PROOF — a MONTH-aged post reaches the MONTHLY bar and no weekly one", () => {
+    const c = buildCadence(MIXED, NOW);
+    // If month-aged posts were admitted, a second bar { "5 Jan", 1 } would appear
+    // — a week the client is told they posted in, on the strength of a snap.
+    expect(c.weekly).toEqual([{ label: "29 Dec", count: 2 }]);
+    // …while the monthly bar still counts all three. That asymmetry IS the rule.
+    expect(c.monthly.reduce((s, b) => s + b.count, 0)).toBe(3);
+  });
+
+  it("⚠️ MUTATION PROOF — a DAY-aged post is placed everywhere", () => {
+    const only = buildCadence([MIXED[0]!], NOW);
+    expect(only.weekly).toEqual([{ label: "29 Dec", count: 1 }]);
+    expect(only.monthly).toEqual([{ label: "Jan 26", count: 1 }]);
+    expect(only.timeline).toEqual([dayMs("2026-01-01")]);
+  });
+
+  it("counts the posts held out of the weekly bars, and keeps them out of undated", () => {
+    const c = buildCadence(MIXED, NOW);
+    expect(c.weeklyPlacedPosts).toBe(2);
+    expect(c.weeklyCoarsePosts).toBe(1);
+    // ⚠️ The month post HAS a date. Reporting it as undated would tell the reader
+    // its date is missing, which is a different — and false — statement.
+    expect(c.undatedPosts).toBe(0);
+    expect(c.datedPosts).toBe(3);
+  });
+
+  it("⚠️ partitions the dated posts, and each chart sums to its own basis", () => {
+    const c = buildCadence(MIXED, NOW);
+    const sum = (b: { count: number }[]) => b.reduce((s, x) => s + x.count, 0);
+    expect(c.weeklyPlacedPosts + c.weeklyCoarsePosts).toBe(c.datedPosts);
+    expect(sum(c.weekly)).toBe(c.weeklyPlacedPosts);
+    expect(sum(c.monthly)).toBe(c.datedPosts);
+  });
+
+  it("yields no weekly bars at all when every dated post is month-grained", () => {
+    // Distinct from "nothing is dated": the marks and the monthly bars still draw.
+    const c = buildCadence([MIXED[2]!], NOW);
+    expect(c.weekly).toEqual([]);
+    expect(c.weeklyPlacedPosts).toBe(0);
+    expect(c.weeklyCoarsePosts).toBe(1);
+    expect(c.monthly).toEqual([{ label: "Jan 26", count: 1 }]);
+    expect(c.timeline).toHaveLength(1);
   });
 });

@@ -179,10 +179,17 @@ const NOW = new Date("2026-07-16T12:00:00.000Z");
 
 // Jan (1) · May (1) · Jun (2) · Jul (1). Feb–Apr are deliberately empty so the
 // by-month chart has real gaps to render.
+//
+// ⚠️ EVERY ROW CARRIES A DAY AGE MATCHING ITS DATE. The weekday chart admits
+// day-precision posts only and reads precision off `post_age`, so a row with a
+// date and no age can state no weekday — it would silently zero the weekday
+// assertions below rather than failing them for the reason a reader expects.
 const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jul1",
     estimated_post_date: "2026-07-10",
+    post_age: "1d",
+    scraped_at: "2026-07-11T00:00:00.000Z",
     impressions: 100,
     likes: 10,
     comments: 2,
@@ -192,6 +199,8 @@ const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jun1",
     estimated_post_date: "2026-06-10",
+    post_age: "1d",
+    scraped_at: "2026-06-11T00:00:00.000Z",
     impressions: 200,
     likes: 20,
     comments: 4,
@@ -201,6 +210,8 @@ const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jun2",
     estimated_post_date: "2026-06-20",
+    post_age: "1d",
+    scraped_at: "2026-06-21T00:00:00.000Z",
     impressions: 400,
     likes: 8,
     comments: 1,
@@ -210,6 +221,8 @@ const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "may1",
     estimated_post_date: "2026-05-05",
+    post_age: "1d",
+    scraped_at: "2026-05-06T00:00:00.000Z",
     impressions: 300,
     likes: 5,
     comments: 1,
@@ -219,6 +232,8 @@ const HISTORY: PostMetricsRow[] = [
   row({
     linkedin_post_id: "jan1",
     estimated_post_date: "2026-01-15",
+    post_age: "1d",
+    scraped_at: "2026-01-16T00:00:00.000Z",
     impressions: 900,
     likes: 100,
     comments: 20,
@@ -742,20 +757,52 @@ describe("the four charts follow the selected period", () => {
 // ⚠️ The report's weekday chart used to bucket on `effectiveMs` (the windowing
 // key, which stands `scraped_at` in for an hour-age post's missing publish date).
 // That dropped every hour-age post onto its SCRAPE weekday — fabricating a rhythm
-// in a client-facing chart. It now dates by `estMs` (estimated_post_date) alone,
-// exactly as the dashboard's weekday chart does; undated posts are excluded and
-// counted in `weekdayUndatedPosts` so the chart can disclose the gap.
+// in a client-facing chart. It now admits DAY-PRECISION posts only, exactly as the
+// dashboard's weekday chart does.
+//
+// ⚠️ AND A RESOLVED DATE IS NOT ENOUGH ON ITS OWN. A week age resolves to the
+// scrape's own weekday and a month age to whatever weekday the 1st fell on, so
+// both would vote on a weekday they never carried. Those posts are counted as
+// COARSE, separately from undated ones, so the chart can say which is which.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("the report weekday chart dates by publish date, never scrape date", () => {
   // All placeable into July — the dated ones by estimated_post_date, the hour-age
   // one by its July scrape. Weekdays (UTC):
   //   d1 Wed 2026-07-01 · 100    d2 Wed 2026-07-08 · 300    d3 Fri 2026-07-10 · 500
   //   z1 Mon 2026-07-13 · 0      u1 UNDATED, scraped Thu 2026-07-16 · 999
+  //
+  // ⚠️ EVERY DATED ROW CARRIES A DAY AGE THAT RESOLVES TO ITS OWN DATE. Precision
+  // is read off `post_age`, so a row with a date and no age states no precision at
+  // all — and asserting a weekday from it is the very thing this chart refuses.
   const WEEKDAY_ROWS: PostMetricsRow[] = [
-    row({ linkedin_post_id: "d1", estimated_post_date: "2026-07-01", impressions: 100 }),
-    row({ linkedin_post_id: "d2", estimated_post_date: "2026-07-08", impressions: 300 }),
-    row({ linkedin_post_id: "d3", estimated_post_date: "2026-07-10", impressions: 500 }),
-    row({ linkedin_post_id: "z1", estimated_post_date: "2026-07-13", impressions: 0 }),
+    row({
+      linkedin_post_id: "d1",
+      post_age: "3d",
+      scraped_at: "2026-07-04T00:00:00.000Z",
+      estimated_post_date: "2026-07-01",
+      impressions: 100,
+    }),
+    row({
+      linkedin_post_id: "d2",
+      post_age: "2d",
+      scraped_at: "2026-07-10T00:00:00.000Z",
+      estimated_post_date: "2026-07-08",
+      impressions: 300,
+    }),
+    row({
+      linkedin_post_id: "d3",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10",
+      impressions: 500,
+    }),
+    row({
+      linkedin_post_id: "z1",
+      post_age: "1d",
+      scraped_at: "2026-07-14T00:00:00.000Z",
+      estimated_post_date: "2026-07-13",
+      impressions: 0,
+    }),
     row({
       linkedin_post_id: "u1",
       estimated_post_date: null,
@@ -1887,5 +1934,84 @@ describe("buildClientReport — a custom period", () => {
   it("labels weekly buckets by the day they open", () => {
     const r = buildC(SPREAD, "custom:2026-06-12..2026-07-29");
     expect(r.impressionsSeries[0]!.label).toBe("12 Jun");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE CLIENT-FACING WEEKDAY CHART ADMITS DAY-PRECISION POSTS ONLY.
+//
+// This is the same rule the dashboard applies, asserted separately because the
+// consequence is not the same: a fabricated weekday on the dashboard misleads a
+// colleague who can ask, and on this document it misleads a Client who cannot.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the report weekday chart refuses week- and month-grained posts", () => {
+  // Weekdays (UTC): 2026-07-10 Fri · 2026-07-08 Wed · 2026-07-01 Wed.
+  const MIXED: PostMetricsRow[] = [
+    row({
+      linkedin_post_id: "day",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10",
+      impressions: 900,
+    }),
+    row({
+      linkedin_post_id: "week",
+      post_age: "1w",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-07-08",
+      impressions: 100,
+    }),
+    row({
+      linkedin_post_id: "month",
+      post_age: "1m",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-07-01",
+      impressions: 100,
+    }),
+    row({
+      linkedin_post_id: "hour",
+      post_age: "5h",
+      estimated_post_date: null,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+      impressions: 100,
+    }),
+  ];
+
+  const built = () =>
+    buildClientReport(MIXED, {
+      period: JULY,
+      now: NOW,
+      followers: null,
+      connections: null,
+      availablePeriods: availablePeriods(MIXED),
+    });
+
+  it("⚠️ MUTATION PROOF — neither coarse post reaches a weekday bucket", () => {
+    const day = Object.fromEntries(built().impressionsByWeekday.map((d) => [d.label, d.value]));
+    // Both coarse posts land on a Wednesday if their timestamps are trusted, so a
+    // Wed of 100 is the exact signature of the bug this rule removes.
+    expect(day["Fri"]).toBe(900);
+    expect(day["Wed"]).toBe(0);
+  });
+
+  it("counts coarse and undated posts under separate names", () => {
+    const report = built();
+    expect(report.weekdayPlacedPosts).toBe(1);
+    expect(report.weekdayCoarsePosts).toBe(2);
+    expect(report.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("⚠️ partitions every in-period post — nothing vanishes between the three", () => {
+    const report = built();
+    expect(report.weekdayPlacedPosts + report.weekdayCoarsePosts + report.weekdayUndatedPosts).toBe(
+      report.impressionsPostCount,
+    );
+  });
+
+  it("⚠️ leaves the MONTHLY impressions chart untouched — it is month-grained already", () => {
+    // The mirror-image error would be excluding coarse posts from a chart whose
+    // own granularity is month. All four in-period posts still drive the period's
+    // impressions figures; only the weekday chart narrows.
+    expect(built().impressionsPostCount).toBe(4);
   });
 });

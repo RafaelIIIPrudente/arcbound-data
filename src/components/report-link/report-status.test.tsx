@@ -26,6 +26,8 @@ function cadence(over: Partial<PostingCadence> = {}): PostingCadence {
     ],
     weekly: [],
     monthly: [],
+    weeklyPlacedPosts: 6,
+    weeklyCoarsePosts: 0,
     ...over,
   };
 }
@@ -60,6 +62,8 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
     impressionsBucket: "month",
     impressionsAverage: 157,
     impressionsByWeekday: [],
+    weekdayPlacedPosts: 0,
+    weekdayCoarsePosts: 0,
     weekdayUndatedPosts: 0,
     interactionsByAsset: [],
     postTypeDistribution: [],

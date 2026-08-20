@@ -26,8 +26,16 @@ import type { CadenceBucket, PostingCadence } from "@/services/types";
 //
 // ⚠️ FOUR STATES, NEVER COLLAPSED. A not-applicable figure (a gap with fewer than
 // two dated posts) is an em dash with a spoken reason; a MEASURED zero (two posts
-// one day apart, or a week with no posts) is a real "0"; an undated post is
-// disclosed in plain language, counted in the total but absent from the chart.
+// one day apart, or a week with no week-dated posts) is a real "0"; an undated
+// post is disclosed in plain language, counted in the total but absent from the
+// chart; and a post DATED ONLY TO THE MONTH is a state of its own — real, on the
+// Month view and the marks, held out of the Week view, and disclosed there.
+//
+// ⚠️ THE WEEK AND MONTH VIEWS LEGITIMATELY SHOW DIFFERENT TOTALS. A month-dated
+// post was snapped to the 1st, so the calendar week it would land in is whichever
+// week that 1st fell in — a bar the Client never earned. Unexplained, the mismatch
+// reads as a bug; that is what the Week view's disclosure is for, and why it must
+// name the Month view rather than merely reporting a shortfall.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type CadenceView = "marks" | "week" | "month";
@@ -47,10 +55,22 @@ const SHORT_MONTHS = [
   "Dec",
 ];
 
+// ⚠️ EVERY ONE OF THESE IS A SENTENCE A CLIENT READS AS FACT. Two of them were
+// true only while every post carried an exact publish day, and have been corrected
+// rather than left standing:
+//
+//   • marks — "posts on the same day share a mark" invited the reader to read a
+//     bunch as a burst of real activity, when most bunches are posts dated only to
+//     a month and therefore parked on the 1st.
+//   • week  — "an empty slot is a week with no posts" is false the moment a
+//     month-dated post falls in that week: it is real, and it is not on this bar.
+//
+// The month caption is untouched: a month-dated post IS month-precise, so that
+// sentence is still exactly true.
 const CAPTION: Record<CadenceView, string> = {
   marks:
-    "Each mark is one post, placed left to right by the date it went up — posts on the same day share a mark. Marks bunched together are posts in quick succession; a wide empty stretch is a gap with no posts.",
-  week: "Each bar is one calendar week; its height is how many posts went up that week. An empty slot is a week with no posts.",
+    "Each mark is one post, placed left to right by the date it went up. Where a post’s date is known only to the week or month, its mark sits at an estimated day, so several marks can land close together. A wide empty stretch is a gap with no posts.",
+  week: "Each bar is one calendar week; its height is how many posts went up that week. Only posts whose date is known to the week can be placed here, so an empty slot means none of those fell in that week.",
   month:
     "Each bar is one calendar month; its height is how many posts went up that month. An empty slot is a month with no posts.",
 };
@@ -269,6 +289,23 @@ function ViewToggle({
   );
 }
 
+/**
+ * Plain-language disclosure for the WEEK view: posts real enough to count, too
+ * bluntly dated to sit in a week.
+ *
+ * ⚠️ IT NAMES WHERE THEY DID COUNT. Told only that eight posts are missing, a
+ * reader concludes the data is broken. Told they are in the Month view, they read
+ * the panel correctly — and the two totals stop looking like a contradiction.
+ *
+ * ⚠️ IT NEVER SAYS "NO DATE". These posts have one. That sentence belongs to
+ * `undatedDisclosure` and to a different set of posts.
+ */
+function coarseWeekDisclosure(coarse: number): string {
+  return coarse === 1
+    ? "1 of these posts is dated only to the month, so it can’t be placed in a week — it’s counted in the Month view instead."
+    : `${coarse.toLocaleString()} of these posts are dated only to the month, so they can’t be placed in a week — they’re counted in the Month view instead.`;
+}
+
 /** Plain-language disclosure of undated posts — counted, but not on the chart. */
 function undatedDisclosure(undated: number, total: number): string {
   const has = undated === 1 ? "has" : "have";
@@ -300,6 +337,7 @@ export function PostingCadence({
     timeline,
     weekly,
     monthly,
+    weeklyCoarsePosts,
   } = cadence;
 
   // ⚠️ 0 POSTS → NO BODY. A client with no posts at all is handled by the
@@ -372,10 +410,25 @@ export function PostingCadence({
           <div className="mt-3">
             {activeView === "marks" ? (
               <MarksChart timeline={timeline} />
-            ) : (
+            ) : activeView === "month" || weekly.length > 0 ? (
               <BarsChart buckets={activeView === "week" ? weekly : monthly} unit={activeView} />
+            ) : (
+              // ⚠️ NO BARS AT ALL, ONLY on the Week view, ONLY when nothing is
+              // week-dated. An empty bar strip with no words reads as a broken
+              // chart; the disclosure below then carries the whole explanation.
+              <p className="text-sm text-muted-foreground">
+                No posts in this period have a date precise enough to place in a week.
+              </p>
             )}
           </div>
+          {/* ⚠️ WEEK VIEW ONLY. On Marks and Month every dated post is placed, so
+              the same sentence there would describe an exclusion that did not
+              happen. */}
+          {activeView === "week" && weeklyCoarsePosts > 0 ? (
+            <p className="max-w-2xl text-xs text-muted-foreground">
+              {coarseWeekDisclosure(weeklyCoarsePosts)}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

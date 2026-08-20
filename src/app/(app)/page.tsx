@@ -187,7 +187,8 @@ export default async function DashboardPage({
           <WeekdayImpressionsChart
             data={analytics.impressionsByWeekday}
             rangeLabel={rangeLabel}
-            datedPosts={analytics.totalPosts - analytics.weekdayUndatedPosts}
+            placedPosts={analytics.weekdayPlacedPosts}
+            coarsePosts={analytics.weekdayCoarsePosts}
             undatedPosts={analytics.weekdayUndatedPosts}
           />
           {/* All-clients state only: the service returns `null` when one client

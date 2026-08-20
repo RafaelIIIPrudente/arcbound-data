@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { resolvePostDate } from "./post-date";
+import {
+  isAtLeastAsPrecise,
+  RECOGNISED_AGE_UNITS,
+  resolvePostDate,
+  resolvePostDatePrecision,
+} from "./post-date";
 
 // The scrape instant every case below is anchored to. Mid-month and mid-afternoon
 // on purpose: a month subtraction from the 15th cannot accidentally pass by
@@ -150,5 +155,92 @@ describe("resolvePostDate — unreadable input is NULL, never a guess", () => {
   it("returns null when the scrape instant itself is unusable", () => {
     expect(resolvePostDate("4d", "not-a-date")).toBeNull();
     expect(resolvePostDate("4d", "")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRECISION. `resolvePostDate` returns a full ISO instant for every datable age,
+// which LOOKS day-exact no matter which unit produced it. Only a `d` age actually
+// is: a `w` age lands on the scrape's own weekday, an `m` age on the 1st of a
+// month, a `y` age on the scrape's day-of-month. The instant alone cannot tell a
+// caller which of those it is holding, so the unit's precision is published
+// beside it and every bucketing rule is expressed against THAT, not the instant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolvePostDatePrecision — what the age can actually support", () => {
+  it("reports day precision only for day ages", () => {
+    expect(resolvePostDatePrecision("4d")).toBe("day");
+    expect(resolvePostDatePrecision("0d")).toBe("day");
+    expect(resolvePostDatePrecision("4 days")).toBe("day");
+  });
+
+  it("⚠️ reports WEEK precision for week ages — the weekday is the SCRAPE's", () => {
+    // "3w" is resolved as scrape − 21 days, which always lands on the weekday the
+    // scrape ran on. The week is real; the weekday is an artifact of when we
+    // looked, so a weekday claim may never be built on it.
+    expect(resolvePostDatePrecision("3w")).toBe("week");
+    expect(resolvePostDatePrecision("1 week ago")).toBe("week");
+  });
+
+  it("⚠️ reports MONTH precision for month ages — the day is a snap, not a reading", () => {
+    // Month ages snap to the 1st. Every one of the 203 live `m` posts therefore
+    // carries the same day-of-month and whatever weekday that 1st happened to be.
+    expect(resolvePostDatePrecision("2m")).toBe("month");
+    expect(resolvePostDatePrecision("2mo")).toBe("month");
+    expect(resolvePostDatePrecision("2 months")).toBe("month");
+  });
+
+  it("⚠️ reports MONTH precision for year ages — the day is inherited from the scrape", () => {
+    // "1y" resolves to the same DAY OF MONTH twelve months back, so the day is
+    // the scrape's, not the post's. The month is the finest thing asserted.
+    expect(resolvePostDatePrecision("1y")).toBe("month");
+    expect(resolvePostDatePrecision("2 years")).toBe("month");
+  });
+
+  it("reports no precision for an age that dates nothing", () => {
+    // ⚠️ NOT a coarse precision — these produce no date at all, which is a
+    // different state from "dated, but only to the month".
+    expect(resolvePostDatePrecision("23h")).toBeNull();
+    expect(resolvePostDatePrecision("45min")).toBeNull();
+    expect(resolvePostDatePrecision("yesterday")).toBeNull();
+    expect(resolvePostDatePrecision(null)).toBeNull();
+    expect(resolvePostDatePrecision(undefined)).toBeNull();
+    expect(resolvePostDatePrecision("")).toBeNull();
+  });
+
+  it("⚠️ AGREES WITH THE RESOLVER FOR EVERY RECOGNISED TOKEN — the anti-drift guard", () => {
+    // The reason precision is a SECOND exported function rather than a widened
+    // return type is that only one caller stores the instant and only the read
+    // side needs the precision. That split is only safe while the two can never
+    // disagree, so this walks every token the resolver recognises and asserts
+    // the biconditional: a token dates something iff it has a precision.
+    const anchor = "2026-07-15T15:25:39.889Z";
+    for (const token of RECOGNISED_AGE_UNITS) {
+      const age = `2${token}`;
+      const dated = resolvePostDate(age, anchor) !== null;
+      const precise = resolvePostDatePrecision(age) !== null;
+      expect(`${token}: dated=${dated}`).toBe(`${token}: dated=${precise}`);
+    }
+    // Guard the guard: a token list that had gone empty would pass vacuously.
+    expect(RECOGNISED_AGE_UNITS.length).toBeGreaterThan(20);
+  });
+});
+
+describe("isAtLeastAsPrecise — day ⊂ week ⊂ month", () => {
+  it("admits a precision at or finer than the granularity asked for", () => {
+    expect(isAtLeastAsPrecise("day", "day")).toBe(true);
+    expect(isAtLeastAsPrecise("day", "week")).toBe(true);
+    expect(isAtLeastAsPrecise("day", "month")).toBe(true);
+    expect(isAtLeastAsPrecise("week", "week")).toBe(true);
+    expect(isAtLeastAsPrecise("week", "month")).toBe(true);
+    expect(isAtLeastAsPrecise("month", "month")).toBe(true);
+  });
+
+  it("⚠️ refuses a precision COARSER than the granularity asked for", () => {
+    // This is the whole rule: a bucket at granularity G may only contain posts
+    // whose precision is at least as fine as G.
+    expect(isAtLeastAsPrecise("week", "day")).toBe(false);
+    expect(isAtLeastAsPrecise("month", "day")).toBe(false);
+    expect(isAtLeastAsPrecise("month", "week")).toBe(false);
   });
 });

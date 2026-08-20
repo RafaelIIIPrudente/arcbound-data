@@ -15,6 +15,15 @@
 // ⚠️ FOUR STATES, NOT TWO. A null return means "no publish date can be
 // established" — it is never a zero, never today, and never the scrape day. The
 // caller stores null and the reporting layer discloses the row as undated.
+//
+// ⚠️ AND A RESOLVED INSTANT IS NOT A DAY-EXACT ONE. Every datable age resolves to
+// a full ISO timestamp, so a "4d" post and a "4m" post come back looking equally
+// precise — and they are not. A NUMBER INHERITS THE PRECISION OF ITS WEAKEST
+// INPUT: only a day age carries a real day; a week age lands on the SCRAPE's
+// weekday, a month age on the 1st, a year age on the scrape's day-of-month. The
+// instant alone cannot tell a caller which it is holding, so the unit's precision
+// is published beside it by `resolvePostDatePrecision` and every bucketing rule
+// is expressed against THAT rather than against the timestamp.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -73,6 +82,116 @@ const UNITS: Readonly<Record<string, Unit>> = {
   year: "year",
   years: "year",
 };
+
+/**
+ * Every age token the resolver recognises, datable or not.
+ *
+ * Exported ONLY so the test suite can walk the whole vocabulary and assert that
+ * `resolvePostDate` and `resolvePostDatePrecision` agree on every one of them —
+ * the guard that makes publishing them as two functions safe.
+ */
+export const RECOGNISED_AGE_UNITS: readonly string[] = Object.keys(UNITS);
+
+/**
+ * The FINEST granularity a resolved date may be asserted at.
+ *
+ * ⚠️ THESE NEST: day ⊂ week ⊂ month. A bucket at granularity G may only contain
+ * posts whose precision is at least as fine as G — that single rule is what stops
+ * a month-grained post from voting on a weekday.
+ */
+export type DatePrecision = "day" | "week" | "month";
+
+/** Finer sorts first, so "at least as precise as G" is a `<=` on the rank. */
+const PRECISION_RANK: Readonly<Record<DatePrecision, number>> = {
+  day: 0,
+  week: 1,
+  month: 2,
+};
+
+/**
+ * What each datable unit can actually support — deliberately COARSER than the
+ * timestamp it produces.
+ *
+ * ⚠️ `week` IS NOT `day`. "3w" resolves to scrape − 21 days, which always lands
+ * on the weekday the scrape ran on; the week is a reading, the weekday is an
+ * artifact of when we looked.
+ *
+ * ⚠️ `year` IS `month`, NOT `year`. "1y" resolves to the same day-of-month twelve
+ * months back, so the day is inherited from the scrape while the month is
+ * genuinely asserted by the age. Month is the finest honest answer.
+ */
+const UNIT_PRECISION: Readonly<Record<Exclude<Unit, "undatable">, DatePrecision>> = {
+  day: "day",
+  week: "week",
+  month: "month",
+  year: "month",
+};
+
+/** Whether `precision` is fine enough to place a post in a `granularity` bucket. */
+export function isAtLeastAsPrecise(precision: DatePrecision, granularity: DatePrecision): boolean {
+  return PRECISION_RANK[precision] <= PRECISION_RANK[granularity];
+}
+
+/** Parsed age: a whole non-negative count and a recognised unit. */
+interface ParsedAge {
+  amount: number;
+  unit: Unit;
+}
+
+/**
+ * The single parse both exported functions run.
+ *
+ * ⚠️ ONE PARSE, TWO ANSWERS. `resolvePostDate` and `resolvePostDatePrecision` are
+ * published separately (see the note on the latter) and would be free to drift if
+ * each read the raw text its own way. They cannot: the vocabulary and the
+ * grammar live here, once.
+ */
+function parseAge(postAge: string | null | undefined): ParsedAge | null {
+  if (typeof postAge !== "string") return null;
+
+  const normalised = postAge
+    .trim()
+    .toLowerCase()
+    .replace(/\s+ago$/, "")
+    .trim();
+  if (normalised === "") return null;
+
+  // Whole non-negative count, then a unit word. A decimal ("4.5d"), a sign
+  // ("-4d"), a bare number ("4") and a reversed token ("d4") all fail here.
+  const match = /^(\d+)\s*([a-z]+)$/.exec(normalised);
+  if (!match) return null;
+
+  const amount = Number(match[1]);
+  const unit = UNITS[match[2] as string];
+  if (unit === undefined || !Number.isFinite(amount)) return null;
+
+  return { amount, unit };
+}
+
+/**
+ * How precise the date `resolvePostDate` would return for this age actually is,
+ * or **null** when the age dates nothing at all.
+ *
+ * ⚠️ NULL HERE IS "UNDATED", NOT "COARSE". A post with no resolvable date and a
+ * post dated only to the month are two different facts, and a chart that folds
+ * the second into the first tells its reader the date is missing when it is
+ * merely too blunt for that chart. Callers must keep them apart.
+ *
+ * ⚠️ WHY THIS IS A SECOND FUNCTION RATHER THAN A WIDER RETURN TYPE. The instant
+ * and the precision have different lifetimes. The instant is written once at
+ * ingest into `public.posts.estimated_post_date` — a column that can hold nothing
+ * else, and this slice adds no column — while the precision is needed later, at
+ * READ time, by every surface that buckets posts. Read sites therefore call this
+ * on the stored `post_age` text with no instant in hand, and the one production
+ * caller of `resolvePostDate` would gain nothing but a tuple to unpack. The split
+ * is safe because both funnel through `parseAge` and `UNITS`, and the test suite
+ * walks `RECOGNISED_AGE_UNITS` asserting the two never disagree.
+ */
+export function resolvePostDatePrecision(postAge: string | null | undefined): DatePrecision | null {
+  const parsed = parseAge(postAge);
+  if (parsed === null || parsed.unit === "undatable") return null;
+  return UNIT_PRECISION[parsed.unit];
+}
 
 /**
  * Subtract whole calendar months in place, clamping rather than overflowing.
@@ -146,24 +265,9 @@ export function resolvePostDate(
   postAge: string | null | undefined,
   scrapedAt: string | Date,
 ): string | null {
-  if (typeof postAge !== "string") return null;
-
-  const normalised = postAge
-    .trim()
-    .toLowerCase()
-    .replace(/\s+ago$/, "")
-    .trim();
-  if (normalised === "") return null;
-
-  // Whole non-negative count, then a unit word. A decimal ("4.5d"), a sign
-  // ("-4d"), a bare number ("4") and a reversed token ("d4") all fail here.
-  const match = /^(\d+)\s*([a-z]+)$/.exec(normalised);
-  if (!match) return null;
-
-  const amount = Number(match[1]);
-  const unit = UNITS[match[2] as string];
-  if (unit === undefined || !Number.isFinite(amount)) return null;
-  if (unit === "undatable") return null;
+  const parsed = parseAge(postAge);
+  if (parsed === null || parsed.unit === "undatable") return null;
+  const { amount, unit } = parsed;
 
   const base = scrapedAt instanceof Date ? new Date(scrapedAt.getTime()) : new Date(scrapedAt);
   if (Number.isNaN(base.getTime())) return null;

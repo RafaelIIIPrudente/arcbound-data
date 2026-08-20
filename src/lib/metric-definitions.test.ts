@@ -537,13 +537,39 @@ describe("the Client List's two columns say what each of them measures", () => {
     // scraped author string against `clients.name`, so a client recorded
     // differently upstream was silently under-counted.
     //
-    // ⚠️ THAT LIMITATION NO LONGER EXISTS, AND DISCLOSING IT WOULD NOW BE THE
-    // DEFECT. Attribution is a foreign key stamped from the operator's own
-    // selection, so a spelling difference cannot lose a post. Leaving the old
-    // warning up sends staff hunting for an under-count that cannot happen.
+    // ⚠️ THAT LIMITATION NO LONGER GOVERNS NEW UPLOADS. Attribution is a foreign
+    // key stamped from the operator's own selection, so for anything ingested
+    // through /upload a spelling difference cannot lose a post, and leaving the
+    // old warning up would send staff hunting an under-count that cannot happen.
+    //
+    // ⚠️ BUT THE FIX OVERCORRECTED, AND THE BLANKET FORBIDS CAME BACK OUT. This
+    // test used to assert `not.toMatch(/name match/i)` and
+    // `not.toMatch(/under-?counted/i)` under the claim that "a spelling
+    // difference cannot lose a post". That is FALSE OF THE MIGRATED HISTORY:
+    // `backfill_posts_from_staging()` attributes by the SAME exact name match the
+    // retired view used — its own `comment on function` calls that "the last
+    // legitimate use of it" — and the live run returned `skipped_unmatched: 1`.
+    // A spelling difference DID lose a post, once, permanently. Banning those two
+    // phrases banned the only honest way to say so, so the negative assertions
+    // are gone and the disclosure is pinned positively in the next test instead.
     expect(posts).toMatch(/chosen|selected/i);
-    expect(posts).not.toMatch(/name match/i);
-    expect(posts).not.toMatch(/under-?counted/i);
+  });
+
+  it("discloses that MIGRATED history was matched by NAME and can be short", () => {
+    // ⚠️ THE HAZARD IS HISTORICAL, NOT ZERO, AND THE DIFFERENCE IS THE WHOLE
+    // POINT. Two populations sit in this one number: rows ingested through
+    // /upload, attributed by a recorded FK and safe from spelling; and rows the
+    // one-time migration loaded, attributed by matching the scraped author
+    // string against `clients.name`. The second rule is lossy and already lost
+    // one row. A count that silently blends them, described only by the safe
+    // rule, tells a reader the number is exact when it is a lower bound.
+    //
+    // ⚠️ THIS IS THE EITAN HOENIG SHAPE. A Premium scrape emitted a doubled
+    // author string, failed this same exact-match join, and stranded 14 posts.
+    // Do not let the copy imply the join cannot fail.
+    expect(posts).toMatch(/migrat/i);
+    expect(posts).toMatch(/name/i);
+    expect(posts).toMatch(/left behind|did not match|missing/i);
   });
 
   it("names the ONE case where the two columns can still disagree", () => {

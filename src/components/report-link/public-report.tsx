@@ -261,7 +261,8 @@ export function PublicReportView({
             <ImpressionsByWeekdayChart
               data={report.impressionsByWeekday}
               period={report.period}
-              datedPosts={report.impressionsPostCount - report.weekdayUndatedPosts}
+              placedPosts={report.weekdayPlacedPosts}
+              coarsePosts={report.weekdayCoarsePosts}
               undatedPosts={report.weekdayUndatedPosts}
             />
           </div>

@@ -42,6 +42,8 @@ function cadence(over: Partial<PostingCadence> = {}): PostingCadence {
     timeline: [Date.UTC(2026, 4, 1), Date.UTC(2026, 6, 18)],
     weekly: [],
     monthly: [],
+    weeklyPlacedPosts: 5,
+    weeklyCoarsePosts: 0,
     ...over,
   };
 }
@@ -92,6 +94,8 @@ function makeReport(over: Partial<ClientReport> = {}): ClientReport {
       { label: "Fri", value: 0 },
       { label: "Sat", value: 0 },
     ],
+    weekdayPlacedPosts: 0,
+    weekdayCoarsePosts: 0,
     weekdayUndatedPosts: 0,
     interactionsByAsset: [{ format: "IMAGE", label: "Image", value: 12, count: 3 }],
     postTypeDistribution: [{ format: "IMAGE", label: "Image", value: 60, count: 3 }],
@@ -443,5 +447,49 @@ describe("PublicReport — the connection count", () => {
     expect(within(followerLine).queryByText("—")).not.toBeInTheDocument();
     expect(within(connectionLine).getByText("—")).toBeInTheDocument();
     expect(within(connectionLine).queryByText("500")).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE LIVE CLIENT-FACING REPORT MUST DISCLOSE THE SAME THREE STATES THE PDF
+// DOES. This surface only forwards counts to the chart, which is exactly why it
+// is worth pinning: a forwarding site that drops a prop fails silently — the
+// chart renders, the numbers look plausible, and the disclosure simply is not
+// there.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PublicReportView — the weekday chart's exclusions reach the Client", () => {
+  it("⚠️ forwards the coarse count, and names it as dated-but-blunt", () => {
+    render(
+      <PublicReportView
+        report={makeReport({
+          weekdayPlacedPosts: 2,
+          weekdayCoarsePosts: 7,
+          weekdayUndatedPosts: 1,
+        })}
+        clientName="Acme"
+        freshness={FRESH}
+      />,
+    );
+
+    expect(screen.getByText(/7 posts are dated only to the week or month/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 post has no publish date at all/i)).toBeInTheDocument();
+    expect(screen.getByText(/built from the 2 posts/i)).toBeInTheDocument();
+  });
+
+  it("stays silent when every post carried an exact publish day", () => {
+    render(
+      <PublicReportView
+        report={makeReport({
+          weekdayPlacedPosts: 9,
+          weekdayCoarsePosts: 0,
+          weekdayUndatedPosts: 0,
+        })}
+        clientName="Acme"
+        freshness={FRESH}
+      />,
+    );
+
+    expect(screen.queryByText(/dated only to the week or month/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no publish date at all/i)).not.toBeInTheDocument();
   });
 });

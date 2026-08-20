@@ -1,5 +1,5 @@
 import { median } from "@/lib/median";
-import { estMs, type PostMetricsRow } from "@/services/analytics";
+import { estMs, placePost, type PostMetricsRow } from "@/services/analytics";
 import type { CadenceBucket, PostingCadence } from "@/services/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,6 +15,14 @@ import type { CadenceBucket, PostingCadence } from "@/services/types";
 // as more regular than they are. Cadence must not. The undated post is COUNTED in
 // the total and OMITTED from the timeline and every gap — and that omission is
 // disclosed in plain language by the component.
+//
+// ⚠️ AND A DATE IS NOT AUTOMATICALLY PRECISE ENOUGH FOR EVERY BUCKET. A month-aged
+// post resolves to the 1st, so it carries a real MONTH and a manufactured week. The
+// WEEKLY bars therefore admit only posts dated to the week or finer, and the ones
+// held out are counted in `weeklyCoarsePosts` and disclosed by the component —
+// never merged into `undatedPosts`, which says something different and false.
+// The MONTHLY bars and the marks keep every dated post: narrowing them would throw
+// away a reading that is genuinely month-precise.
 //
 // ⚠️ IT REPORTS RHYTHM; IT NEVER SCORES IT. No consistency index, no coefficient
 // of variation, no "fairly regular" label. On a handful of posts such a number is
@@ -52,12 +60,16 @@ function weekStartMs(ms: number): number {
 }
 
 /**
- * Dated posts per calendar WEEK, first→last, empty weeks kept as a real `0`.
+ * WEEK-PRECISION posts per calendar week, first→last, empty weeks kept as a `0`.
  *
- * ⚠️ A `0` HERE IS A MEASUREMENT, not missing data — unlike the impressions
- * charts, where an empty month is a gap (`null`) because "posted and got no
- * reach" is a different claim. A week with no posts genuinely had none, so it is
- * a bar of height zero, and the reader can see the quiet stretch directly.
+ * ⚠️ THE `0` MEANS "NONE OF THESE POSTS", NOT "NO POSTS". It used to say the
+ * latter, and that sentence has gone false: the caller now passes only posts dated
+ * to the week or finer, so a week whose only post was month-aged reads `0` here
+ * while the post is real and counted in `weeklyCoarsePosts`. It is still a
+ * MEASURED zero over the basis the bar is drawn from — unlike the impressions
+ * charts, where an empty month is a gap (`null`) because "posted and got no reach"
+ * is a different claim — but the basis is narrower than every dated post, and the
+ * component has to say so or the quiet stretch reads as a finding it is not.
  */
 function postsByWeek(timeline: number[]): CadenceBucket[] {
   if (timeline.length === 0) return [];
@@ -80,7 +92,13 @@ function postsByWeek(timeline: number[]): CadenceBucket[] {
   return out;
 }
 
-/** Dated posts per calendar MONTH, first→last, empty months kept as a real `0`. */
+/**
+ * Dated posts per calendar MONTH, first→last, empty months kept as a real `0`.
+ *
+ * ⚠️ EVERY DATED POST, WHATEVER ITS PRECISION — unlike `postsByWeek`. A month-aged
+ * post is month-precise, so this is exactly the granularity it can support;
+ * holding it out here would discard a real reading to match a narrower chart.
+ */
 function postsByMonth(timeline: number[]): CadenceBucket[] {
   if (timeline.length === 0) return [];
   const counts = new Map<string, number>();
@@ -122,10 +140,28 @@ export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence 
   const datedPosts = timeline.length;
   const undatedPosts = totalPosts - datedPosts;
 
+  // ⚠️ A SECOND, NARROWER TIMELINE — for the weekly bars alone. A month-aged post
+  // is dated (it is on the marks and in a monthly bar) and still cannot say which
+  // WEEK it went out in: its date was snapped to the 1st, so the week it lands in
+  // is whichever week that 1st fell in. `placePost(row, "week")` is the same rule
+  // the weekday charts apply one notch finer.
+  const weekTimeline = rows
+    .map((row) => placePost(row, "week"))
+    .filter((p): p is { state: "placed"; ms: number } => p.state === "placed")
+    .map((p) => p.ms)
+    .sort((a, b) => a - b);
+  const weeklyPlacedPosts = weekTimeline.length;
+  // Dated, but too coarse for a weekly bar. ⚠️ NOT added to `undatedPosts`: these
+  // posts have a date, and telling the reader otherwise sends them looking for
+  // missing data that is not missing.
+  const weeklyCoarsePosts = datedPosts - weeklyPlacedPosts;
+
   const empty: PostingCadence = {
     totalPosts,
     datedPosts,
     undatedPosts,
+    weeklyPlacedPosts,
+    weeklyCoarsePosts,
     postsPerWeek: null,
     medianGapDays: null,
     longestGapDays: null,
@@ -133,7 +169,7 @@ export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence 
     timeline,
     // Independent of the gap logic below — derived purely from the dated posts —
     // so they belong here and hold for every state (empty for a bare timeline).
-    weekly: postsByWeek(timeline),
+    weekly: postsByWeek(weekTimeline),
     monthly: postsByMonth(timeline),
   };
 

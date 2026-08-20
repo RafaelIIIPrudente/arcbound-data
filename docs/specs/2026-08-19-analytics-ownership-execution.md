@@ -235,8 +235,37 @@ the `d` and `w` rows (44) carry a meaningful weekday.
 ⚠️ **This is NOT introduced by ADR 0010.** The previous analytics layer resolved
 the same way and the chart has always been computed from those values. It is
 recorded here because the cutover made it visible and because a month-grained age
-cannot support a weekday claim at all. Deciding what to do about it is a
-reporting-honesty question, open, and out of scope for this workstream.
+cannot support a weekday claim at all.
+
+⚠️ **DECIDED AND SHIPPED (2026-08-20) — this paragraph's "open, and out of scope"
+no longer holds.** The precision slice made date precision a first-class fact and
+applied the granularity rule: a bucket at granularity G admits only posts whose
+precision is at least as fine as G. The weekday charts now take the 11
+day-precision posts and disclose the other 261; the cadence WEEK bars take 44 and
+disclose 227; the monthly charts are unchanged, because month precision is exactly
+month granularity.
+
+⚠️ **BUT THE CADENCE GAP STATISTICS WERE NOT FIXED, AND THEY ARE WORSE THAN THE
+BARS WERE.** `medianGapDays`, `longestGapDays` and `postsPerWeek` are still
+computed over the full dated `timeline` in `cadence.ts:136`, not over the placed
+subset. Every post sharing a month snaps to the SAME instant — the 1st at midnight
+— so their pairwise gap is exactly `0`. With 203 month-aged posts spread across
+roughly a dozen month values, the `gaps` array is dominated by zeros and
+`medianGapDays` collapses toward **0 days** for any client who posts more than
+once a month. Both surfaces are CLIENT-FACING: `posting-cadence.tsx` renders the
+median and longest gap, and `report-status.tsx` renders `postsPerWeek` on the
+tokenized `/r/[token]` report.
+
+The slice also left the panel internally inconsistent: week bars built from 44
+posts now sit beside a median gap built from 271, and only the bars carry a
+disclosure.
+
+⚠️ THE PLANNING BRIEF CAUSED THIS. Its consequence list named the weekly _buckets_
+and not the statistics derived from the same timeline. The executer implemented
+what was written and flagged the remainder rather than widening scope, which is
+the correct behaviour. **A granularity rule applied to the buckets but not to the
+figures computed from the same array is not a partial fix — it is a new
+inconsistency.** Next slice.
 
 ---
 
@@ -434,7 +463,46 @@ This is the Eitan Hoenig failure shape (see the name-match attribution gate): a 
 scrape name failed this exact join and stranded 14 posts. The hazard is historical now,
 not growing — but it is not zero, and the tooltip currently reads as though it is.
 
-Not a deploy blocker. It is a one-sentence copy fix plus a narrowed assertion.
+### FINDING RESOLVED (same session, 2026-08-20)
+
+Fixed RED-first, on the operator's instruction. The new disclosure assertion was run
+against the old copy first and failed on exactly the intended clause —
+`expected 'How many posts ArcBase holds for this…' to match /left behind|did not match|missing/i` —
+before the copy moved.
+
+**The test.** Both blanket forbids came out. `not.toMatch(/name match/i)` and
+`not.toMatch(/under-?counted/i)` were written to kill a false warning, but they also
+banned the only accurate words for the migration's lossier rule — a pin that made the
+honest version fail. They are replaced by a positively-pinned test,
+_"discloses that MIGRATED history was matched by NAME and can be short"_, whose ⚠️
+comment carries the `skipped_unmatched: 1` evidence and the Eitan Hoenig precedent so a
+future reader cannot mistake the disclosure for boilerplate and delete it.
+
+**The copy.** The absolute claim is now scoped, and the second population is named:
+
+> "…**For anything uploaded here**, a post belongs to whichever client was chosen on the
+> upload form — a recorded link, not a guess from the author name on the row — so a
+> spelling difference in the scrape cannot lose it. **Older history arrived by a one-time
+> migration that did match on the author name, so a post whose name did not match was
+> left behind and is missing from this count.** That migration is also why this can show
+> a count for a client with no upload date beside it. A dash means the count could not be
+> read, which is never a zero."
+
+Gate after the fix: `LINT:0 TSC:0 TEST:0 BUILD:0`, 151 files, **2,600** tests.
+
+⚠️ THE COUNT MOVED 2,599 → 2,600 ON PURPOSE. One test was added, none altered in what it
+checks. The S4 rule that the count must not move applied to a prose-and-identifiers
+slice; this is a new claim being pinned, and an unexplained count is the thing the rule
+guards against, not a changed one.
+
+### The general lesson: a corrected overclaim is still an overclaim
+
+Both the original copy and its replacement were confident single sentences about a number
+fed by two differently-attributed populations. The first was wrong about new uploads; the
+second was wrong about migrated history. **Correcting a false claim by inverting it
+reproduces the defect with the sign flipped.** The honest form names both populations and
+the rule each was attributed by — which is the four-state discipline applied to
+provenance rather than to values.
 
 ### Guardrails held
 

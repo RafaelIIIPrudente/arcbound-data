@@ -130,9 +130,23 @@ describe("the printable document", () => {
     // sized itself by measuring its parent would render nothing here — which is
     // the same failure that makes recharts print at zero width. These charts
     // take an explicit pixel size, so they draw regardless.
+    // ⚠️ DAY AGES MATCHING THE DATES. The weekday panel admits day-precision
+    // posts only and reads precision off `post_age`; a row with a date and no age
+    // states none, so that panel would fall to its empty state and the chart count
+    // below would silently drop to three for a reason unrelated to layout.
     const rows = [
-      metricsRow({ linkedin_post_id: "p1", estimated_post_date: "2026-06-02T10:00:00.000Z" }),
-      metricsRow({ linkedin_post_id: "p2", estimated_post_date: "2026-07-05T10:00:00.000Z" }),
+      metricsRow({
+        linkedin_post_id: "p1",
+        post_age: "1d",
+        scraped_at: "2026-06-03T10:00:00.000Z",
+        estimated_post_date: "2026-06-02T10:00:00.000Z",
+      }),
+      metricsRow({
+        linkedin_post_id: "p2",
+        post_age: "1d",
+        scraped_at: "2026-07-06T10:00:00.000Z",
+        estimated_post_date: "2026-07-05T10:00:00.000Z",
+      }),
     ];
     const formats = new Map([
       ["p1", "IMAGE"],
@@ -215,5 +229,95 @@ describe("the printable document", () => {
     render(<PrintReport report={report} />);
 
     expect(screen.queryByText(/lower bounds, not totals/)).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THIS IS THE DOCUMENT THAT LEAVES THE BUILDING.
+//
+// The weekday panel admits only posts dated to the day. The exclusion note is the
+// only thing standing between "here is your best weekday" and a chart built from
+// month-snapped dates, so its exact words are asserted here — the print copy is
+// DUPLICATED from `impressions-by-weekday-chart.tsx` (the print bundle may not
+// import that file; see the note above `exclusionNote`), and a duplicate that is
+// only tested in one place is a duplicate that drifts.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PrintReport — the weekday panel's three-state disclosure", () => {
+  /** One day-aged post, two month-aged, one hour-aged — all in the same period. */
+  const MIXED: PostMetricsRow[] = [
+    metricsRow({
+      linkedin_post_id: "day",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "m1",
+      post_age: "1m",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-07-01T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "m2",
+      post_age: "2m",
+      scraped_at: "2026-07-15T00:00:00.000Z",
+      estimated_post_date: "2026-06-01T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "hour",
+      post_age: "5h",
+      scraped_at: "2026-07-20T06:00:00.000Z",
+      estimated_post_date: null,
+    }),
+  ];
+
+  const build = (rows: PostMetricsRow[]) =>
+    buildClientReport(rows, {
+      period: ALL_TIME,
+      now: NOW,
+      followers: 5000,
+      connections: null,
+      availablePeriods: availablePeriods(rows),
+    });
+
+  it("⚠️ states the basis and both exclusions, in three separate sentences", () => {
+    render(document_(build(MIXED)));
+
+    const note = screen
+      .getAllByRole("note")
+      .map((n) => n.textContent ?? "")
+      .find((t) => /publish day/i.test(t));
+
+    expect(note).toMatch(/built from the 1 post whose exact publish day is known/i);
+    expect(note).toMatch(/2 posts are dated only to the week or month/i);
+    expect(note).toMatch(/1 post has no publish date at all/i);
+    // ⚠️ NEVER SUMMED. "3 posts excluded" would be true and would erase the one
+    // distinction the Client needs: two have dates, one does not.
+    expect(note).not.toMatch(/3 posts/i);
+  });
+
+  it("⚠️ never describes a month-dated post as having no date", () => {
+    render(document_(build([MIXED[1]!, MIXED[2]!])));
+
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/2 posts are dated only to the week or month/i);
+    expect(body).not.toMatch(/have no publish date at all/i);
+  });
+
+  it("⚠️ does not print 'No posts in this period' over a period with posts in it", () => {
+    // Two real posts, both month-dated. The weekday panel has nothing to draw and
+    // must say WHY — telling a Client they posted nothing that period is false.
+    render(document_(build([MIXED[1]!, MIXED[2]!])));
+
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/no posts with a known publish day in this period/i);
+  });
+
+  it("⚠️ prints no age token and no internal vocabulary anywhere in the document", () => {
+    const { container } = render(document_(build(MIXED)));
+
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/\b\d+(m|w|d|y|h|mo)\b/);
+    expect(text).not.toMatch(/precision|granularity|estimated_post_date|resolver/i);
   });
 });

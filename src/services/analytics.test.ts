@@ -112,6 +112,7 @@ import {
   currentWindow,
   effectiveMs,
   getDashboardAnalytics,
+  placePost,
   type PostMetricsRow,
 } from "./analytics";
 
@@ -547,13 +548,16 @@ describe("the Posts KPI (publishing volume)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE WEEKDAY IS WHEN THE POST WENT OUT, NOT WHEN IT WAS SCRAPED.
+// THE WEEKDAY IS WHEN THE POST WENT OUT, NOT WHEN IT WAS SCRAPED — AND NOT EVERY
+// POST HAS ONE TO GIVE.
 //
-// ⚠️ A post whose estimated_post_date the pipeline never resolved (an hour-age
-// post) has NO assertable weekday. Bucketing it by its scrape weekday would pile
-// a whole weekly scrape onto one day and fabricate a spike — turning "which
-// weekday lands best" into "which weekday we happened to scrape". Such posts are
-// EXCLUDED from the weekday buckets and counted separately so the chart can say so.
+// ⚠️ TWO SEPARATE DISQUALIFICATIONS, COUNTED SEPARATELY. A post whose date was
+// never resolved (an hour-age post) is UNDATED; a post dated from a week or month
+// age is DATED BUT TOO COARSE — a week age lands on the scrape's own weekday and a
+// month age on whatever weekday the 1st fell on. Either one, bucketed anyway, turns
+// "which weekday lands best" into "which weekday we happened to scrape". Both are
+// excluded and each is counted under its own name, because a reader told the date
+// is MISSING when it is merely BLUNT goes looking for a fault that is not there.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("average impressions by weekday", () => {
   const wk = (label: string, data: SeriesPoint[]) => data.find((d) => d.label === label)!.value;
@@ -562,10 +566,33 @@ describe("average impressions by weekday", () => {
   //   w1 Wed 2026-07-01 · 100 impressions   w2 Wed 2026-07-08 · 300 impressions
   //   w3 Fri 2026-07-10 · 500 impressions
   //   w4 UNDATED (est null) scraped Thu 2026-07-16 · 999 impressions
+  //
+  // ⚠️ EACH DATED ROW CARRIES A DAY AGE THAT RESOLVES TO ITS OWN DATE, and it has
+  // to: the weekday chart admits day-precision posts only, and precision is read
+  // off `post_age`. These three rows previously carried a date and NO age, which
+  // asserted a weekday from a row that never said how precisely it was known.
   const WEEKDAY_ROWS: PostMetricsRow[] = [
-    metricsRow({ linkedin_post_id: "w1", estimated_post_date: "2026-07-01", impressions: 100 }),
-    metricsRow({ linkedin_post_id: "w2", estimated_post_date: "2026-07-08", impressions: 300 }),
-    metricsRow({ linkedin_post_id: "w3", estimated_post_date: "2026-07-10", impressions: 500 }),
+    metricsRow({
+      linkedin_post_id: "w1",
+      post_age: "3d",
+      scraped_at: "2026-07-04T00:00:00.000Z",
+      estimated_post_date: "2026-07-01",
+      impressions: 100,
+    }),
+    metricsRow({
+      linkedin_post_id: "w2",
+      post_age: "2d",
+      scraped_at: "2026-07-10T00:00:00.000Z",
+      estimated_post_date: "2026-07-08",
+      impressions: 300,
+    }),
+    metricsRow({
+      linkedin_post_id: "w3",
+      post_age: "1d",
+      scraped_at: "2026-07-11T00:00:00.000Z",
+      estimated_post_date: "2026-07-10",
+      impressions: 500,
+    }),
     metricsRow({
       linkedin_post_id: "w4",
       estimated_post_date: null,
@@ -611,6 +638,11 @@ describe("average impressions by weekday", () => {
     // exclusion is surfaced so the UI can disclose it rather than hide it.
     expect(a.totalPosts).toBe(4);
     expect(a.weekdayUndatedPosts).toBe(1);
+    // ⚠️ AND IT IS NOT COUNTED AS COARSE. w4 has no date at all; the coarse count
+    // is for posts that DO have one. Merging them would report the same number
+    // under a sentence that says something different and untrue.
+    expect(a.weekdayCoarsePosts).toBe(0);
+    expect(a.weekdayPlacedPosts).toBe(3);
   });
 
   it("gives a weekday with no posts a genuine zero", () => {
@@ -652,7 +684,13 @@ describe("average impressions by weekday", () => {
     // Fri) counts, so Friday stays 500.
     const withPrior: PostMetricsRow[] = [
       ...WEEKDAY_ROWS,
-      metricsRow({ linkedin_post_id: "old", estimated_post_date: "2026-06-05", impressions: 9000 }),
+      metricsRow({
+        linkedin_post_id: "old",
+        post_age: "1d",
+        scraped_at: "2026-06-06T00:00:00.000Z",
+        estimated_post_date: "2026-06-05",
+        impressions: 9000,
+      }),
     ];
     const a = buildDashboardAnalytics(withPrior, { range: R30, now: NOW });
     expect(wk("Fri", a.impressionsByWeekday)).toBe(500);
@@ -1577,5 +1615,126 @@ describe("the comparison is only built where it is meaningful", () => {
 
     expect(c.unavailable).toBe(false);
     expect(c.rows).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE GRANULARITY RULE. A resolved `estimated_post_date` is a full timestamp
+// whatever produced it, so a "4d" post and a "4m" post look equally day-exact and
+// are not: the month post was SNAPPED to the 1st and the week post landed on the
+// scrape's own weekday. A bucket at granularity G may only contain posts whose
+// precision is at least as fine as G, and the posts kept out for coarseness are a
+// THIRD state — counted and disclosed, never folded into "undated", which would
+// tell a reader the date is missing when it is merely too blunt for this chart.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("placePost — three states, never two", () => {
+  it("places a day-age post at every granularity", () => {
+    const row = metricsRow({ post_age: "4d", estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "placed", ms: Date.parse("2026-07-10") });
+    expect(placePost(row, "week").state).toBe("placed");
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("⚠️ refuses a week-age post at DAY granularity, and admits it at week", () => {
+    const row = metricsRow({ post_age: "3w", estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "week").state).toBe("placed");
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("⚠️ refuses a month-age post at day AND week granularity, and admits it at month", () => {
+    const row = metricsRow({ post_age: "4m", estimated_post_date: "2026-05-01T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "week")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("⚠️ treats a YEAR age as month-grained — its day is the scrape's", () => {
+    const row = metricsRow({ post_age: "1y", estimated_post_date: "2025-07-15T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "week")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "month").state).toBe("placed");
+  });
+
+  it("reports UNDATED — not too-coarse — when there is no resolved date at all", () => {
+    // ⚠️ THE TWO MUST NOT MERGE. "we could not date this post" and "we dated it,
+    // but only to the month" are different facts and get different sentences.
+    const row = metricsRow({ post_age: "5h", estimated_post_date: null });
+    expect(placePost(row, "day")).toEqual({ state: "undated" });
+    expect(placePost(row, "month")).toEqual({ state: "undated" });
+  });
+
+  it("⚠️ treats a dated row whose age cannot be read as MONTH-grained, never finer", () => {
+    // Reachable only for rows loaded by the one-time migration, whose date came
+    // from the previous analytics layer while the age text came from the scrape:
+    // that layer dated hour-ages this resolver refuses. Month is the COARSEST
+    // datable granularity, so such a row can never enter a finer bucket — and the
+    // month charts, which count it today, keep counting it.
+    const row = metricsRow({ post_age: "23h", estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(row, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(row, "month").state).toBe("placed");
+
+    const noAge = metricsRow({ post_age: null, estimated_post_date: "2026-07-10T00:00:00.000Z" });
+    expect(placePost(noAge, "day")).toEqual({ state: "too-coarse" });
+    expect(placePost(noAge, "month").state).toBe("placed");
+  });
+});
+
+describe("the weekday chart admits only day-precision posts", () => {
+  // Four posts, one per precision, all inside the 30-day window. Weekdays (UTC):
+  // 2026-07-10 Fri · 2026-07-08 Wed · 2026-07-01 Wed.
+  const MIXED: PostMetricsRow[] = [
+    metricsRow({
+      linkedin_post_id: "day",
+      post_age: "6d",
+      estimated_post_date: "2026-07-10T00:00:00.000Z",
+      impressions: 900,
+      scraped_at: "2026-07-16T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "week",
+      post_age: "1w",
+      estimated_post_date: "2026-07-08T00:00:00.000Z",
+      impressions: 100,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "month",
+      post_age: "1m",
+      estimated_post_date: "2026-07-01T00:00:00.000Z",
+      impressions: 100,
+      scraped_at: "2026-07-15T00:00:00.000Z",
+    }),
+    metricsRow({
+      linkedin_post_id: "hour",
+      post_age: "5h",
+      estimated_post_date: null,
+      impressions: 100,
+      scraped_at: "2026-07-16T06:00:00.000Z",
+    }),
+  ];
+
+  const wkOf = (a: ReturnType<typeof buildDashboardAnalytics>) =>
+    Object.fromEntries(a.impressionsByWeekday.map((d) => [d.label, d.value]));
+
+  it("⚠️ MUTATION PROOF — the week-age and month-age posts do not reach a weekday", () => {
+    const a = buildDashboardAnalytics(MIXED, { range: R30, now: NOW });
+    // Only the "6d" post is averaged. Both coarse posts land on a Wednesday if
+    // their timestamps are trusted, so a Wed of 100 is the signature of the bug.
+    expect(wkOf(a).Fri).toBe(900);
+    expect(wkOf(a).Wed).toBe(0);
+  });
+
+  it("counts the coarse posts separately from the undated one", () => {
+    const a = buildDashboardAnalytics(MIXED, { range: R30, now: NOW });
+    expect(a.weekdayPlacedPosts).toBe(1);
+    expect(a.weekdayCoarsePosts).toBe(2);
+    expect(a.weekdayUndatedPosts).toBe(1);
+  });
+
+  it("⚠️ accounts for EVERY in-window post — the three states partition the total", () => {
+    const a = buildDashboardAnalytics(MIXED, { range: R30, now: NOW });
+    expect(a.weekdayPlacedPosts + a.weekdayCoarsePosts + a.weekdayUndatedPosts).toBe(a.totalPosts);
   });
 });

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { bucketLabel, bucketPlan, resolveWindow, type RangeSelection } from "@/lib/date-range";
 import { median } from "@/lib/median";
+import { isAtLeastAsPrecise, resolvePostDatePrecision, type DatePrecision } from "@/lib/post-date";
 import { asPage, readAllPages, type PageReader } from "@/lib/supabase/paged";
 import { createClient } from "@/lib/supabase/server";
 import { listClientRegistry } from "@/services/clients";
@@ -170,6 +171,47 @@ export function effectiveMs(row: PostMetricsRow): number | null {
   if (est !== null) return est;
   const s = row.scraped_at ? Date.parse(row.scraped_at) : NaN;
   return Number.isNaN(s) ? null : s;
+}
+
+/**
+ * Where a post may be placed on a timeline bucketed at `granularity` — THREE
+ * states, and they never collapse into two.
+ *
+ * ⚠️ A RESOLVED INSTANT IS NOT A DAY-EXACT ONE. `estimated_post_date` is a full
+ * timestamp whatever age produced it, so a "4d" post and a "4m" post look equally
+ * precise on the row and are not: the month post was SNAPPED to the 1st, the week
+ * post landed on the SCRAPE's own weekday. Placing either on a weekday reports
+ * when we looked, not when they posted. The rule is one line — a bucket at
+ * granularity G admits only posts whose precision is at least as fine as G — and
+ * `src/lib/post-date.ts` owns what each age token can support.
+ *
+ * ⚠️ `too-coarse` IS NOT `undated`, and a caller that merges them has introduced
+ * the defect this function exists to prevent. "We could not date this post" and
+ * "we dated it, but only to the month" are different facts; a reader told the
+ * first when the second is true goes looking for missing data that is not missing.
+ */
+export type PostPlacement =
+  { state: "placed"; ms: number } | { state: "too-coarse" } | { state: "undated" };
+
+export function placePost(row: PostMetricsRow, granularity: DatePrecision): PostPlacement {
+  const ms = estMs(row);
+  if (ms === null) return { state: "undated" };
+
+  // ⚠️ A DATED ROW WHOSE AGE CANNOT BE READ IS TREATED AS MONTH-GRAINED — the
+  // coarsest datable granularity — never as finer, and never as undated.
+  //
+  // At ingest the two cannot disagree: the same `post_age` text produced both the
+  // instant and the precision, so a stored date implies a datable age. This is
+  // reachable only for rows loaded by the one-time migration, whose date was
+  // copied from the previous analytics layer while the age text came from the
+  // scrape — and that layer dated hour-ages this resolver refuses. Every such row
+  // is therefore FINER than a month in truth, so calling it month understates
+  // what we know rather than overstating it, and it keeps the month-bucketed
+  // charts counting exactly the rows they count today.
+  const precision = resolvePostDatePrecision(row.post_age) ?? "month";
+  return isAtLeastAsPrecise(precision, granularity)
+    ? { state: "placed", ms }
+    : { state: "too-coarse" };
 }
 
 function recencyMs(row: PostMetricsRow): number {
@@ -426,24 +468,40 @@ export function buildDashboardAnalytics(
   // Average impressions by the weekday a post was PUBLISHED on, over the current
   // window.
   //
-  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT `effectiveMs`. Every
-  // other figure here windows on `effectiveMs`, which stands `scraped_at` in for an
-  // hour-age post's missing date; that is right for "is it in the window", but a
-  // weekday may NOT be asserted that way. Every post in one weekly scrape shares a
-  // `scraped_at`, so bucketing undated posts by it would pile a scrape onto a single
-  // weekday and fabricate a rhythm — "which weekday lands best" becoming "which
-  // weekday we scraped". Undated posts are excluded and counted separately so the
-  // chart can disclose the gap. (The report's weekday chart now applies this same
-  // `estMs`-only dating and `weekdayUndatedPosts` count — see `client-report.ts`.)
+  // ⚠️ DAY-PRECISION POSTS ONLY, via `placePost(r, "day")`. Two separate things
+  // disqualify a post here and they are counted separately:
+  //
+  //   • UNDATED — no resolved publish date at all. Every other figure windows on
+  //     `effectiveMs`, which stands `scraped_at` in for an hour-age post; that is
+  //     right for "is it in the window" but bucketing by it would pile a whole
+  //     weekly scrape onto one weekday, turning "which weekday lands best" into
+  //     "which weekday we scraped".
+  //   • TOO COARSE — dated, but not to the day. A week age resolves to the
+  //     SCRAPE's weekday and a month age to whatever weekday the 1st fell on, so
+  //     both would vote on a weekday they never carried. Measured live: 236 of
+  //     272 posts are week- or month-grained, so this is the majority of the
+  //     input, not an edge case.
+  //
+  // ⚠️ THE TWO NEVER MERGE. Folding coarse posts into `weekdayUndatedPosts` would
+  // tell a reader their dates are missing when they are merely too blunt for this
+  // one chart — and would send them looking for an ingestion fault that is not
+  // there. (`client-report.ts` applies the identical rule.)
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
   let weekdayUndatedPosts = 0;
+  let weekdayCoarsePosts = 0;
+  let weekdayPlacedPosts = 0;
   for (const r of current) {
-    const t = estMs(r);
-    if (t === null) {
+    const placed = placePost(r, "day");
+    if (placed.state === "undated") {
       weekdayUndatedPosts += 1;
       continue;
     }
-    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(r.impressions));
+    if (placed.state === "too-coarse") {
+      weekdayCoarsePosts += 1;
+      continue;
+    }
+    weekdayPlacedPosts += 1;
+    weekdayBuckets[new Date(placed.ms).getUTCDay()]!.push(num(r.impressions));
   }
   const impressionsByWeekday: SeriesPoint[] = WEEKDAYS.map((label, i) => ({
     label,
@@ -464,6 +522,8 @@ export function buildDashboardAnalytics(
     impressionsSeries,
     engagementSeries,
     impressionsByWeekday,
+    weekdayPlacedPosts,
+    weekdayCoarsePosts,
     weekdayUndatedPosts,
     recentPosts,
   };

@@ -32,6 +32,9 @@ const FULL: PostingCadence = {
     { label: "May 26", count: 1 },
     { label: "Jun 26", count: 11 },
   ],
+  // Every post here is precise enough for a weekly bar, so the two bases coincide.
+  weeklyPlacedPosts: 12,
+  weeklyCoarsePosts: 0,
 };
 
 describe("PostingCadence — the healthy 2+ dated case", () => {
@@ -122,6 +125,8 @@ describe("PostingCadence — the low-N four states", () => {
       timeline: [],
       weekly: [],
       monthly: [],
+      weeklyPlacedPosts: 0,
+      weeklyCoarsePosts: 0,
     };
     const { container } = render(<PostingCadenceSection cadence={zero} />);
     expect(container.firstChild).toBeNull();
@@ -139,6 +144,8 @@ describe("PostingCadence — the low-N four states", () => {
       timeline: [],
       weekly: [],
       monthly: [],
+      weeklyPlacedPosts: 0,
+      weeklyCoarsePosts: 0,
     };
     render(<PostingCadenceSection cadence={allUndated} />);
 
@@ -165,6 +172,8 @@ describe("PostingCadence — the low-N four states", () => {
       timeline: [JAN1],
       weekly: [{ label: "29 Dec", count: 1 }],
       monthly: [{ label: "Jan 26", count: 1 }],
+      weeklyPlacedPosts: 1,
+      weeklyCoarsePosts: 0,
     };
     render(<PostingCadenceSection cadence={one} />);
 
@@ -235,5 +244,114 @@ describe("PostingCadence — the undated disclosure", () => {
     expect(disclosure.textContent).toMatch(/15/);
     // Staff language only — the storage column name must never surface.
     expect(disclosure.textContent).not.toMatch(/estimated_post_date/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE WEEK VIEW RESTS ON FEWER POSTS THAN THE MONTH VIEW, AND MUST SAY SO.
+//
+// A post dated only to the month was snapped to the 1st, so the calendar week it
+// would land in is whichever week that 1st fell in — a bar the Client never
+// earned. Those posts stay in the Month view (where the date IS precise enough)
+// and in the marks, so the same panel legitimately shows two different totals
+// behind a toggle. Unexplained, that reads as a bug; explained, it is the finding.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PostingCadence — the Week view discloses its narrower basis", () => {
+  /** Twelve dated posts, only four of them precise enough for a weekly bar. */
+  const COARSE: PostingCadence = {
+    ...FULL,
+    weeklyPlacedPosts: 4,
+    weeklyCoarsePosts: 8,
+    weekly: [
+      { label: "1 Jun", count: 3 },
+      { label: "8 Jun", count: 1 },
+    ],
+  };
+
+  it("⚠️ says nothing about coarseness on the Marks view — it places every dated post", () => {
+    render(<PostingCadenceSection cadence={COARSE} />);
+    expect(screen.queryByText(/dated only to the month/i)).not.toBeInTheDocument();
+  });
+
+  it("⚠️ discloses the held-back posts once the reader switches to Week", () => {
+    render(<PostingCadenceSection cadence={COARSE} />);
+    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+
+    const note = screen.getByText(/dated only to the month/i);
+    expect(note.textContent).toMatch(/8/);
+    // ⚠️ AND IT SAYS WHERE THEY DID COUNT. Told only that 8 posts are missing, a
+    // reader concludes the data is broken; told they are in the Month view, they
+    // read the panel correctly.
+    expect(note.textContent).toMatch(/month view/i);
+  });
+
+  it("⚠️ never calls a coarse post undated", () => {
+    render(<PostingCadenceSection cadence={COARSE} />);
+    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+
+    const note = screen.getByText(/dated only to the month/i);
+    expect(note.textContent).not.toMatch(/no post date|no date/i);
+  });
+
+  it("says nothing on the Month view — every dated post is counted there", () => {
+    render(<PostingCadenceSection cadence={COARSE} />);
+    fireEvent.click(screen.getByRole("button", { name: "Month" }));
+    expect(screen.queryByText(/dated only to the month/i)).not.toBeInTheDocument();
+  });
+
+  it("stays quiet when nothing was held back", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+    expect(screen.queryByText(/dated only to the month/i)).not.toBeInTheDocument();
+  });
+
+  it("⚠️ shows an honest empty Week view when NO post is week-precise", () => {
+    // Distinct from "nothing is dated": the marks and the monthly bars still
+    // draw. An empty bar strip with no words reads as a broken chart.
+    const none: PostingCadence = {
+      ...COARSE,
+      weeklyPlacedPosts: 0,
+      weeklyCoarsePosts: 12,
+      weekly: [],
+    };
+    render(<PostingCadenceSection cadence={none} />);
+    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+
+    expect(screen.queryByRole("list", { name: /posts per week/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/dated only to the month/i)).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE CAPTIONS ARE THE CHART. Each one is a sentence a Client reads as fact,
+// so a caption that has gone false is a false statement in a client document.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PostingCadence — captions claim only what the dates support", () => {
+  it("⚠️ the Week caption no longer says an empty slot is a week with no posts", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+
+    const body = document.body.textContent ?? "";
+    // That sentence was true while every dated post was placed here. It is not
+    // any more: a week whose only post is month-dated reads 0 with a real post in
+    // it. Correcting the code and leaving the sentence is the worse half-fix.
+    expect(body).not.toMatch(/an empty slot is a week with no posts/i);
+  });
+
+  it("⚠️ the Marks caption does not promise same-day accuracy it cannot keep", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+
+    const body = document.body.textContent ?? "";
+    // Month-dated posts all land on the 1st, so "posts on the same day share a
+    // mark" invites the reader to read a bunch as a burst of real activity.
+    expect(body).not.toMatch(/posts on the same day share a mark/i);
+    expect(body).toMatch(/estimated|only to the week or month/i);
+  });
+
+  it("keeps the Month caption, which is still exactly true", () => {
+    render(<PostingCadenceSection cadence={FULL} />);
+    fireEvent.click(screen.getByRole("button", { name: "Month" }));
+
+    expect(screen.getByText(/an empty slot is a month with no posts/i)).toBeInTheDocument();
   });
 });

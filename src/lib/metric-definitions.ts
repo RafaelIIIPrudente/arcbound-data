@@ -153,7 +153,7 @@ export const METRIC_DEFINITIONS = {
   clientListPosts: {
     term: "Posts",
     definition:
-      "How many posts ArcBase holds for this client. A post belongs to whichever client was chosen on the upload form — a recorded link, not a guess from the author name on the row — so a client whose name is written differently in the scrape is still counted correctly here. Posts loaded by the one-time migration of older history are included too, which is why this can show a count for a client with no upload date beside it. A dash means the count could not be read, which is never a zero.",
+      "How many posts ArcBase holds for this client. For anything uploaded here, a post belongs to whichever client was chosen on the upload form — a recorded link, not a guess from the author name on the row — so a spelling difference in the scrape cannot lose it. Older history arrived by a one-time migration that did match on the author name, so a post whose name did not match was left behind and is missing from this count. That migration is also why this can show a count for a client with no upload date beside it. A dash means the count could not be read, which is never a zero.",
   },
 
   // ⚠️ TWO STATES, AND IT USED TO BE FOUR. The Writer cell could say "assigned

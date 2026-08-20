@@ -29,6 +29,22 @@ function sqlOnly(path: string): string {
 
 const PAIRS = [
   {
+    // ⚠️ WRITTEN, NOT APPLIED, AND IT MUST STAY THAT WAY FOR NOW. `origin/main`
+    // does not contain the ADR 0010 cutover; production still reads `bi.*`
+    // through `.schema("bi")`, so applying this takes the live app's data source
+    // away mid-request. It is registered here so the two copies cannot drift
+    // while it waits — a retirement script that has gone stale against its
+    // migration is the worst possible thing to discover on the day you run it.
+    //
+    // ⚠️ ITS DROP LIST FOR `bi` IS DELIBERATELY NOT ENUMERATED FROM THIS REPO.
+    // The repo knows one object; the schema is owned outside it. The script
+    // carries a discovery query the operator runs first, and drops the schema as
+    // a whole rather than guessing at a list.
+    name: "retire-bi-and-staging",
+    script: "retire-bi-and-staging.sql",
+    migration: "migrations/20260822120000_retire_bi_and_staging.sql",
+  },
+  {
     // ⚠️ THE POINT OF NO RETURN FOR THIS WORKSTREAM. Every pair below it left the
     // old source live and correct, so a code revert was a complete rollback. This
     // one stops the staging write, after which `bi.*` goes stale and reverting

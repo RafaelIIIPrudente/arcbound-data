@@ -349,18 +349,33 @@ export interface DashboardAnalytics {
   /**
    * Average impressions by the weekday a post was PUBLISHED on, Sunday → Saturday.
    *
-   * ⚠️ DATED BY `estimated_post_date` ALONE, undated posts EXCLUDED. Unlike every
-   * other dashboard figure — which windows on `effectiveMs` and so counts hour-age
-   * posts via their `scraped_at` — a weekday may not be asserted for a post whose
-   * publish date was never resolved: bucketing it by its scrape weekday would pile
-   * a whole weekly scrape onto one day and fabricate rhythm. Those posts are
-   * counted in `weekdayUndatedPosts` instead. An empty weekday is a genuine 0.
+   * ⚠️ DAY-PRECISION POSTS ONLY. Unlike every other dashboard figure — which
+   * windows on `effectiveMs` and so counts hour-age posts via their `scraped_at` —
+   * a weekday may only be asserted for a post whose date is precise TO THE DAY. A
+   * post dated from a week age landed on the scrape's own weekday and one dated
+   * from a month age on whatever weekday the 1st fell on; both would vote on a
+   * weekday they never carried. An empty weekday is a genuine 0.
+   *
+   * The three counts below partition the window's posts and are surfaced so the
+   * chart can say what it was built from:
+   * `weekdayPlacedPosts + weekdayCoarsePosts + weekdayUndatedPosts === totalPosts`.
    */
   impressionsByWeekday: SeriesPoint[];
+  /** Posts actually averaged into `impressionsByWeekday` — those dated to the day. */
+  weekdayPlacedPosts: number;
   /**
-   * Posts in the current window with NO resolved publish date, excluded from
-   * `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose the
-   * exclusion; the datable count it averaged is `totalPosts − weekdayUndatedPosts`.
+   * Posts in the window that ARE dated, but only to the week or the month —
+   * excluded from `impressionsByWeekday` because they carry no assertable weekday.
+   *
+   * ⚠️ NOT A KIND OF `weekdayUndatedPosts`, AND NEVER ADDED TO IT. These posts
+   * have a date; it is simply too blunt for this one chart. A reader told the date
+   * is missing goes looking for an ingestion fault that is not there.
+   */
+  weekdayCoarsePosts: number;
+  /**
+   * Posts in the current window with NO resolved publish date at all, excluded
+   * from `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose
+   * the exclusion separately from the coarse one.
    */
   weekdayUndatedPosts: number;
   recentPosts: RecentPost[];
@@ -866,14 +881,39 @@ export interface PostingCadence {
    */
   timeline: number[];
   /**
-   * Dated posts counted per calendar WEEK (Monday start), first→last dated post,
-   * with empty weeks kept as a genuine `0` (a week with no posts really had none —
-   * not missing data). The "Week" view of the switchable chart. Empty when nothing
-   * is dated. `Σ count === datedPosts`.
+   * Posts dated to the WEEK OR FINER, counted per calendar week (Monday start),
+   * first→last such post, with empty weeks kept as a `0`. The "Week" view of the
+   * switchable chart. Empty when nothing is week-precise. `Σ count ===
+   * weeklyPlacedPosts`.
+   *
+   * ⚠️ THE BASIS IS NARROWER THAN `datedPosts`, AND THE `0` SAYS LESS THAN IT USED
+   * TO. A month-aged post was snapped to the 1st, so the week it would land in is
+   * whichever week that 1st fell in — a bar the client never earned. Such posts are
+   * held out and counted in `weeklyCoarsePosts`; an empty slot here therefore means
+   * "no week-dated post that week", not "no post that week".
    */
   weekly: CadenceBucket[];
-  /** As `weekly`, but per calendar MONTH — the "Month" view. `Σ count === datedPosts`. */
+  /**
+   * As `weekly`, but per calendar MONTH — the "Month" view. `Σ count ===
+   * datedPosts`.
+   *
+   * ⚠️ EVERY DATED POST, DELIBERATELY. A month-aged post IS month-precise, so this
+   * chart is exactly as fine as its input; narrowing it to match `weekly` would be
+   * the mirror-image error — discarding a real reading.
+   */
   monthly: CadenceBucket[];
+  /** Posts drawn in `weekly` — those dated to the week or finer. */
+  weeklyPlacedPosts: number;
+  /**
+   * Dated posts too coarse for a weekly bar (month- and year-aged), counted so the
+   * component can disclose why the Week view rests on fewer posts than the Month
+   * view.
+   *
+   * ⚠️ NEVER ADDED TO `undatedPosts`. These posts have a date. `weeklyPlacedPosts +
+   * weeklyCoarsePosts === datedPosts`, and `datedPosts + undatedPosts ===
+   * totalPosts` — three states, two sums, no double-counting.
+   */
+  weeklyCoarsePosts: number;
 }
 
 /**
@@ -1011,19 +1051,33 @@ export interface ClientReport {
    * Average impressions by the weekday a post was PUBLISHED on — seven entries,
    * Sunday → Saturday.
    *
-   * ⚠️ DATED BY `estimated_post_date` ALONE, undated posts EXCLUDED. The rest of
-   * the report windows on `effectiveMs`, which stands `scraped_at` in for an
-   * hour-age post's missing publish date; a weekday may not be asserted that way —
-   * bucketing a whole weekly scrape onto its scrape day fabricates a rhythm in a
-   * client-facing chart. Those posts are counted in `weekdayUndatedPosts` instead.
-   * An empty weekday is a genuine 0.
+   * ⚠️ DAY-PRECISION POSTS ONLY, exactly as the dashboard's chart. The rest of the
+   * report windows on `effectiveMs`, which stands `scraped_at` in for an hour-age
+   * post's missing publish date; a weekday may not be asserted that way, nor from
+   * a week age (which lands on the scrape's weekday) nor a month age (which snaps
+   * to the 1st). This is a CLIENT-FACING chart, and a fabricated rhythm on it is
+   * advice the data never gave. An empty weekday is a genuine 0.
+   *
+   * The three counts below partition the period's placeable posts:
+   * `weekdayPlacedPosts + weekdayCoarsePosts + weekdayUndatedPosts ===
+   * impressionsPostCount`.
    */
   impressionsByWeekday: { label: string; value: number }[];
+  /** Posts actually averaged into `impressionsByWeekday` — those dated to the day. */
+  weekdayPlacedPosts: number;
   /**
-   * Posts in the selected period with NO resolved publish date, excluded from
-   * `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose the
-   * exclusion; the datable count it averaged is `impressionsPostCount −
-   * weekdayUndatedPosts`.
+   * Posts in the period that ARE dated, but only to the week or the month —
+   * excluded from `impressionsByWeekday` because they carry no assertable weekday.
+   *
+   * ⚠️ NOT A KIND OF `weekdayUndatedPosts`. See the dashboard's field of the same
+   * name: telling a Client their post has no date when it merely has a blunt one
+   * is a different — and wrong — statement.
+   */
+  weekdayCoarsePosts: number;
+  /**
+   * Posts in the selected period with NO resolved publish date at all, excluded
+   * from `impressionsByWeekday`. Surfaced (not hidden) so the chart can disclose
+   * the exclusion separately from the coarse one.
    */
   weekdayUndatedPosts: number;
   interactionsByAsset: AssetBucket[];

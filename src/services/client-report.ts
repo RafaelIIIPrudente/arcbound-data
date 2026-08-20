@@ -1,6 +1,6 @@
 import { bucketLabel, bucketPlan, decodeRange } from "@/lib/date-range";
 import { toCanonicalFormat, FORMAT_LABELS } from "@/lib/post-format";
-import { estMs, type PostMetricsRow } from "@/services/analytics";
+import { estMs, placePost, type PostMetricsRow } from "@/services/analytics";
 import { buildCadence } from "@/services/cadence";
 import { buildContentComposition } from "@/services/content-composition";
 import {
@@ -543,23 +543,37 @@ export function buildClientReport(
 
   // ── weekday buckets (SELECTED PERIOD) ──────────────────────────────────────
   //
-  // ⚠️ DATED BY `estMs` (estimated_post_date) ALONE — NOT the `ms` windowing key.
-  // `selectedPlaceable`'s `ms` is `effectiveMs`, which stands `scraped_at` in for
-  // an hour-age post's missing publish date; that is right for "is it in the
-  // period", but a weekday may NOT be asserted that way. Every post in one weekly
-  // scrape shares a `scraped_at`, so bucketing undated posts by it would pile a
-  // scrape onto a single weekday and fabricate a rhythm in a CLIENT-FACING chart.
-  // Undated posts are excluded and counted in `weekdayUndatedPosts` so the chart
-  // can disclose the gap — mirroring the dashboard's weekday chart exactly.
+  // ⚠️ DAY-PRECISION POSTS ONLY, via `placePost(row, "day")` — NOT the `ms`
+  // windowing key, and not merely "has a date". `selectedPlaceable`'s `ms` is
+  // `effectiveMs`, which stands `scraped_at` in for an hour-age post's missing
+  // publish date; that is right for "is it in the period" and wrong for "which
+  // weekday". Two things disqualify a post here and they are counted apart:
+  //
+  //   • UNDATED — no publish date was ever resolved. Bucketing by `scraped_at`
+  //     would pile a whole weekly scrape onto one weekday.
+  //   • TOO COARSE — dated, but only to the week or month. A week age resolves to
+  //     the SCRAPE's weekday; a month age snaps to the 1st and inherits whatever
+  //     weekday that was. Measured live, 236 of 272 posts are one of these.
+  //
+  // ⚠️ THIS DOCUMENT GOES TO THE CLIENT. A weekday bar built from posts that never
+  // carried a weekday is not a small inaccuracy here — it is a rhythm we invented,
+  // printed under their name. Mirrors `analytics.ts` exactly.
   const weekdayBuckets: number[][] = Array.from({ length: 7 }, () => []);
   let weekdayUndatedPosts = 0;
+  let weekdayCoarsePosts = 0;
+  let weekdayPlacedPosts = 0;
   for (const { row } of selectedPlaceable) {
-    const t = estMs(row);
-    if (t === null) {
+    const placed = placePost(row, "day");
+    if (placed.state === "undated") {
       weekdayUndatedPosts += 1;
       continue;
     }
-    weekdayBuckets[new Date(t).getUTCDay()]!.push(num(row.impressions));
+    if (placed.state === "too-coarse") {
+      weekdayCoarsePosts += 1;
+      continue;
+    }
+    weekdayPlacedPosts += 1;
+    weekdayBuckets[new Date(placed.ms).getUTCDay()]!.push(num(row.impressions));
   }
   const impressionsByWeekday = WEEKDAYS.map((label, i) => ({
     label,
@@ -715,6 +729,8 @@ export function buildClientReport(
     // line through someone else's numbers.
     impressionsAverage: mean(selectedPlaceable.map((d) => num(d.row.impressions))),
     impressionsByWeekday,
+    weekdayPlacedPosts,
+    weekdayCoarsePosts,
     weekdayUndatedPosts,
     interactionsByAsset,
     postTypeDistribution,
