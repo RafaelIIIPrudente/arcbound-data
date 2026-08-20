@@ -518,3 +518,125 @@ provenance rather than to values.
 It is **untracked** (0 files tracked under `src/graphify-out/`; the real graph is the 61
 tracked files at the repo root), so it cannot reach anyone through git. It regenerates
 with `graphify update`, which executers are forbidden to run.
+
+---
+
+## D5b — Cadence gap statistics: OUTCOME, INDEPENDENTLY VERIFIED (2026-08-20)
+
+The slice D5a's correction opened. Verified by re-running the gate myself on an idle
+machine and reading the implementation, not by accepting the report.
+
+### Gate, my own run
+
+`LINT:0 TSC:0 TEST:0 BUILD:0` · `Test Files 151 passed (151)` · `Tests 2680 passed
+(2680)` · 0 skipped · 116s wall. Baseline 2,652 → **+28**, and the count is comparable:
+single pass, no timeouts, no abandoned files.
+
+### ⚠️ The parallel session committed the precision slice under a misleading message
+
+`8f4f590 feat: add migration script to retire external analytics layer (ADR 0010)` is
+**30 files / +2,531 lines**. The retirement SQL is two of them; the other 28 are the
+date-precision slice (`post-date.ts`, `analytics.ts`, both weekday charts,
+`print-report.tsx`, `types.ts`, …). The git history now attributes the largest honesty
+fix in this workstream to a migration script. Recorded, not rewritten.
+
+State at time of writing: HEAD `8f4f590`, **6 ahead** of `origin/main` (`ac91891`), 9
+files uncommitted (this slice).
+
+### The four figures were separated, and that was the right shape
+
+| figure                             | decision                                                                       | why it holds                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `medianGapDays` / `longestGapDays` | **withheld** unless every dated post is day-precise **and** nothing is undated | a gap needs both endpoints precise **and** completeness of the interval |
+| `postsPerWeek`                     | **kept**                                                                       | a rate is a count over one span; interior dates cancel                  |
+| `daysSinceLastPost`                | **withheld** unless the last post is day-precise                               | a recency inherits exactly one post's precision                         |
+| the bars                           | untouched                                                                      | already correct at their own granularity                                |
+
+The executer added the second gap condition — `undatedPosts === 0` — which the brief did
+not name but its own definition requires. An undated post is a post known to have
+happened and impossible to place, so it may sit inside any gap; "nothing was published
+between these two" becomes unknown, not true. Correct, and kept.
+
+**The trap was avoided.** `gaps` is computed over `timeline`, guarded by
+`gapsAreKnowable`, and the loop is skipped entirely rather than run over a filtered
+array. Verified by reading `src/services/cadence.ts`, not inferred from the report.
+
+The sharpest test in the slice is the one that separates a measurement from an artifact
+using identical arithmetic:
+
+```ts
+expect(buildCadence(sameDayReal, NOW).medianGapDays).toBe(0); // measured
+expect(buildCadence(sameMonthArtifact, NOW).medianGapDays).toBeNull(); // artifact
+```
+
+### One find beyond the brief, endorsed: a false reason spoken aloud
+
+Every withheld figure carries an `sr-only` reason. The existing text said a gap "needs at
+least two dated posts" — true when written, and a **lie** against a history of twelve
+posts. A screen-reader user was being told something false about the person the report is
+about. `gapReason()` now returns the real cause. This is the D5a lesson recurring: the
+first copy was true of the case that existed when it was written, and the population
+changed underneath it.
+
+### ⚠️ FINDING — `year` is claimed as MONTH precision, and that claim is false
+
+`post-date.ts` maps `year → month` with this justification:
+
+> ⚠️ `year` IS `month`, NOT `year`. "1y" resolves to the same day-of-month twelve months
+> back, so the day is inherited from the scrape while the month is genuinely asserted by
+> the age. Month is the finest honest answer.
+
+**The month is not asserted by the age.** LinkedIn floors its relative stamps, so "1y"
+means _at least 12 months, less than 24_ — exactly as "3w" means 21–27 days and "3m"
+means 3–4 months. The resolved instant is therefore the **latest** the post can be, and
+the true date runs up to twelve months earlier. The asserted month is right only for a
+post 12–13 months old and wrong for everything else in the window.
+
+The comment reasons about which _component of the timestamp_ the age fixes — day-of-month
+inherited, month asserted. That is the wrong question: the age does not fix a month at
+all, it fixes a year-wide range. The `d`/`w`/`m` rungs of the ladder are sound for exactly
+the reason `y` is not.
+
+**This is the same defect class the precision slice just fixed one tier up**, and it has
+three live consumers over the 24 `y`-aged posts:
+
+1. **The monthly bars** place each of them in one specific month bar the age cannot
+   support — the weekday defect, one granularity coarser.
+2. **`postsPerWeek`.** `firstMs` is the oldest post, which in a 272-post history is very
+   likely `y`-aged. Coarse resolutions are biased **late**, and the oldest post carries
+   the largest bias, so `activeSpanDays` is systematically **understated** and the rate
+   systematically **overstated** — by up to a factor of two if the oldest post is a "1y"
+   that is really 23 months old.
+3. **The new `/r/[token]` string.** "Around Jul 2025" for a `y`-aged last post is a
+   manufactured month on a document the client opens.
+
+⚠️ **AND IT UNDERCUTS THE `postsPerWeek` JUSTIFICATION AS WRITTEN.** The comment defending
+the kept rate says "an endpoint uncertain by up to a month is a small relative error."
+That bound is true for the 203 `m` posts and **false for the 24 `y` posts**, where it is
+up to eleven months. The executer flagged the `y` mapping and defended the rate in the
+same report without connecting the two. The decision to keep the rate still looks right to
+me; the stated bound does not, and a justification that understates its own error by an
+order of magnitude is the kind of comment this repo treats as binding.
+
+Fixing it means a fourth `DatePrecision` rung — `year`, coarser than `month` — which is
+why it could not be done inside this slice's scope. That is the next honesty slice.
+
+### ⚠️ Recorded again: the month snap's forward bias now has a client-facing consumer
+
+`snapToMonthStart` carries a documented, deliberately accepted forward bias — "a post '4
+months old' on 19 August was published around 19 April; this returns 1 May". Consistency
+with every already-loaded row was chosen over accuracy, and unwinding it is a whole-table
+backfill, not a resolver change.
+
+That trade was made when the bias fed bars. It now also feeds **"Around Jul 2026"** on the
+tokenized report, for 203 of 272 posts, roughly one month later than truth. "Around"
+softens the claim without making it correct. Not a defect introduced by this slice —
+but the first time the bias is spoken to a client in words, which is a different bar from
+a bar chart, and it should be weighed before the deploy rather than after.
+
+### Guardrails held
+
+No commit, no push, no SQL applied, no browser walk. Nine files modified, all uncommitted.
+Two files touched beyond the scope list, both required by in-scope changes and both
+disclosed: `client-report.test.ts` (a re-target) and `public-report.test.tsx` (fixture
+fields only).

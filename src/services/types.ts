@@ -867,13 +867,32 @@ export interface PostingCadence {
    * post shares one day: a rate over a zero-length span is undefined, not zero.
    */
   postsPerWeek: number | null;
-  /** MEDIAN days between consecutive dated posts — a hiatus must not inflate it.
-   *  `null` with fewer than two dated posts; a genuine `0` when posts share a day. */
+  /**
+   * MEDIAN days between consecutive dated posts — a hiatus must not inflate it.
+   *
+   * `null` with fewer than two dated posts; a genuine `0` when two posts really
+   * do share a day; and `null` — NOT-COMPUTABLE — whenever `dayCoarsePosts` or
+   * `undatedPosts` is non-zero.
+   *
+   * ⚠️ A GAP NEEDS BOTH ENDPOINTS DAY-PRECISE **AND** NEEDS THAT NOTHING WAS
+   * PUBLISHED BETWEEN THEM. Coarse dates break the first; an unplaceable post
+   * breaks the second. ⚠️ AND THE FIX IS NEVER TO FILTER THE TIMELINE AND
+   * RECOMPUTE: the surviving gaps would stretch across the dropped posts and
+   * overstate the client's silence — a number too small swapped for one too big.
+   */
   medianGapDays: number | null;
-  /** Longest gap in days between consecutive dated posts — the "went quiet" signal.
-   *  `null` with fewer than two dated posts. */
+  /** Longest gap in days between consecutive dated posts — the "went quiet"
+   *  signal. Same three null conditions as `medianGapDays`. */
   longestGapDays: number | null;
-  /** Whole days since the most recent dated post. `null` when no post is dated. */
+  /**
+   * Whole days since the most recent dated post.
+   *
+   * `null` when no post is dated, and `null` when `lastPostDateIsExact` is false
+   * — a recency inherits exactly one post's precision, so a month-aged last post
+   * makes the day count unknowable no matter how precise the rest of the history
+   * is. Conversely a coarse HISTORY does not withhold it: only the last post
+   * matters.
+   */
   daysSinceLastPost: number | null;
   /**
    * One resolved-publish-date timestamp (ms) per DATED post, ASCENDING — the marks
@@ -904,6 +923,36 @@ export interface PostingCadence {
   monthly: CadenceBucket[];
   /** Posts drawn in `weekly` — those dated to the week or finer. */
   weeklyPlacedPosts: number;
+  /**
+   * Dated posts known to the DAY — the population the day-level figures need.
+   *
+   * `dayPlacedPosts + dayCoarsePosts === datedPosts`, one notch finer than the
+   * weekly pair above and counted separately because they answer different
+   * questions: a week-aged post is drawn in a weekly bar AND is too coarse for a
+   * gap measured in days.
+   */
+  dayPlacedPosts: number;
+  /**
+   * Dated posts coarser than a day (week-, month- and year-aged).
+   *
+   * ⚠️ WHEN THIS IS NON-ZERO, `medianGapDays` AND `longestGapDays` ARE NULL. A
+   * day count between two month-snapped instants is arithmetic on artifacts —
+   * and worse, posts sharing a month share one instant, so their gap is exactly
+   * 0 and the median collapses toward zero for a client who posts monthly.
+   *
+   * ⚠️ NOT A KIND OF `undatedPosts`. Every post counted here has a date.
+   */
+  dayCoarsePosts: number;
+  /**
+   * Whether the most RECENT dated post is itself known to the day — the only
+   * thing `daysSinceLastPost` depends on.
+   *
+   * ⚠️ NOT DERIVABLE FROM `dayCoarsePosts`. A history of month-aged posts with one
+   * day-aged post at the end still answers "when did they last post" exactly;
+   * a single month-aged post at the end makes it unknowable however precise the
+   * rest is. False here also means the exact date must not be printed beside it.
+   */
+  lastPostDateIsExact: boolean;
   /**
    * Dated posts too coarse for a weekly bar (month- and year-aged), counted so the
    * component can disclose why the Week view rests on fewer posts than the Month

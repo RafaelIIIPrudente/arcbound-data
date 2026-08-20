@@ -35,6 +35,10 @@ const FULL: PostingCadence = {
   // Every post here is precise enough for a weekly bar, so the two bases coincide.
   weeklyPlacedPosts: 12,
   weeklyCoarsePosts: 0,
+  // …and precise enough for the day-level figures too, so the gaps are real.
+  dayPlacedPosts: 12,
+  dayCoarsePosts: 0,
+  lastPostDateIsExact: true,
 };
 
 describe("PostingCadence — the healthy 2+ dated case", () => {
@@ -127,6 +131,9 @@ describe("PostingCadence — the low-N four states", () => {
       monthly: [],
       weeklyPlacedPosts: 0,
       weeklyCoarsePosts: 0,
+      dayPlacedPosts: 0,
+      dayCoarsePosts: 0,
+      lastPostDateIsExact: false,
     };
     const { container } = render(<PostingCadenceSection cadence={zero} />);
     expect(container.firstChild).toBeNull();
@@ -146,6 +153,9 @@ describe("PostingCadence — the low-N four states", () => {
       monthly: [],
       weeklyPlacedPosts: 0,
       weeklyCoarsePosts: 0,
+      dayPlacedPosts: 0,
+      dayCoarsePosts: 0,
+      lastPostDateIsExact: false,
     };
     render(<PostingCadenceSection cadence={allUndated} />);
 
@@ -174,6 +184,9 @@ describe("PostingCadence — the low-N four states", () => {
       monthly: [{ label: "Jan 26", count: 1 }],
       weeklyPlacedPosts: 1,
       weeklyCoarsePosts: 0,
+      dayPlacedPosts: 1,
+      dayCoarsePosts: 0,
+      lastPostDateIsExact: true,
     };
     render(<PostingCadenceSection cadence={one} />);
 
@@ -353,5 +366,127 @@ describe("PostingCadence — captions claim only what the dates support", () => 
     fireEvent.click(screen.getByRole("button", { name: "Month" }));
 
     expect(screen.getByText(/an empty slot is a month with no posts/i)).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ THE PANEL MUST NOT SHOW A DAY-LEVEL FIGURE IT CANNOT SUPPORT — and it must
+// not show one silently either. A withheld figure with no reason reads as broken
+// software; a withheld figure with a reason reads as an honest limit.
+//
+// The three figures do NOT move together, which is the whole point: a coarse
+// HISTORY withholds the gaps and leaves recency alone; a coarse LAST POST
+// withholds recency and leaves the gaps alone (when the rest is exact); and the
+// rate survives both, because a rate does not depend on the time between posts.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PostingCadence — day-level figures are withheld with a spoken reason", () => {
+  /** Twelve dated posts, none of them precise to the day. */
+  const COARSE_HISTORY: PostingCadence = {
+    ...FULL,
+    dayPlacedPosts: 0,
+    dayCoarsePosts: 12,
+    lastPostDateIsExact: false,
+    medianGapDays: null,
+    longestGapDays: null,
+    daysSinceLastPost: null,
+  };
+
+  it("⚠️ shows an em dash for both gap figures, never a zero", () => {
+    render(<PostingCadenceSection cadence={COARSE_HISTORY} />);
+    // Rate is still shown (1.5), so the em dashes are gaps + days-since only.
+    expect(screen.getAllByText("—")).toHaveLength(3);
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
+  it("⚠️ gives the SPOKEN reason the real one — not 'needs at least two posts'", () => {
+    // ⚠️ THE REASON IS READ ALOUD AND HAS GONE FALSE. Every em dash here carries
+    // an sr-only "Not applicable: …". The existing text says a gap "needs at
+    // least two dated posts" — true when the panel was written, and a lie against
+    // a history of twelve. A screen-reader user would be told the client barely
+    // posts, when the truth is that we cannot date the posts finely enough.
+    render(<PostingCadenceSection cadence={COARSE_HISTORY} />);
+    const body = document.body.textContent ?? "";
+    expect(body).not.toMatch(/needs at least two dated posts/i);
+    expect(body).toMatch(/dated only to the week or month/i);
+  });
+
+  it("KEEPS the two-post reason where it is still true", () => {
+    // The old wording is correct for a genuinely short history, and must survive.
+    render(
+      <PostingCadenceSection
+        cadence={{
+          ...FULL,
+          totalPosts: 1,
+          datedPosts: 1,
+          dayPlacedPosts: 1,
+          dayCoarsePosts: 0,
+          medianGapDays: null,
+          longestGapDays: null,
+          postsPerWeek: null,
+        }}
+      />,
+    );
+    expect(document.body.textContent ?? "").toMatch(/at least two dated posts/i);
+  });
+
+  it("⚠️ says WHY the gaps are missing, in plain words, on screen", () => {
+    render(<PostingCadenceSection cadence={COARSE_HISTORY} />);
+    const note = screen.getByText(/gaps between posts aren’t shown/i);
+    expect(note.textContent).toMatch(/12 posts are dated only to the week or month/i);
+    // ⚠️ AND IT SAYS WHAT SURVIVES. A reader told only that figures are missing
+    // concludes the data is broken; told which figures still hold and why, they
+    // read the panel correctly.
+    expect(note.textContent).toMatch(/posts per week/i);
+  });
+
+  it("⚠️ KEEPS the rate — a rate is not a gap", () => {
+    render(<PostingCadenceSection cadence={COARSE_HISTORY} />);
+    expect(screen.getByText("1.5")).toBeInTheDocument();
+  });
+
+  it("⚠️ names an omitted post as an OMISSION, not as coarseness", () => {
+    render(
+      <PostingCadenceSection
+        cadence={{
+          ...FULL,
+          totalPosts: 13,
+          undatedPosts: 1,
+          medianGapDays: null,
+          longestGapDays: null,
+        }}
+      />,
+    );
+    const note = screen.getByText(/gaps between posts aren’t shown/i);
+    expect(note.textContent).toMatch(/1 post has no date at all/i);
+    expect(note.textContent).not.toMatch(/dated only to the week or month/i);
+  });
+
+  it("⚠️ POSITIVE CONTROL — an all-day-precise history still shows real gaps", () => {
+    // Fails against a component that withholds unconditionally.
+    render(<PostingCadenceSection cadence={FULL} />);
+    expect(screen.getByText("3")).toBeInTheDocument(); // median gap
+    expect(screen.getByText("21")).toBeInTheDocument(); // longest gap
+    expect(screen.queryByText(/gaps between posts aren’t shown/i)).not.toBeInTheDocument();
+  });
+
+  it("⚠️ withholds RECENCY on its own when only the LAST post is coarse", () => {
+    // The gaps are fine here (every post day-precise except… none), but the most
+    // recent post is not exactly dated, so the day count is unknowable. The two
+    // figures move independently and this proves it.
+    render(
+      <PostingCadenceSection
+        cadence={{ ...FULL, lastPostDateIsExact: false, daysSinceLastPost: null }}
+      />,
+    );
+    expect(screen.getByText("3")).toBeInTheDocument(); // median gap survives
+    expect(screen.getByText("21")).toBeInTheDocument(); // longest gap survives
+    expect(screen.getAllByText("—")).toHaveLength(1); // days-since alone
+  });
+
+  it("⚠️ speaks plainly — no age token, no internal vocabulary", () => {
+    const { container } = render(<PostingCadenceSection cadence={COARSE_HISTORY} />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/\b\d+(m|w|d|y|h|mo)\b/);
+    expect(text).not.toMatch(/precision|granularity|resolver|estimated_post_date|snap/i);
   });
 });

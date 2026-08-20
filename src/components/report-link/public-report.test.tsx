@@ -44,6 +44,9 @@ function cadence(over: Partial<PostingCadence> = {}): PostingCadence {
     monthly: [],
     weeklyPlacedPosts: 5,
     weeklyCoarsePosts: 0,
+    dayPlacedPosts: 5,
+    dayCoarsePosts: 0,
+    lastPostDateIsExact: true,
     ...over,
   };
 }

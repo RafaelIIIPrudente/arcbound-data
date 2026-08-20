@@ -16,6 +16,24 @@ import type { CadenceBucket, PostingCadence } from "@/services/types";
 // the total and OMITTED from the timeline and every gap — and that omission is
 // disclosed in plain language by the component.
 //
+// ⚠️ THE FOUR FIGURES ARE FOUR DIFFERENT QUESTIONS AND SURVIVE IMPRECISION
+// DIFFERENTLY. One blanket rule over all of them would be the wrong shape:
+//
+//   • A GAP needs both endpoints day-precise AND needs that nothing was published
+//     between them. Coarse dates destroy both halves — see `gapsAreKnowable`.
+//   • A RATE needs an accurate count and an accurate span, and tolerates per-item
+//     noise completely: shuffling the interior dates within the span does not move
+//     it. `postsPerWeek` therefore SURVIVES coarse dates and is kept.
+//   • A RECENCY depends on exactly ONE post and inherits that post's precision.
+//   • The BARS are counts per bucket and are correct at their own granularity.
+//
+// ⚠️ WITHHELD, NEVER RECOMPUTED ON A FILTERED ARRAY. The obvious repair — drop the
+// imprecise posts, recompute the gaps over what is left — is a NEW falsehood, not
+// a fix: the surviving gaps then stretch ACROSS the dropped posts, so the figure
+// overstates the client's silence. A number that is too small would have been
+// swapped for one that is too large. If you find yourself computing gaps over a
+// filtered timeline, stop.
+//
 // ⚠️ AND A DATE IS NOT AUTOMATICALLY PRECISE ENOUGH FOR EVERY BUCKET. A month-aged
 // post resolves to the 1st, so it carries a real MONTH and a manufactured week. The
 // WEEKLY bars therefore admit only posts dated to the week or finer, and the ones
@@ -156,12 +174,39 @@ export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence 
   // missing data that is not missing.
   const weeklyCoarsePosts = datedPosts - weeklyPlacedPosts;
 
+  // ⚠️ A THIRD TIMELINE, ONE NOTCH FINER AGAIN — for the DAY-level figures. Same
+  // rule, same vocabulary, different granularity: `placePost(row, "day")`.
+  const dayTimeline = rows
+    .map((row) => placePost(row, "day"))
+    .filter((p): p is { state: "placed"; ms: number } => p.state === "placed")
+    .map((p) => p.ms)
+    .sort((a, b) => a - b);
+  const dayPlacedPosts = dayTimeline.length;
+  // ⚠️ NOT `weeklyCoarsePosts`, AND NOT `undatedPosts`. A week-aged post is placed
+  // in a weekly bar and is still too coarse for a day figure, so it counts here
+  // and not there; and every post counted here HAS a date.
+  const dayCoarsePosts = datedPosts - dayPlacedPosts;
+
+  // Whether the most RECENT dated post is itself known to the day.
+  //
+  // ⚠️ COMPARING THE TWO MAXIMA IS SOUND BECAUSE EVERY COARSE RESOLUTION IS BIASED
+  // LATE. A month age snaps to the 1st of a later month than the post can be, a
+  // week age resolves to the scrape's weekday (LinkedIn's "3w" means 21–27 days),
+  // a year age to the same day-of-month ("1y" means 12–23 months). In every case
+  // the stored instant is at or after the true one, so a coarse post can never
+  // truly post-date a day-precise post that shares or exceeds its instant.
+  const lastPostDateIsExact =
+    dayPlacedPosts > 0 && dayTimeline[dayPlacedPosts - 1] === timeline[datedPosts - 1];
+
   const empty: PostingCadence = {
     totalPosts,
     datedPosts,
     undatedPosts,
     weeklyPlacedPosts,
     weeklyCoarsePosts,
+    dayPlacedPosts,
+    dayCoarsePosts,
+    lastPostDateIsExact,
     postsPerWeek: null,
     medianGapDays: null,
     longestGapDays: null,
@@ -179,13 +224,36 @@ export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence 
   const firstMs = timeline[0]!;
   const lastMs = timeline[datedPosts - 1]!;
 
-  // Defined for a SINGLE dated post — "are they active now?" needs only the last
-  // one. Floored to whole elapsed days: "15 days since" reads as 15 complete days.
-  const daysSinceLastPost = Math.floor((now.getTime() - lastMs) / DAY_MS);
+  // ⚠️ A RECENCY INHERITS EXACTLY ONE POST'S PRECISION — the last one's, and no
+  // other post's. A history full of month-aged posts does not stop us answering
+  // "when did they last post" if the last post itself is day-aged; and a single
+  // month-aged last post makes the answer unknowable however precise the rest is.
+  // A blanket "any coarse post → null" rule would be wrong in both directions.
+  //
+  // Floored to whole elapsed days: "15 days since" reads as 15 complete days.
+  const daysSinceLastPost = lastPostDateIsExact
+    ? Math.floor((now.getTime() - lastMs) / DAY_MS)
+    : null;
 
   // ⚠️ A GAP NEEDS TWO POSTS. With one dated post there is no gap and no rate —
   // that is the NOT-APPLICABLE state, never a fabricated gap of zero.
   if (datedPosts < 2) return { ...empty, daysSinceLastPost };
+
+  // ⚠️ WHEN A GAP IS A REAL SILENCE, AND WHEN IT IS ONLY ARITHMETIC. Two
+  // conditions, and both are necessary:
+  //
+  //   • EVERY dated post is known to the DAY. A day-count between two instants
+  //     that are themselves month-snapped is arithmetic on artifacts. Worse than
+  //     imprecise: `snapToMonthStart` puts every post in a month on the SAME
+  //     instant, so their gap is exactly 0 and the median collapses toward zero —
+  //     reporting "0 days between posts" for a client who posts monthly.
+  //   • NOTHING was omitted. An undated post is a post we know happened and
+  //     cannot place, so it may sit inside any gap. "Nothing was published
+  //     between these two" is then unknown, not true.
+  //
+  // ⚠️ FAILING EITHER MEANS WITHHOLD, NEVER RECOMPUTE ON WHAT IS LEFT — see the
+  // note at the top of this file.
+  const gapsAreKnowable = dayCoarsePosts === 0 && undatedPosts === 0;
 
   // N−1 gaps in days. `longestGap` is accumulated in this pass rather than via
   // `Math.max(...gaps)`, which spreads every gap into one call and throws
@@ -193,12 +261,23 @@ export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence 
   // a very long history, exactly as the report's month-span walk avoids.
   const gaps: number[] = [];
   let longestGap = 0;
-  for (let i = 1; i < datedPosts; i += 1) {
-    const gap = (timeline[i]! - timeline[i - 1]!) / DAY_MS;
-    gaps.push(gap);
-    if (gap > longestGap) longestGap = gap;
+  if (gapsAreKnowable) {
+    for (let i = 1; i < datedPosts; i += 1) {
+      const gap = (timeline[i]! - timeline[i - 1]!) / DAY_MS;
+      gaps.push(gap);
+      if (gap > longestGap) longestGap = gap;
+    }
   }
 
+  // ⚠️ THE RATE IS KEPT OVER COARSE DATES, DELIBERATELY, and this is the one place
+  // the four figures visibly part company. Its numerator is a COUNT of real posts
+  // and carries no date error at all; its denominator is ONE span, so only the two
+  // endpoints carry error and every interior date cancels out. Over the live
+  // history — hundreds of days — an endpoint uncertain by up to a month is a small
+  // relative error, and the figure stays informative. Deleting it alongside the
+  // gaps would be the reflexive move and would throw away a number the data
+  // supports. See `docs/specs/2026-08-19-analytics-ownership-execution.md`.
+  //
   // Over the ACTIVE SPAN (first → last dated post), not up to `now`. A client who
   // posted steadily then stopped reads as their rhythm WHILE active; the silence
   // since is carried by `daysSinceLastPost`, not baked into the rate.
@@ -214,8 +293,11 @@ export function buildCadence(rows: PostMetricsRow[], now: Date): PostingCadence 
     postsPerWeek,
     // `median` sorts a copy; the gaps are day-granularity so these round to whole
     // days, but round1 keeps the type honest if a resolved date ever carries time.
-    medianGapDays: round1(median(gaps)!),
-    longestGapDays: round1(longestGap),
+    // NULL is NOT-COMPUTABLE-FROM-THIS-DATA, which is a fourth state alongside
+    // absent, zero and unreadable. A gap of 0 days is a real measurement (two
+    // posts on one day) and is still reported when the dates can carry it.
+    medianGapDays: gapsAreKnowable ? round1(median(gaps)!) : null,
+    longestGapDays: gapsAreKnowable ? round1(longestGap) : null,
     daysSinceLastPost,
   };
 }

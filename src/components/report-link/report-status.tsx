@@ -51,6 +51,19 @@ function formatUtcDate(ms: number): string {
   return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+/**
+ * A month label like "Jul 2026" — everything a coarsely-dated post can support.
+ *
+ * ⚠️ USED INSTEAD OF A DAY, NEVER ALONGSIDE ONE. A month-aged post was snapped to
+ * the 1st of a month, so its day-of-month is an artifact of the resolver and not
+ * a fact about the client. Printing "1 Jul 2026" for it states a day nobody
+ * measured, on a document the client opens.
+ */
+function formatUtcMonth(ms: number): string {
+  const d = new Date(ms);
+  return `${SHORT_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /** Format an ISO upload date, or an em dash when absent. */
 function formatIsoDate(iso: string | null): string {
   if (!iso) return "—";
@@ -134,10 +147,16 @@ export function ReportStatus({
 
         <StatBlock label="Tracked since">{formatIsoDate(freshness.trackedSince)}</StatBlock>
 
+        {/* ⚠️ THE DATE AND THE DAY COUNT ARE ONE CLAIM, AND THEY STAND OR FALL
+            TOGETHER. Both are day-level statements about a single post — the most
+            recent one — so both need that post dated to the day. Withholding the
+            count while still printing "20 Jul 2026" would hand the reader the
+            precise day anyway and fix nothing. When the post is coarser we show
+            the MONTH, which is what it genuinely says, and drop the count. */}
         <StatBlock label="Most recent post">
           {latestMs === null ? (
             <span className="text-muted-foreground">No dated posts in this view</span>
-          ) : (
+          ) : cadence.lastPostDateIsExact ? (
             <>
               {formatUtcDate(latestMs)}
               {cadence.daysSinceLastPost !== null ? (
@@ -149,6 +168,13 @@ export function ReportStatus({
                   )
                 </span>
               ) : null}
+            </>
+          ) : (
+            <>
+              Around {formatUtcMonth(latestMs)}
+              <span className="ml-1.5 font-normal text-muted-foreground">
+                (no exact date for this post)
+              </span>
             </>
           )}
         </StatBlock>

@@ -1378,7 +1378,19 @@ describe("posting cadence is carried on the report (period-scoped)", () => {
     expect(cadence.datedPosts).toBe(5); // but not dated
     expect(cadence.undatedPosts).toBe(1);
     expect(cadence.timeline).toHaveLength(5); // never placed at its scrape instant
-    expect(cadence.longestGapDays).toBe(110); // gaps unchanged by the undated post
+
+    // ⚠️ RE-TARGETED, NOT WEAKENED. This asserted 110 under the comment "gaps
+    // unchanged by the undated post" — the point being that the ghost must not be
+    // placed at its scrape instant and stretch the gap. It is not placed there
+    // (the timeline assertion above is what proves that, and still does). But an
+    // unchanged gap is not a KNOWN gap: the ghost really was published somewhere,
+    // and somewhere includes inside the 110-day silence. A gap is only a gap if
+    // nothing was published in it.
+    expect(cadence.longestGapDays).toBeNull();
+    expect(cadence.medianGapDays).toBeNull();
+    // ⚠️ And the sibling test above is the positive control: the same HISTORY
+    // WITHOUT the ghost still reports 110 and 28, so this is a real condition and
+    // not the report quietly giving up on gaps.
   });
 });
 

@@ -31,6 +31,17 @@ import type { CadenceBucket, PostingCadence } from "@/services/types";
 // chart; and a post DATED ONLY TO THE MONTH is a state of its own — real, on the
 // Month view and the marks, held out of the Week view, and disclosed there.
 //
+// ⚠️ THE FIVE FIGURES DO NOT STAND OR FALL TOGETHER, and the panel must not treat
+// them as if they did:
+//   • the two GAPS need every post dated to the day AND nothing omitted;
+//   • DAYS SINCE LAST POST needs only the most recent post dated to the day;
+//   • POSTS PER WEEK needs neither — a rate is a count over a span and does not
+//     depend on the time between individual posts, so it survives coarse dates;
+//   • TOTAL POSTS is a count and always holds.
+// A withheld figure is an em dash with a SPOKEN reason, and the reason has to be
+// the real one — "needs at least two dated posts" against a history of twelve is
+// read aloud to a screen-reader user as a fact about the client.
+//
 // ⚠️ THE WEEK AND MONTH VIEWS LEGITIMATELY SHOW DIFFERENT TOTALS. A month-dated
 // post was snapped to the 1st, so the calendar week it would land in is whichever
 // week that 1st fell in — a bar the Client never earned. Unexplained, the mismatch
@@ -290,6 +301,50 @@ function ViewToggle({
 }
 
 /**
+ * The spoken reason a gap figure is not applicable — the REAL one, not a
+ * plausible one.
+ *
+ * ⚠️ THREE DIFFERENT CAUSES, THREE DIFFERENT SENTENCES. Too few posts is a fact
+ * about the client; coarse dates and omitted posts are facts about our data. A
+ * screen-reader user given the first when the third is true has been told
+ * something false about the person the report is about.
+ */
+function gapReason(datedPosts: number, coarse: number, undated: number): string {
+  if (datedPosts < 2) return "measuring a gap needs at least two dated posts";
+  const causes: string[] = [];
+  if (coarse > 0) causes.push("some posts are dated only to the week or month");
+  if (undated > 0) causes.push("some posts have no date at all");
+  return `${causes.join(", and ")}, so the time from one post to the next cannot be measured`;
+}
+
+/**
+ * Plain-language disclosure, on screen, of why the gap figures are missing.
+ *
+ * ⚠️ IT NAMES WHAT SURVIVES, NOT JUST WHAT IS GONE. Two em dashes with no
+ * explanation read as broken software, and an explanation that only lists losses
+ * reads as broken data. Saying which figures still hold — and why they do not
+ * depend on what is missing — is what lets a reader use the panel.
+ */
+function gapWithheldDisclosure(coarse: number, undated: number): string {
+  const causes: string[] = [];
+  if (coarse > 0) {
+    causes.push(
+      coarse === 1
+        ? "1 post is dated only to the week or month"
+        : `${coarse.toLocaleString()} posts are dated only to the week or month`,
+    );
+  }
+  if (undated > 0) {
+    causes.push(
+      undated === 1
+        ? "1 post has no date at all"
+        : `${undated.toLocaleString()} posts have no date at all`,
+    );
+  }
+  return `Gaps between posts aren’t shown here: ${causes.join(", and ")}, so how much time passed from one post to the next can’t be worked out. Total posts and posts per week don’t depend on the time between individual posts, so they are still shown.`;
+}
+
+/**
  * Plain-language disclosure for the WEEK view: posts real enough to count, too
  * bluntly dated to sit in a week.
  *
@@ -338,6 +393,7 @@ export function PostingCadence({
     weekly,
     monthly,
     weeklyCoarsePosts,
+    dayCoarsePosts,
   } = cadence;
 
   // ⚠️ 0 POSTS → NO BODY. A client with no posts at all is handled by the
@@ -346,7 +402,11 @@ export function PostingCadence({
   if (totalPosts === 0) return null;
 
   const RATE_REASON = "a posting rate needs at least two dated posts";
-  const GAP_REASON = "measuring a gap needs at least two dated posts";
+  const GAP_REASON = gapReason(datedPosts, dayCoarsePosts, undatedPosts);
+  // Shown only when the gaps were withheld for a DATA reason. With fewer than two
+  // dated posts there is simply nothing to measure, which the em dash and its
+  // spoken reason already say — a paragraph there would be noise.
+  const gapsWithheldForData = datedPosts >= 2 && (dayCoarsePosts > 0 || undatedPosts > 0);
 
   const interactive = staticView === undefined;
   const activeView = interactive ? view : staticView;
@@ -378,12 +438,27 @@ export function PostingCadence({
         </Figure>
         <Figure label="Days since last post">
           {daysSinceLastPost === null ? (
-            <NotApplicable reason="no post has a date to measure from" />
+            <NotApplicable
+              reason={
+                // ⚠️ TWO DIFFERENT ABSENCES. "Nothing is dated" and "the most
+                // recent post is dated too bluntly to count days from" are not the
+                // same fact, and the second is far more common.
+                datedPosts === 0
+                  ? "no post has a date to measure from"
+                  : "the most recent post is dated only to the week or month, so the number of days cannot be counted"
+              }
+            />
           ) : (
             <Days value={daysSinceLastPost} />
           )}
         </Figure>
       </div>
+
+      {gapsWithheldForData ? (
+        <p className="max-w-2xl text-xs text-muted-foreground">
+          {gapWithheldDisclosure(dayCoarsePosts, undatedPosts)}
+        </p>
+      ) : null}
 
       {/* Discloses the basis of the rate: a client who posted steadily then paused
           reads as their rhythm WHILE active, with the silence since carried by

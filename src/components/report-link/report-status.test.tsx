@@ -28,6 +28,9 @@ function cadence(over: Partial<PostingCadence> = {}): PostingCadence {
     monthly: [],
     weeklyPlacedPosts: 6,
     weeklyCoarsePosts: 0,
+    dayPlacedPosts: 6,
+    dayCoarsePosts: 0,
+    lastPostDateIsExact: true,
     ...over,
   };
 }
@@ -279,5 +282,73 @@ describe("ReportStatus — the ⓘ a CLIENT can open", () => {
     for (const label of Object.keys(REPORT_STATUS_METRIC_KEYS)) {
       expect(screen.getByRole("button", { name: `What is ${label}?` }), label).toBeInTheDocument();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ RECENCY IS THE ONE FIGURE HERE THAT INHERITS A SINGLE POST'S PRECISION.
+//
+// "Most recent post" prints an exact calendar date and, beside it, how many days
+// ago that was. Both are day-level claims about ONE post. When that post's date
+// came from a month-aged scrape it was snapped to the 1st of a month, so the day
+// is an artifact — and this strip is on the tokenized report a client opens.
+//
+// ⚠️ WITHHOLDING THE DAY COUNT WHILE STILL PRINTING THE EXACT DATE WOULD BE NO
+// FIX AT ALL: the reader still gets a precise day. They are one claim and they
+// are treated as one.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("ReportStatus — the most-recent-post date matches what is known", () => {
+  it("⚠️ prints no exact day when the most recent post is not dated to the day", () => {
+    render(
+      <ReportStatus
+        report={makeReport({
+          cadence: cadence({ lastPostDateIsExact: false, daysSinceLastPost: null }),
+        })}
+        freshness={freshness()}
+      />,
+    );
+
+    // 20 Jul 2026 is the latest timeline mark. Neither the day nor a day count
+    // may appear — only the month, which is what a month-aged post really says.
+    expect(screen.queryByText(/20 Jul 2026/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/days ago/)).not.toBeInTheDocument();
+    expect(screen.getByText(/around Jul 2026/i)).toBeInTheDocument();
+  });
+
+  it("⚠️ POSITIVE CONTROL — prints the exact date and day count when it is known", () => {
+    // Fails against a component that hedges unconditionally.
+    render(<ReportStatus report={makeReport()} freshness={freshness()} />);
+    expect(screen.getByText(/20 Jul 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/3 days ago/)).toBeInTheDocument();
+    expect(screen.queryByText(/around/i)).not.toBeInTheDocument();
+  });
+
+  it("⚠️ KEEPS the posting rhythm in both cases — a rate is not a recency", () => {
+    // The rate's numerator is a count and its denominator is one span; it does
+    // not depend on any single post's precision. Withholding it alongside the
+    // date would delete a figure the data supports.
+    render(
+      <ReportStatus
+        report={makeReport({
+          cadence: cadence({ lastPostDateIsExact: false, daysSinceLastPost: null }),
+        })}
+        freshness={freshness()}
+      />,
+    );
+    expect(screen.getByText(/1.5/)).toBeInTheDocument();
+    expect(screen.getByText(/posts per week/i)).toBeInTheDocument();
+  });
+
+  it("⚠️ speaks plainly — no age token, no internal vocabulary", () => {
+    const { container } = render(
+      <ReportStatus
+        report={makeReport({
+          cadence: cadence({ lastPostDateIsExact: false, daysSinceLastPost: null }),
+        })}
+        freshness={freshness()}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/precision|granularity|resolver|estimated_post_date|snap/i);
   });
 });
